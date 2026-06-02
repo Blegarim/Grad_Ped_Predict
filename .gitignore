@@ -36,6 +36,7 @@ training_log/
 model_outputs/
 best_model_outputs/
 runs/
+outputs/
 plots/*.png
 qualitative_visualize/
 *.xlsx

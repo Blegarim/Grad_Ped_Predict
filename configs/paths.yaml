@@ -2,6 +2,7 @@
 lmdb_train: [preprocessed_train, preprocessed_train_aug]
 lmdb_val: preprocessed_val
 lmdb_test: preprocessed_test
-log_dir: training_log
-ckpt_dir: best_model_outputs
-run_ckpt_dir: model_outputs
+log_dir: training_log            # legacy flat dirs (kept for reading OLD artifacts)
+ckpt_dir: best_model_outputs     # legacy flat dirs
+run_ckpt_dir: model_outputs      # legacy flat dirs
+runs_dir: outputs/runs           # new per-run home: outputs/runs/{run_id}/ (Prompt 0.3)

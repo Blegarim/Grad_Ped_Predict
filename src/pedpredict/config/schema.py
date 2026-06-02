@@ -25,9 +25,10 @@ class PathsCfg:
     lmdb_train: tuple[str, ...] = ("preprocessed_train", "preprocessed_train_aug")
     lmdb_val: str = "preprocessed_val"
     lmdb_test: str = "preprocessed_test"
-    log_dir: str = "training_log"
-    ckpt_dir: str = "best_model_outputs"
-    run_ckpt_dir: str = "model_outputs"
+    log_dir: str = "training_log"          # legacy flat dirs (kept for reading OLD artifacts)
+    ckpt_dir: str = "best_model_outputs"   # legacy flat dirs
+    run_ckpt_dir: str = "model_outputs"    # legacy flat dirs
+    runs_dir: str = "outputs/runs"         # new per-run home: outputs/runs/{run_id}/ (Prompt 0.3, Q-A)
 
 
 @dataclass(frozen=True, slots=True)

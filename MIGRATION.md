@@ -24,7 +24,7 @@ For each module you port:
 |---|---|---|---|---|---|---|
 | 0.1 | repo scaffold, `pyproject.toml`, `.gitignore` | `requirements.txt`, repo root | n/a | B11, B12 | ✅ | gate green on py3.10: ruff + 3 smoke tests + editable src-layout import |
 | 0.2 | `config/schema.py`, `config/loader.py`, `configs/*.yaml` | `config.py`, hardcoded args | `tests/fixtures/golden/legacy_config.json` | B1, B6, B7 | ✅ | `vit_kwargs()`/`motion_kwargs()` reproduce OLD `config.py` dicts exactly; 23 config tests green on py3.10. See Config decisions below. |
-| 0.3 | `utils/{seed,device,amp,memory,logging}.py`, `paths.py` | `train.py` perf/AMP/mem idioms | n/a | B8, part B1/B9 | — | |
+| 0.3 | `utils/{seed,device,amp,memory,logging}.py`, `paths.py` | `train.py` perf/AMP/mem idioms | n/a | B8, part B1/B9 | ✅ | infra (no numeric fixture). B8 = `to_float_logits` value-parity tested; perf flags/AMP gate/mem-poll relocated 1:1 from `train.py:244-255`,`347`,`train_utils.py:74-77`. 14 utils tests green on py3.10. Added `runs_dir` to `PathsCfg`; `outputs/` gitignored. See Utils decisions below. |
 | 1.1 | `data/pie_sequences.py` | `scripts/generate_sequences.py` | | B5 | — | verify dataset-stat table |
 | 1.2 | `data/lmdb_writer.py`, `data/transforms.py` | `scripts/preprocess_data_lmdb.py`, `PIE_sequence_Dataset_1.py` | | B5, upstream B7 | — | document 8-dim motion channels |
 | 1.3 | `data/balance.py` | `scripts/balance_sequences.py`, `split_balance_sequences_all.py` | | B3 (offline), B5 | — | imbalance policy (w/ 1.6, 3.1) |
@@ -91,6 +91,28 @@ Locked so the later prompts that consume config stay consistent:
   in Prompt 1.5 once the writer (1.2) is confirmed to emit exactly `motion_dim` channels.
 - **Override channel:** CLIs use a repeatable `--set section.field=value` (via `build_argparser`), not
   `argparse.REMAINDER`, so overrides can't swallow real subcommand flags.
+
+### Utils decisions (Prompt 0.3)
+
+Locked so the training/eval prompts that consume these helpers stay consistent:
+
+- **Q-A — run-dir home:** added `PathsCfg.runs_dir = "outputs/runs"` (+ `paths.yaml`). Per-run layout is
+  `outputs/runs/{run_id}/{checkpoints,plots}/` (matches the `experiment-tracking` skill). The three legacy
+  flat fields (`log_dir`/`ckpt_dir`/`run_ckpt_dir`) are **kept** for reading OLD artifacts; revisit dropping
+  them in 4.5/9.1. `outputs/` added to `.gitignore` (R2, B11).
+- **R1 — seed vs perf flags:** call order is `set_seed()` → `enable_perf_flags()`. `set_seed(deterministic=True)`
+  sets `cudnn.deterministic=True`/`benchmark=False` + `use_deterministic_algorithms(True, warn_only=True)`;
+  `enable_perf_flags` then **skips** `cudnn.benchmark` when `deterministic` is set (mutually exclusive).
+- **R3 — `to_float_logits` is dict-wide:** upcasts *every* floating tensor in the output dict to fp32
+  (superset of the OLD per-key `.float()`); int/bool tensors and non-tensors pass through; input not mutated;
+  no-op outside autocast → behavior-neutral. Harmless on the unused `crosses_pooled` head (B4).
+- **R4 — logging boundary:** 0.3 ships only the generic `CsvLogger` + run-dir scaffold + `make_run_id`. The
+  concrete `train_log.csv`/`eval_log.csv`/`index.csv` column schemas belong to `training/metrics.py` (3.2) and
+  the logging conventions of Prompt 4.5 — they pass `fieldnames` in; nothing here hardcodes columns.
+- **Net-new (additive, not parity breaks):** `seed.set_seed` (OLD had no global seed) and
+  `wait_for_memory(timeout=...)` (default `None` = legacy infinite wait, OLD `train_utils.py:74-77`).
+- **Q2 closure:** `resolve_amp(requested, device)` realises the schema decision — `TrainCfg.use_amp` is the
+  request, ANDed with `device.type == 'cuda'` at runtime (OLD `use_amp = device.type == 'cuda'`).
 
 ## Parity Gate (Phase A → cutover)
 
