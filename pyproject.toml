@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pedpredict"
+version = "0.0.0"
+description = "Multimodal pedestrian behavior prediction on the PIE dataset (Phase-A rebuild)."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "Proprietary" }
+
+# Direct imports only (verified against OLD requirements.txt); transitive pins left
+# to the resolver per the "deliberately minimal" mandate. System-fragile / heavy
+# deps live in extras below.
+dependencies = [
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "numpy==2.2.6",
+    "lmdb==1.7.5",
+    "opencv-python==4.11.0.86",
+    "pillow==11.2.1",
+    "PyYAML==6.0.2",
+    "scikit-learn==1.7.0",
+    "scipy==1.15.3",
+    "matplotlib==3.10.3",
+    "tqdm==4.67.1",
+    "psutil==7.0.0",
+    "fvcore==0.1.5.post20221221",
+    "timm==1.0.20",
+    "tabulate==0.9.0",
+    "PyTurboJPEG==1.8.0",
+]
+
+[project.optional-dependencies]
+infer = ["ultralytics==8.3.156", "lap==0.5.12"]   # YOLO detect/track, inference-only
+export = ["onnx>=1.16", "onnxruntime>=1.18"]       # ONNX path (P7); onnxruntime is a deliberate addition
+dev = ["ruff==0.6.*", "pytest>=8", "pytest-cov>=5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120          # matches CLAUDE.md <=120 convention
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]   # pycodestyle, pyflakes, isort, pyupgrade, bugbear
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: heavy/GPU/IO tests excluded from the CI gate"]

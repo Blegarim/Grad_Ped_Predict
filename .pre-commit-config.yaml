@@ -1,0 +1,17 @@
+# Local mirror of the CI gate (ruff + fast pytest) for the no-remote case.
+# Install with: pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: ruff check .
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: pytest-fast
+        name: pytest (not slow)
+        entry: pytest -m "not slow" --maxfail=1
+        language: system
+        pass_filenames: false
+        always_run: true

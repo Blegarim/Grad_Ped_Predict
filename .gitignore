@@ -1,0 +1,51 @@
+# --- Datasets & large binaries (from OLD .gitignore) ---
+PIE/
+data/
+*.mp4
+*.avi
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+
+# --- Python caches / build artifacts ---
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Model weights & serialized data ---
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.lmdb
+*.mdb
+*.onnx
+
+# --- Run artifacts the OLD repo wrongly committed (B11) ---
+training_log/
+model_outputs/
+best_model_outputs/
+runs/
+plots/*.png
+qualitative_visualize/
+*.xlsx
+*.log
+
+# --- Editor / tooling caches ---
+.understand-anything/
+.claude/settings.local.json
+.ipynb_checkpoints/
+
+# --- OS-specific ---
+.DS_Store
+Thumbs.db
