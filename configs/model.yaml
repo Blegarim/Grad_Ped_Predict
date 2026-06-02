@@ -1,0 +1,19 @@
+# ModelCfg — mirrors OLD config.py (vit_args_config / motion_enc_args_config) EXACTLY.
+d_model: 128
+in_channels: 3
+motion_dim: 8            # must equal data.motion_dim (validated)
+stage_dims: [36, 36, 288, 36]
+layer_nums: [2, 4, 5, 7]
+head_nums:  [2, 2, 16, 2]
+window_size: [8, 4, 2, null]
+mlp_ratio:  [4, 4, 4, 4]
+drop_path: 0.15
+attn_dropout: 0.15
+proj_dropout: 0.15
+dropout: 0.15
+motion_hidden_dim: 168
+motion_num_layers: 2
+motion_num_heads: 8
+motion_dropout: 0.3
+head_dropout: 0.1
+num_classes: {actions: 2, looks: 2, crosses: 2}

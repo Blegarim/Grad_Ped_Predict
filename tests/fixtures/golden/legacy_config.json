@@ -1,0 +1,50 @@
+{
+  "src": "c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project/config.py",
+  "d_model": 128,
+  "vit": {
+    "in_channels": 3,
+    "stage_dims": [
+      36,
+      36,
+      288,
+      36
+    ],
+    "layer_nums": [
+      2,
+      4,
+      5,
+      7
+    ],
+    "head_nums": [
+      2,
+      2,
+      16,
+      2
+    ],
+    "window_size": [
+      8,
+      4,
+      2,
+      null
+    ],
+    "d_model": 128,
+    "mlp_ratio": [
+      4,
+      4,
+      4,
+      4
+    ],
+    "drop_path": 0.15,
+    "attn_dropout": 0.15,
+    "proj_dropout": 0.15,
+    "dropout": 0.15
+  },
+  "motion": {
+    "motion_dim": 8,
+    "hidden_dim": 168,
+    "d_model": 128,
+    "num_layers": 2,
+    "num_heads": 8,
+    "dropout": 0.3
+  }
+}

@@ -1,0 +1,14 @@
+# DataCfg — data-layer constants (B7 magic constants relocated here).
+max_seq_len: 20
+motion_dim: 8            # must equal model.motion_dim (validated)
+img_height: 128
+img_width: 128
+context_scale: 2.0       # LMDB crops were written at this scale; do not change
+jpeg_quality: 90
+chunk_size: 5000
+seq_len: 20
+stride: 3
+future_offset: 30
+tol: 2
+norm_mean: [0.485, 0.456, 0.406]
+norm_std:  [0.229, 0.224, 0.225]

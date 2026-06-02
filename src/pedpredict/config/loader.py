@@ -1,0 +1,299 @@
+"""Config loader: yaml -> dataclass -> argparse-override merge -> validate -> dump (Prompt 0.2).
+
+Pipeline (precedence: yaml defaults < file load < CLI overrides; ``validate`` runs last):
+
+    load_config(config_dir, overrides) ->
+        read configs/*.yaml -> build *Cfg -> apply dotted overrides -> validate -> RootCfg
+
+Override forms accepted: ``section.field=value`` and ``--section.field value``. Container
+overrides are parsed with ``yaml.safe_load`` then coerced to the field's declared type.
+Dict overrides REPLACE the whole dict (Q1), they do not deep-merge.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import types
+import typing
+from collections.abc import Sequence
+from pathlib import Path
+
+import yaml
+
+from .schema import DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
+
+__all__ = [
+    "ConfigError",
+    "load_config",
+    "load_resolved_config",
+    "parse_overrides",
+    "apply_overrides",
+    "validate_config",
+    "dump_config",
+    "build_argparser",
+]
+
+# section name -> (dataclass, yaml filename)
+_SECTIONS: dict[str, tuple[type, str]] = {
+    "paths": (PathsCfg, "paths.yaml"),
+    "data": (DataCfg, "data.yaml"),
+    "model": (ModelCfg, "model.yaml"),
+    "train": (TrainCfg, "train.yaml"),
+    "eval": (EvalCfg, "eval.yaml"),
+}
+
+_TASK_KEYS = frozenset({"actions", "looks", "crosses"})
+
+
+class ConfigError(ValueError):
+    """Raised on unknown keys, type-coercion failures, or validation violations."""
+
+
+# --------------------------------------------------------------------------- coercion
+
+
+def _is_union(origin: object) -> bool:
+    return origin is typing.Union or origin is getattr(types, "UnionType", object())
+
+
+def _to_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    token = str(value).strip().lower()
+    if token in {"1", "true", "yes", "y", "on"}:
+        return True
+    if token in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ConfigError(f"Cannot parse boolean from {value!r}")
+
+
+def _coerce(declared: object, value: object) -> object:
+    """Coerce ``value`` to the field's declared type. Strings (from CLI) are yaml-parsed first."""
+    origin = typing.get_origin(declared)
+
+    if _is_union(declared) or _is_union(origin):
+        members = [a for a in typing.get_args(declared) if a is not type(None)]
+        if value is None:
+            return None
+        for member in members:
+            try:
+                return _coerce(member, value)
+            except (TypeError, ValueError):
+                continue
+        raise ConfigError(f"Value {value!r} does not match {declared!r}")
+
+    if origin is tuple:
+        seq = yaml.safe_load(value) if isinstance(value, str) else value
+        if not isinstance(seq, list | tuple):
+            raise ConfigError(f"Expected a sequence for {declared!r}, got {value!r}")
+        args = typing.get_args(declared)
+        if len(args) == 2 and args[1] is Ellipsis:          # tuple[X, ...]
+            return tuple(_coerce(args[0], x) for x in seq)
+        return tuple(_coerce(t, x) for t, x in zip(args, seq, strict=False))  # fixed-length
+
+    if origin is dict:
+        mapping = yaml.safe_load(value) if isinstance(value, str) else value
+        if not isinstance(mapping, dict):
+            raise ConfigError(f"Expected a mapping for {declared!r}, got {value!r}")
+        key_t, val_t = typing.get_args(declared) or (str, object)
+        return {_coerce(key_t, k): _coerce(val_t, v) for k, v in mapping.items()}
+
+    if declared is bool:
+        return _to_bool(value)
+    if declared is int:
+        return int(value)
+    if declared is float:
+        return float(value)
+    if declared is str:
+        return str(value)
+    return value
+
+
+def _build_section(cls: type, data: dict) -> object:
+    """Instantiate one section dataclass from a yaml mapping, coercing + rejecting unknown keys."""
+    hints = typing.get_type_hints(cls)
+    known = {f.name for f in dataclasses.fields(cls)}
+    kwargs: dict[str, object] = {}
+    for key, raw in (data or {}).items():
+        if key not in known:
+            raise ConfigError(f"Unknown field '{key}' in section '{cls.__name__}'")
+        kwargs[key] = _coerce(hints[key], raw)
+    return cls(**kwargs)
+
+
+def _build_root(nested: dict) -> RootCfg:
+    sections = {name: _build_section(cls, nested.get(name, {})) for name, (cls, _) in _SECTIONS.items()}
+    return RootCfg(**sections)
+
+
+# --------------------------------------------------------------------------- overrides
+
+
+def parse_overrides(tokens: Sequence[str]) -> dict[str, str]:
+    """Accept ``section.field=value`` and ``--section.field value`` -> ``{"section.field": "value"}``."""
+    flat: dict[str, str] = {}
+    items = list(tokens)
+    i = 0
+    while i < len(items):
+        token = items[i]
+        if token.startswith("--"):
+            token = token[2:]
+        if "=" in token:
+            key, val = token.split("=", 1)
+            flat[key.strip()] = val
+            i += 1
+        else:
+            if i + 1 >= len(items):
+                raise ConfigError(f"Override '{token}' is missing a value")
+            flat[token.strip()] = items[i + 1]
+            i += 2
+    return flat
+
+
+def apply_overrides(root: RootCfg, flat: dict[str, str]) -> RootCfg:
+    """Apply a flat ``{'section.field': value}`` map, rebuilding the frozen tree immutably."""
+    sections = {name: getattr(root, name) for name in _SECTIONS}
+    for dotted, raw in flat.items():
+        parts = dotted.split(".")
+        if len(parts) != 2:
+            raise ConfigError(f"Override key '{dotted}' must have the form 'section.field'")
+        section, field_name = parts
+        if section not in sections:
+            raise ConfigError(f"Unknown config section '{section}' in override '{dotted}'")
+        cfg = sections[section]
+        hints = typing.get_type_hints(type(cfg))
+        if field_name not in hints:
+            raise ConfigError(f"Unknown field '{field_name}' in section '{section}'")
+        coerced = _coerce(hints[field_name], raw)
+        sections[section] = dataclasses.replace(cfg, **{field_name: coerced})
+    return dataclasses.replace(root, **sections)
+
+
+# --------------------------------------------------------------------------- validation
+
+
+def validate_config(root: RootCfg) -> None:
+    """Structural invariants. Raises ``ConfigError`` on violation (no silent passthrough)."""
+    m, d, t, e = root.model, root.data, root.train, root.eval
+
+    lengths = {
+        "stage_dims": len(m.stage_dims),
+        "layer_nums": len(m.layer_nums),
+        "head_nums": len(m.head_nums),
+        "window_size": len(m.window_size),
+        "mlp_ratio": len(m.mlp_ratio),
+    }
+    if len(set(lengths.values())) != 1:
+        raise ConfigError(f"ViT stage lists must share one length; got {lengths}")
+
+    for i, (dim, heads) in enumerate(zip(m.stage_dims, m.head_nums, strict=False)):
+        if heads <= 0 or dim % heads != 0:
+            raise ConfigError(f"stage_dims[{i}]={dim} not divisible by head_nums[{i}]={heads}")
+
+    if m.motion_num_heads <= 0 or m.motion_hidden_dim % m.motion_num_heads != 0:
+        raise ConfigError(
+            f"motion_hidden_dim={m.motion_hidden_dim} not divisible by motion_num_heads={m.motion_num_heads}"
+        )
+
+    if d.motion_dim != m.motion_dim:  # B7: writer-channel / model-input agreement
+        raise ConfigError(f"data.motion_dim ({d.motion_dim}) != model.motion_dim ({m.motion_dim})")
+
+    if set(m.num_classes) != _TASK_KEYS:
+        raise ConfigError(f"model.num_classes keys must be {sorted(_TASK_KEYS)}; got {sorted(m.num_classes)}")
+
+    positives = {
+        "model.d_model": m.d_model,
+        "data.max_seq_len": d.max_seq_len,
+        "data.motion_dim": d.motion_dim,
+        "data.chunk_size": d.chunk_size,
+        "train.batch_size": t.batch_size,
+        "train.num_epochs": t.num_epochs,
+        "eval.batch_size": e.batch_size,
+    }
+    for name, value in positives.items():
+        if value <= 0:
+            raise ConfigError(f"{name} must be a positive integer; got {value}")
+
+    if not (0.0 <= e.threshold_sweep_lo < e.threshold_sweep_hi <= 1.0):
+        raise ConfigError(
+            f"require 0 <= threshold_sweep_lo < threshold_sweep_hi <= 1; "
+            f"got lo={e.threshold_sweep_lo}, hi={e.threshold_sweep_hi}"
+        )
+
+
+# --------------------------------------------------------------------------- public load / dump
+
+
+def load_config(
+    config_dir: str | Path = "configs",
+    overrides: Sequence[str] | None = None,
+    *,
+    validate: bool = True,
+) -> RootCfg:
+    """Read ``configs/*.yaml``, apply CLI overrides, validate, return the resolved tree."""
+    base = Path(config_dir)
+    nested: dict[str, dict] = {}
+    for name, (_, filename) in _SECTIONS.items():
+        path = base / filename
+        if path.exists():
+            with open(path, encoding="utf-8") as handle:
+                nested[name] = yaml.safe_load(handle) or {}
+        else:
+            nested[name] = {}  # fall back to dataclass defaults for a missing section file
+    root = _build_root(nested)
+    if overrides:
+        root = apply_overrides(root, parse_overrides(overrides))
+    if validate:
+        validate_config(root)
+    return root
+
+
+def load_resolved_config(path: str | Path, *, validate: bool = False) -> RootCfg:
+    """Rebuild a ``RootCfg`` from a single nested yaml (e.g. a ``dump_config`` artifact)."""
+    with open(path, encoding="utf-8") as handle:
+        nested = yaml.safe_load(handle) or {}
+    root = _build_root(nested)
+    if validate:
+        validate_config(root)
+    return root
+
+
+def _to_plain(obj: object) -> object:
+    """Dataclass tree -> json/yaml-safe primitives (tuples -> lists)."""
+    if dataclasses.is_dataclass(obj):
+        return {f.name: _to_plain(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+    if isinstance(obj, tuple):
+        return [_to_plain(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _to_plain(v) for k, v in obj.items()}
+    return obj
+
+
+def dump_config(root: RootCfg, out_dir: str | Path) -> Path:
+    """Write the resolved config to ``<out_dir>/resolved_config.yaml`` for reproducibility."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "resolved_config.yaml"
+    with open(path, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(_to_plain(root), handle, sort_keys=False, default_flow_style=False)
+    return path
+
+
+def build_argparser(existing: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
+    """Add ``--config-dir`` and a repeatable ``--set section.field=value`` override channel.
+
+    A dedicated ``--set`` channel (rather than argparse.REMAINDER) keeps overrides from
+    swallowing real subcommand flags.
+    """
+    parser = existing or argparse.ArgumentParser()
+    parser.add_argument("--config-dir", default="configs", help="Directory holding the *.yaml config files.")
+    parser.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        metavar="section.field=value",
+        help="Override a config value (repeatable).",
+    )
+    return parser

@@ -1,0 +1,15 @@
+# TrainCfg — replaces train.py:280-296,346 literals.
+lr: 1.0e-4
+weight_decay: 1.0e-5
+batch_size: 4
+num_epochs: 30
+num_workers: 4
+use_amp: true            # request; AND-gated by CUDA availability at runtime
+loss_weight: {actions: 0.8, looks: 0.8, crosses: 1.2}
+use_weighted_sampler: true
+sampler_powers: {crosses: 1.5, actions: 0.3, looks: 0.7}
+early_stop_patience: 15
+early_stop_min_delta: 0.001
+sched_factor: 0.5
+sched_patience: 2
+sched_threshold: 1.0e-4

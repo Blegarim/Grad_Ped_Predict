@@ -1,0 +1,7 @@
+# PathsCfg — run-relative artifact locations (no absolute paths in code).
+lmdb_train: [preprocessed_train, preprocessed_train_aug]
+lmdb_val: preprocessed_val
+lmdb_test: preprocessed_test
+log_dir: training_log
+ckpt_dir: best_model_outputs
+run_ckpt_dir: model_outputs

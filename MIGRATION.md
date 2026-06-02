@@ -23,7 +23,7 @@ For each module you port:
 | Prompt | Module(s) | Source (OLD) | Golden fixture | Band-aids resolved | Parity | Notes |
 |---|---|---|---|---|---|---|
 | 0.1 | repo scaffold, `pyproject.toml`, `.gitignore` | `requirements.txt`, repo root | n/a | B11, B12 | ✅ | gate green on py3.10: ruff + 3 smoke tests + editable src-layout import |
-| 0.2 | `config/schema.py`, `config/loader.py`, `configs/*.yaml` | `config.py`, hardcoded args | n/a | B1, B6, B7 | — | |
+| 0.2 | `config/schema.py`, `config/loader.py`, `configs/*.yaml` | `config.py`, hardcoded args | `tests/fixtures/golden/legacy_config.json` | B1, B6, B7 | ✅ | `vit_kwargs()`/`motion_kwargs()` reproduce OLD `config.py` dicts exactly; 23 config tests green on py3.10. See Config decisions below. |
 | 0.3 | `utils/{seed,device,amp,memory,logging}.py`, `paths.py` | `train.py` perf/AMP/mem idioms | n/a | B8, part B1/B9 | — | |
 | 1.1 | `data/pie_sequences.py` | `scripts/generate_sequences.py` | | B5 | — | verify dataset-stat table |
 | 1.2 | `data/lmdb_writer.py`, `data/transforms.py` | `scripts/preprocess_data_lmdb.py`, `PIE_sequence_Dataset_1.py` | | B5, upstream B7 | — | document 8-dim motion channels |
@@ -63,6 +63,34 @@ Record cross-cutting decisions here as they're made (so coupled prompts stay con
 - **8-dim motion channel definition** (1.2 / 1.4 / 2.2): _TBD — document each channel; confirm flip-negated index._
 - **Sequence-length policy** (1.5): _TBD — truncate vs pad vs variable._
 - **Custom chunk prefetch vs torch DataLoader** (4.2): _default to preserving custom prefetch this phase._
+
+### Config decisions (Prompt 0.2)
+
+Locked so the later prompts that consume config stay consistent:
+
+- **Defaults source = `config.py` + `train.py`/`test.py` literals**, NOT the `__main__` smoke-test kwargs.
+  B6 drift recorded: `Vision_Transformer.__main__` used `d_model=224`, `stage_dims=[48,96,168,96]`,
+  `head_nums=[2,4,7,4]`, `dropout=0.1`; `Motion_Encoder.__main__` used `hidden_dim=224`. These never fed
+  training (train.py imports `vit_args_config()`/`motion_enc_args_config()`); `ModelCfg` mirrors the latter.
+  The drifting `__main__` blocks get rebuilt to consume `ModelCfg` in Prompts 2.1/2.2 — drift closes there.
+- **Q1 — dict overrides REPLACE** the whole dict (no deep-merge), e.g. `train.loss_weight={crosses:2.0}`
+  drops `actions`/`looks`. Documented in `loader.py`; asserted by `test_override_dict_replaces_not_merges`.
+- **Q2 — `TrainCfg.use_amp: bool` is the *request*;** runtime ANDs it with CUDA availability in
+  `utils/amp.py` (Prompt 0.3). Schema stores intent, not the resolved value.
+- **Q3 — `EvalCfg.bench_context_scale = 3.0`** kept as the single, deliberate synthetic-benchmark scale
+  (FLOPs/latency only; real-data eval uses `DataCfg.context_scale = 2.0`, which is fixed by how the LMDB
+  crops were physically written). Treated as an intentional value, not a "drift to fix later".
+  ⚠️ *Confirm with user:* if "unify to 3.0" meant something other than "keep the benchmark at 3.0", revisit.
+- **Q4 — `DataCfg.chunk_size = 5000`** is canonical (OLD `preprocess_data_lmdb.main()` default was 4500).
+  Affects only future LMDB re-writes, never model parity.
+- **Q5 — frozen dataclasses with `slots=True`;** list-like fields are `tuple`s (immutable, hashable),
+  `dict` defaults via `field(default_factory=...)`. Adapters convert tuples back to lists for the OLD
+  model constructors (the parity surface). Verified on py3.10.
+- **B7 closure (partial):** `MAX_SEQ_LEN → DataCfg.max_seq_len`; the `motions[..., :8]` slice → `motion_dim`
+  on both `DataCfg` and `ModelCfg`, cross-checked equal in `validate_config`. The collate slice is deleted
+  in Prompt 1.5 once the writer (1.2) is confirmed to emit exactly `motion_dim` channels.
+- **Override channel:** CLIs use a repeatable `--set section.field=value` (via `build_argparser`), not
+  `argparse.REMAINDER`, so overrides can't swallow real subcommand flags.
 
 ## Parity Gate (Phase A → cutover)
 
@@ -145,17 +173,19 @@ in 0.1 — this table is the contract the later prompts execute against.
 
 ### Prompt 0.1 verification checklist
 
-Verified on Python 3.10.0 (`C:\Program Files\Python310`) in a throwaway venv:
+Verified on the repo `.venv` (Python 3.10.0):
 
-- [x] Editable src-layout install succeeds (`pip install -e .` → `pedpredict 0.0.0`). *Heavy core deps
-      (`torch==2.7.1`, `numpy==2.2.6`, …) installed via `--no-deps` to skip a multi-hundred-MB wheel
-      download — pyproject metadata is well-formed and resolvable; the full `.[dev]` torch resolve was
-      not exercised here (it is what CI runs).*
+- [x] Editable src-layout install succeeds (`pip install -e .` → `pedpredict 0.0.0`), with the full pinned
+      core stack installed (`torch==2.7.1+cpu`, `numpy`, …) — the earlier `--no-deps` shortcut is no longer
+      needed now that `.venv` carries the real dependencies.
 - [x] `ruff check .` exits 0 ("All checks passed!").
 - [x] `pytest -m "not slow"` exits 0 (3 passed).
 - [x] `import pedpredict` from an arbitrary cwd resolves to `src/pedpredict/__init__.py`, version
       `0.0.0` (proves src-layout install, not accidental cwd import).
 
-> **Environment note:** the repo's current `.venv` is Python **3.14.3**, which is below this project's
-> `requires-python` ceiling (`<3.13`) and has no wheels for the pinned `torch==2.7.1` / `numpy==2.2.6`.
-> Verification must run on a 3.10–3.12 interpreter (the legacy venv is 3.10.0).
+> **Environment note:** the repo's `.venv` is now **Python 3.10.0** with `pedpredict` editable-installed —
+> the canonical env for all tests/lint; run `.venv/Scripts/python.exe` directly (no `PYTHONPATH`, no side
+> venvs). It satisfies `requires-python = ">=3.10,<3.13"`; the pinned `torch==2.7.1` / `numpy==2.2.6` have
+> no wheels for 3.13+. (Bare `py` / `python` on this machine still resolve to 3.14 — invoke the venv
+> interpreter explicitly.)
+
