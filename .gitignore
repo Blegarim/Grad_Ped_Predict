@@ -1,6 +1,7 @@
 # --- Datasets & large binaries (from OLD .gitignore) ---
-PIE/
-data/
+# Anchored to repo root so they don't also ignore the src/pedpredict/data/ package.
+/PIE/
+/data/
 *.mp4
 *.avi
 

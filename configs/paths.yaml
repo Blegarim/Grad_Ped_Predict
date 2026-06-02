@@ -1,4 +1,6 @@
 # PathsCfg — run-relative artifact locations (no absolute paths in code).
+pie_root: data                   # PIE toolkit data_path (cloned into this repo); images under pie_root/images/...
+sequences_dir: data/sequences    # generate_sequences pkl output home (gitignored under data/)
 lmdb_train: [preprocessed_train, preprocessed_train_aug]
 lmdb_val: preprocessed_val
 lmdb_test: preprocessed_test

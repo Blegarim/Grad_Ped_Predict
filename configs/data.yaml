@@ -10,5 +10,13 @@ seq_len: 20
 stride: 3
 future_offset: 30
 tol: 2
+# PIE source opts (generate_data_trajectory_sequence) — mirror the OLD data_opts literals
+min_track_size: 10
+fstride: 1
+data_split_type: default
+seq_type: all
+squarify_ratio: 0.0
+height_min: 0.0
+height_max: null         # null -> float('inf')
 norm_mean: [0.485, 0.456, 0.406]
 norm_std:  [0.229, 0.224, 0.225]

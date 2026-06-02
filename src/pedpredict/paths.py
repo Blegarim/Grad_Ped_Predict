@@ -45,6 +45,8 @@ class ResolvedPaths:
     """Absolute counterparts of every :class:`PathsCfg` field, rooted at ``root``."""
 
     root: Path
+    pie_root: Path
+    sequences_dir: Path
     lmdb_train: tuple[Path, ...]
     lmdb_val: Path
     lmdb_test: Path
@@ -59,6 +61,8 @@ def resolve_paths(cfg: PathsCfg, root: Path | None = None) -> ResolvedPaths:
     base = (root or find_project_root()).resolve()
     return ResolvedPaths(
         root=base,
+        pie_root=_resolve_one(base, cfg.pie_root),
+        sequences_dir=_resolve_one(base, cfg.sequences_dir),
         lmdb_train=tuple(_resolve_one(base, p) for p in cfg.lmdb_train),
         lmdb_val=_resolve_one(base, cfg.lmdb_val),
         lmdb_test=_resolve_one(base, cfg.lmdb_test),

@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 class PathsCfg:
     """Run-relative artifact locations (resolved against the cwd / run dir, not hardcoded)."""
 
+    pie_root: str = "data"                 # PIE toolkit data_path (cloned into repo); images at pie_root/images/...
+    sequences_dir: str = "data/sequences"  # generate_sequences pkl output home (gitignored under data/)
     lmdb_train: tuple[str, ...] = ("preprocessed_train", "preprocessed_train_aug")
     lmdb_val: str = "preprocessed_val"
     lmdb_test: str = "preprocessed_test"
@@ -43,11 +45,19 @@ class DataCfg:
     context_scale: float = 2.0       # LMDB crops were physically written at this scale (do not change)
     jpeg_quality: int = 90
     chunk_size: int = 5000           # Q4: canonical 5000 (OLD main() default was 4500); does not affect parity
-    # sequence generation (generate_sequences.py)
+    # sequence generation — sliding-window params (generate_sequences.py)
     seq_len: int = 20
     stride: int = 3
     future_offset: int = 30
     tol: int = 2
+    # PIE source opts (generate_data_trajectory_sequence) — defaults mirror the OLD data_opts literals
+    min_track_size: int = 10
+    fstride: int = 1
+    data_split_type: str = "default"
+    seq_type: str = "all"
+    squarify_ratio: float = 0.0
+    height_min: float = 0.0
+    height_max: float | None = None  # None -> float('inf'); PIE height_rng upper bound
     # ImageNet normalization
     norm_mean: tuple[float, float, float] = (0.485, 0.456, 0.406)
     norm_std: tuple[float, float, float] = (0.229, 0.224, 0.225)

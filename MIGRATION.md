@@ -25,7 +25,7 @@ For each module you port:
 | 0.1 | repo scaffold, `pyproject.toml`, `.gitignore` | `requirements.txt`, repo root | n/a | B11, B12 | ✅ | gate green on py3.10: ruff + 3 smoke tests + editable src-layout import |
 | 0.2 | `config/schema.py`, `config/loader.py`, `configs/*.yaml` | `config.py`, hardcoded args | `tests/fixtures/golden/legacy_config.json` | B1, B6, B7 | ✅ | `vit_kwargs()`/`motion_kwargs()` reproduce OLD `config.py` dicts exactly; 23 config tests green on py3.10. See Config decisions below. |
 | 0.3 | `utils/{seed,device,amp,memory,logging}.py`, `paths.py` | `train.py` perf/AMP/mem idioms | n/a | B8, part B1/B9 | ✅ | infra (no numeric fixture). B8 = `to_float_logits` value-parity tested; perf flags/AMP gate/mem-poll relocated 1:1 from `train.py:244-255`,`347`,`train_utils.py:74-77`. 14 utils tests green on py3.10. Added `runs_dir` to `PathsCfg`; `outputs/` gitignored. See Utils decisions below. |
-| 1.1 | `data/pie_sequences.py` | `scripts/generate_sequences.py` | | B5 | — | verify dataset-stat table |
+| 1.1 | `data/pie_sequences.py`, `scripts/make_sequences.py` | `scripts/generate_sequences.py` | `tests/fixtures/golden/pie_sequences_counts.json` | B5 | ✅ | EXACT (int labels, deterministic PIE 'all' path → tol=0). Legacy-oracle parity (synthetic) + count gate vs the legacy pkls green (train 95,684 / val 22,665 / test 76,048 reproduced). `has_onset` dropped; abs image paths re-rooted to this repo. See Data decisions below. |
 | 1.2 | `data/lmdb_writer.py`, `data/transforms.py` | `scripts/preprocess_data_lmdb.py`, `PIE_sequence_Dataset_1.py` | | B5, upstream B7 | — | document 8-dim motion channels |
 | 1.3 | `data/balance.py` | `scripts/balance_sequences.py`, `split_balance_sequences_all.py` | | B3 (offline), B5 | — | imbalance policy (w/ 1.6, 3.1) |
 | 1.4 | `data/augment.py` | `scripts/augment_sequences.py` | | B5 | — | flip negates motion[:,2] — verify index |
@@ -61,8 +61,47 @@ Record cross-cutting decisions here as they're made (so coupled prompts stay con
 - **Imbalance policy** (1.3 / 1.6 / 3.1): _TBD — which of offline-balance / sampler / loss-weight is the default; which are opt-in._
 - **`crosses_pooled` fate** (B4, Prompt 2.3): _TBD — auxiliary-diagnostic vs config-gated-off._
 - **8-dim motion channel definition** (1.2 / 1.4 / 2.2): _TBD — document each channel; confirm flip-negated index._
-- **Sequence-length policy** (1.5): _TBD — truncate vs pad vs variable._
+- **Sequence-length policy** (1.5): _runtime collate TBD (truncate vs pad vs variable). Generation
+  (1.1) emits exactly `seq_len`-frame windows; tracks shorter than `seq_len` are dropped._
 - **Custom chunk prefetch vs torch DataLoader** (4.2): _default to preserving custom prefetch this phase._
+
+### Data decisions (Prompt 1.1)
+
+Locked so the downstream data prompts (1.2 writer, 1.5 collate) stay consistent:
+
+- **Parity class = EXACT (tol=0), not float tolerance.** Labels are integers and PIE's `'all'`
+  path is deterministic (sorted iteration, no RNG), so the ported windowing reproduces the legacy
+  output bit-for-bit. Captured golden = `tests/fixtures/golden/pie_sequences_counts.json` (exact
+  per-split N + actions/looks/crosses totals, read from the legacy `sequences_*.pkl`; matches the
+  CLAUDE.md table). The behavior-preserving test asserts equality against a **verbatim transcription
+  of the OLD windowing loop** (`_legacy_window_track` in `tests/test_data_shapes.py`).
+- **`has_onset` → DROPPED** (B5). Dead in the legacy code; onset-based labeling would change the
+  label table and is a Phase-B concern. The future-window labeling rule is isolated in one helper
+  (`_label_future_window`) so it can be swapped without touching the windowing loop — the "keep it
+  adaptable" requirement, met by structure, not by retaining dead code.
+- **Image paths: absolute but re-rooted to THIS repo.** PIE is to be cloned in-repo and its toolkit
+  builds paths from `paths.pie_root` (resolved via `find_project_root`), so records carry
+  `<this-repo>/data/images/...`. ⚠️ This is the one non-label difference vs the OLD pkls (whose
+  paths point at the OLD repo). Golden parity is asserted on **labels + window structure** (counts,
+  lengths, slicing), NOT on the absolute path string. 1.2 (lmdb_writer) must read images via the
+  same `pie_root`. Relativizing paths is deferred (Phase B).
+- **Record key contract (frozen, consumed by 1.2):** `{images: list[str], bboxes: list[list[float]],
+  actions: int, looks: int, crosses: int}` — keep these keys stable.
+- **`.gitignore` fix (latent 0.1 bug, B11).** The unanchored `data/` rule (ported from the OLD
+  `.gitignore`) was *also* matching `src/pedpredict/data/`, silently making the entire data package
+  un-committable (`git ls-files src/pedpredict/data/` was empty). Anchored the dataset patterns to
+  the repo root (`/PIE/`, `/data/`) so they ignore only the root dataset dir + generated pkls, not
+  the package. Verified: package trackable, `data/sequences/*.pkl` + `PIE/` still ignored.
+- **Config additions (additive, defaults = OLD `data_opts` literals):** `DataCfg` gains
+  `min_track_size, fstride, data_split_type, seq_type, squarify_ratio, height_min, height_max`
+  (`None`→`inf`); `PathsCfg` gains `pie_root`, `sequences_dir`. `validate_config` now also asserts
+  `data.seq_len / stride / min_track_size > 0`. `pie_data_opts(DataCfg())` reproduces the exact OLD
+  PIE-call dict (asserted).
+- **Verification status:** the count gate currently diffs the legacy `sequences_*.pkl` (the
+  deterministic legacy output) — green. The full **regenerate-from-PIE → diff** check
+  (`scripts/make_sequences.py --split val`) is ready but **deferred until the PIE toolkit + dataset
+  are cloned into the repo** (`test_legacy_pkl_counts_match_fixture` is `@pytest.mark.slow`, skips if
+  pkls/PIE absent).
 
 ### Config decisions (Prompt 0.2)
 
