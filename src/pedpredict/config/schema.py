@@ -164,6 +164,27 @@ class EvalCfg:
 
 
 @dataclass(frozen=True, slots=True)
+class BalanceCfg:
+    """Offline class-balancing (Prompt 1.3) — the OPT-IN majority-downsample lever, OFF by default.
+
+    Defaults = the recommended *enabled* behavior (corrected 30/70). The two legacy scripts are
+    reproduced by the ``balance.BALANCE_EQUAL`` / ``BALANCE_RATIO_30_70`` presets, not these defaults.
+    See ``data/balance.py`` and the CLAUDE.md / MIGRATION.md imbalance policy.
+    """
+
+    enabled: bool = False                  # OFF by default (online sampler + loss weights handle imbalance)
+    cross_pos_ratio: float = 0.30          # target crosses=1 fraction (Q2: 30/70, flexible)
+    target_action_rate: float = 0.5        # target actions=1 fraction in the balanced subset
+    target_look_rate: float = 0.5          # target looks=1 fraction in the balanced subset
+    x11_select: str = "lower"              # "lower" | "upper" — which end of the feasible x11 interval
+    subsample_cross1: bool = True          # priority-subsample cross=1 to n1 (vs keep all)
+    allow_approx: bool = True              # greedy fallback when the exact solve is infeasible
+    on_infeasible: str = "empty"           # "raise" | "empty" — behavior when no subset solves
+    legacy_x00_sign_bug: bool = False      # reproduce OLD solve_exact sign bug (parity only); Phase-B drop
+    seed: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class RootCfg:
     """Top-level config tree. Built by ``loader.load_config``."""
 
@@ -172,3 +193,4 @@ class RootCfg:
     model: ModelCfg = field(default_factory=ModelCfg)
     train: TrainCfg = field(default_factory=TrainCfg)
     eval: EvalCfg = field(default_factory=EvalCfg)
+    balance: BalanceCfg = field(default_factory=BalanceCfg)

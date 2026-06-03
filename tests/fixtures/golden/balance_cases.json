@@ -1,0 +1,2591 @@
+{
+  "data": [
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": -1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": -1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": -1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 0,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 1
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 0,
+      "crosses": -1
+    },
+    {
+      "actions": 0,
+      "looks": 1,
+      "crosses": 0
+    },
+    {
+      "actions": 1,
+      "looks": 1,
+      "crosses": 0
+    }
+  ],
+  "seed": 0,
+  "tol": 0,
+  "cases": {
+    "balance_equal": {
+      "selected": [
+        103,
+        173,
+        214,
+        260,
+        46,
+        194,
+        217,
+        10,
+        98,
+        47,
+        14,
+        184,
+        76,
+        252,
+        208,
+        247,
+        82,
+        148,
+        293,
+        52,
+        69,
+        96,
+        119,
+        7,
+        85,
+        242,
+        87,
+        130,
+        142,
+        299,
+        233,
+        30,
+        154,
+        206,
+        288,
+        218,
+        212,
+        201,
+        114,
+        115,
+        34,
+        44,
+        51,
+        249,
+        284,
+        248,
+        113,
+        141,
+        81,
+        204,
+        107,
+        131,
+        285,
+        88,
+        187,
+        244,
+        226,
+        240,
+        221,
+        109,
+        231,
+        100,
+        179,
+        155,
+        42,
+        59,
+        203,
+        287,
+        189,
+        136,
+        269,
+        56,
+        38,
+        270,
+        172,
+        99,
+        186,
+        167,
+        150,
+        75,
+        232,
+        35,
+        255,
+        101,
+        120,
+        110,
+        161,
+        61,
+        159,
+        266,
+        192,
+        127,
+        146,
+        20,
+        18,
+        219,
+        102,
+        267,
+        227,
+        174,
+        200,
+        29,
+        118,
+        45,
+        235,
+        16,
+        133,
+        53,
+        228,
+        245,
+        234,
+        170,
+        13,
+        84,
+        60,
+        157,
+        126,
+        93,
+        193,
+        197,
+        105,
+        135,
+        241,
+        50,
+        295,
+        145,
+        202,
+        175,
+        280,
+        211,
+        22,
+        290,
+        143,
+        224,
+        149,
+        28,
+        264,
+        279,
+        104,
+        129,
+        106,
+        39,
+        31,
+        289,
+        3,
+        74,
+        291,
+        37,
+        181,
+        256,
+        209,
+        236
+      ],
+      "summary": {
+        "total": 152,
+        "actions_pos_rate": 0.5,
+        "looks_pos_rate": 0.5,
+        "crosses_pos_rate": 0.4605263157894737
+      }
+    },
+    "balance_ratio_30_70": {
+      "cross_pos_ratio": 0.3,
+      "selected": [
+        70,
+        19,
+        54,
+        133,
+        213,
+        107,
+        68,
+        99,
+        182,
+        1,
+        127,
+        262,
+        157,
+        24,
+        179,
+        227,
+        230,
+        50,
+        234,
+        16,
+        222,
+        147,
+        288,
+        100,
+        123,
+        77,
+        155,
+        80,
+        177,
+        93,
+        145,
+        20,
+        174,
+        218,
+        220,
+        73,
+        249,
+        91,
+        110,
+        251,
+        98,
+        237,
+        146,
+        192,
+        59,
+        35,
+        65,
+        75,
+        256,
+        105,
+        29,
+        134,
+        200,
+        204,
+        76,
+        268,
+        208,
+        210,
+        15,
+        293,
+        297,
+        168,
+        242,
+        278,
+        198,
+        120,
+        117,
+        209,
+        64,
+        296,
+        193,
+        102,
+        267,
+        164,
+        159,
+        45,
+        7,
+        44,
+        154,
+        217,
+        156,
+        240,
+        136,
+        74,
+        295,
+        84,
+        201,
+        245,
+        47,
+        299,
+        43,
+        48,
+        197,
+        196,
+        41,
+        291,
+        235,
+        125,
+        23,
+        247,
+        269,
+        173,
+        226,
+        285,
+        8,
+        126,
+        25,
+        13,
+        271,
+        231,
+        103,
+        244,
+        36,
+        85,
+        106,
+        10,
+        219,
+        163,
+        95,
+        282,
+        287,
+        190,
+        141,
+        119,
+        246,
+        189,
+        223,
+        233,
+        228,
+        130,
+        165,
+        207,
+        277,
+        186,
+        115,
+        33,
+        263,
+        170,
+        32,
+        9,
+        153,
+        14,
+        258,
+        60,
+        101,
+        87,
+        281,
+        221,
+        236,
+        151,
+        162,
+        12,
+        137,
+        152,
+        135,
+        261,
+        72,
+        255,
+        82,
+        61,
+        241,
+        203,
+        184,
+        30,
+        37,
+        148,
+        114,
+        67,
+        199,
+        212,
+        92,
+        118,
+        109,
+        266,
+        265,
+        229,
+        17,
+        128,
+        172,
+        181,
+        111,
+        206,
+        51,
+        232,
+        83,
+        216,
+        260,
+        270,
+        187,
+        205,
+        252,
+        194,
+        166,
+        56,
+        53,
+        279,
+        81,
+        11,
+        195,
+        122,
+        113,
+        248,
+        150,
+        18,
+        42,
+        275,
+        167,
+        26,
+        63,
+        178,
+        188,
+        116,
+        298,
+        49,
+        38,
+        71,
+        214,
+        175,
+        96,
+        280,
+        286,
+        55,
+        211,
+        273,
+        142,
+        52,
+        22,
+        89,
+        108,
+        46,
+        132,
+        161,
+        290,
+        69,
+        143,
+        224,
+        131,
+        149,
+        202,
+        88,
+        28,
+        264,
+        0,
+        104,
+        62,
+        185,
+        129,
+        284,
+        34,
+        39,
+        31,
+        289,
+        3
+      ],
+      "summary": {
+        "total": 253,
+        "actions_pos_rate": 0.4901185770750988,
+        "looks_pos_rate": 0.4980237154150198,
+        "crosses_pos_rate": 0.30039525691699603
+      }
+    },
+    "balance_ratio_50_50": {
+      "cross_pos_ratio": 0.5,
+      "selected": [
+        10,
+        17,
+        260,
+        194,
+        124,
+        115,
+        275,
+        142,
+        233,
+        82,
+        249,
+        196,
+        193,
+        244,
+        70,
+        130,
+        212,
+        78,
+        286,
+        91,
+        93,
+        135,
+        163,
+        210,
+        48,
+        246,
+        197,
+        153,
+        43,
+        206,
+        226,
+        7,
+        187,
+        185,
+        9,
+        14,
+        98,
+        24,
+        231,
+        111,
+        26,
+        218,
+        92,
+        201,
+        114,
+        247,
+        240,
+        103,
+        51,
+        293,
+        109,
+        222,
+        119,
+        113,
+        141,
+        137,
+        181,
+        100,
+        95,
+        285,
+        202,
+        147,
+        190,
+        65,
+        296,
+        265,
+        125,
+        156,
+        11,
+        59,
+        62,
+        252,
+        223,
+        144,
+        176,
+        56,
+        71,
+        68,
+        172,
+        99,
+        178,
+        67,
+        15,
+        97,
+        21,
+        232,
+        35,
+        166,
+        243,
+        225,
+        120,
+        278,
+        277,
+        61,
+        283,
+        33,
+        266,
+        192,
+        127,
+        146,
+        132,
+        18,
+        281,
+        271,
+        102,
+        123,
+        8,
+        174,
+        262,
+        29,
+        118,
+        45,
+        128,
+        235,
+        263,
+        295,
+        53,
+        228,
+        12,
+        234,
+        170,
+        13,
+        273,
+        184,
+        41,
+        207,
+        257,
+        297,
+        88,
+        182,
+        121,
+        175,
+        280,
+        211,
+        261,
+        290,
+        143,
+        224,
+        149,
+        28,
+        264,
+        23,
+        104,
+        129,
+        268,
+        39,
+        31,
+        289,
+        3,
+        63,
+        259,
+        57,
+        151,
+        37,
+        227,
+        256,
+        72,
+        89
+      ],
+      "summary": {
+        "total": 158,
+        "actions_pos_rate": 0.4810126582278481,
+        "looks_pos_rate": 0.4810126582278481,
+        "crosses_pos_rate": 0.4810126582278481
+      }
+    },
+    "split_indices": {
+      "train_pct": 0.75,
+      "val_pct": 0.1,
+      "test_pct": 0.15,
+      "train": [
+        99,
+        54,
+        3,
+        34,
+        211,
+        103,
+        283,
+        276,
+        57,
+        88,
+        101,
+        149,
+        178,
+        292,
+        240,
+        157,
+        151,
+        13,
+        188,
+        219,
+        142,
+        80,
+        143,
+        127,
+        112,
+        46,
+        79,
+        184,
+        116,
+        299,
+        294,
+        78,
+        63,
+        137,
+        167,
+        68,
+        275,
+        286,
+        216,
+        293,
+        290,
+        2,
+        110,
+        131,
+        271,
+        92,
+        209,
+        28,
+        40,
+        14,
+        163,
+        281,
+        191,
+        182,
+        118,
+        201,
+        262,
+        225,
+        41,
+        153,
+        105,
+        249,
+        24,
+        84,
+        16,
+        256,
+        251,
+        82,
+        217,
+        185,
+        243,
+        35,
+        288,
+        120,
+        42,
+        10,
+        58,
+        90,
+        285,
+        19,
+        96,
+        227,
+        270,
+        176,
+        39,
+        65,
+        160,
+        230,
+        87,
+        289,
+        1,
+        250,
+        171,
+        129,
+        119,
+        135,
+        257,
+        67,
+        162,
+        102,
+        199,
+        106,
+        228,
+        123,
+        220,
+        26,
+        86,
+        117,
+        177,
+        72,
+        186,
+        190,
+        93,
+        45,
+        202,
+        296,
+        279,
+        89,
+        12,
+        76,
+        203,
+        59,
+        64,
+        265,
+        145,
+        189,
+        44,
+        239,
+        273,
+        175,
+        206,
+        232,
+        280,
+        108,
+        242,
+        159,
+        53,
+        122,
+        172,
+        212,
+        49,
+        5,
+        200,
+        165,
+        94,
+        223,
+        195,
+        30,
+        218,
+        274,
+        235,
+        6,
+        18,
+        136,
+        146,
+        11,
+        194,
+        278,
+        25,
+        15,
+        109,
+        260,
+        43,
+        95,
+        56,
+        196,
+        69,
+        4,
+        62,
+        214,
+        233,
+        282,
+        187,
+        259,
+        29,
+        213,
+        83,
+        21,
+        91,
+        198,
+        164,
+        277,
+        126,
+        115,
+        192,
+        148,
+        107,
+        269,
+        221,
+        55,
+        60,
+        267,
+        70,
+        134,
+        236,
+        100,
+        174,
+        231,
+        179,
+        246,
+        9,
+        38,
+        33,
+        193,
+        173,
+        22,
+        17,
+        121,
+        66,
+        168,
+        156,
+        8,
+        298,
+        210,
+        284,
+        264,
+        237,
+        254,
+        147,
+        245,
+        98,
+        229,
+        152,
+        295,
+        255
+      ],
+      "val": [
+        73,
+        150,
+        234,
+        154,
+        263,
+        52,
+        138,
+        208,
+        85,
+        140,
+        268,
+        180,
+        74,
+        141,
+        77,
+        27,
+        125,
+        238,
+        130,
+        224,
+        81,
+        297,
+        23,
+        114,
+        139,
+        253,
+        36,
+        247,
+        205,
+        61
+      ],
+      "test": [
+        113,
+        97,
+        32,
+        166,
+        124,
+        170,
+        252,
+        0,
+        204,
+        47,
+        7,
+        31,
+        133,
+        266,
+        226,
+        291,
+        104,
+        161,
+        222,
+        181,
+        51,
+        241,
+        169,
+        37,
+        50,
+        158,
+        75,
+        272,
+        128,
+        48,
+        287,
+        144,
+        71,
+        258,
+        111,
+        183,
+        244,
+        155,
+        207,
+        248,
+        261,
+        132,
+        20,
+        215,
+        197
+      ]
+    }
+  },
+  "solver_cases": [
+    {
+      "solver": "balance_sequences._solve_cross0_counts",
+      "args": [
+        20,
+        5,
+        5,
+        10,
+        5,
+        5,
+        8
+      ],
+      "derived": [
+        20,
+        15,
+        15,
+        10,
+        5,
+        5,
+        8
+      ],
+      "out": null
+    },
+    {
+      "solver": "balance_sequences._solve_cross0_counts",
+      "args": [
+        10,
+        8,
+        8,
+        2,
+        3,
+        3,
+        5
+      ],
+      "derived": [
+        10,
+        2,
+        2,
+        2,
+        3,
+        3,
+        5
+      ],
+      "out": null
+    },
+    {
+      "solver": "balance_sequences._solve_cross0_counts",
+      "args": [
+        12,
+        6,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "derived": [
+        12,
+        6,
+        8,
+        4,
+        4,
+        4,
+        4
+      ],
+      "out": [
+        2,
+        4,
+        2,
+        4
+      ]
+    },
+    {
+      "solver": "split.solve_exact",
+      "args": [
+        20,
+        5,
+        5,
+        10,
+        5,
+        5,
+        8
+      ],
+      "out": null
+    },
+    {
+      "solver": "split.solve_approx",
+      "args": [
+        20,
+        5,
+        5,
+        10,
+        5,
+        5,
+        8
+      ],
+      "out": [
+        10,
+        5,
+        5,
+        0
+      ]
+    },
+    {
+      "solver": "split.solve_exact",
+      "args": [
+        10,
+        8,
+        8,
+        2,
+        3,
+        3,
+        5
+      ],
+      "out": null
+    },
+    {
+      "solver": "split.solve_approx",
+      "args": [
+        10,
+        8,
+        8,
+        2,
+        3,
+        3,
+        5
+      ],
+      "out": [
+        0,
+        2,
+        3,
+        5
+      ]
+    },
+    {
+      "solver": "split.solve_exact",
+      "args": [
+        14,
+        7,
+        7,
+        5,
+        5,
+        5,
+        5
+      ],
+      "out": [
+        2,
+        5,
+        5,
+        2
+      ]
+    },
+    {
+      "solver": "split.solve_approx",
+      "args": [
+        14,
+        7,
+        7,
+        5,
+        5,
+        5,
+        5
+      ],
+      "out": [
+        2,
+        5,
+        5,
+        2
+      ]
+    }
+  ],
+  "meta": {
+    "src_equal": "scripts/balance_sequences.py::balance_dataset",
+    "src_ratio": "scripts/split_balance_sequences_all.py::balance_split",
+    "n_records": 300,
+    "gen_seed": 12345
+  }
+}

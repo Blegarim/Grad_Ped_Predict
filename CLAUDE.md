@@ -129,7 +129,12 @@ Three levers exist and must be documented as ONE coherent policy, not three acci
    `loss_weight={actions:0.8, looks:0.8, crosses:1.2}`.
 
 A **single LMDB metadata scan** produces both class frequencies (for loss) and per-sample sampler weights.
-Pick one default combination, document which levers are active, keep the rest as opt-in config flags.
+
+**Default (decided in 1.3):** levers **2 + 3 are ON** (both already in `TrainCfg`), layered on offline
+**augmentation** (1.4) — this is what legacy training actually ran. Lever **1 (offline balance) is OPT-IN,
+`BalanceCfg.enabled=false`** — the majority-downsample *alternative* to augmentation, for ablation; when
+enabled, relax 2/3 so the levers don't triple-stack. The single metadata scan (1.6) feeds 2 + 3 only;
+offline balance scans the sequence pkls (a separate offline artifact), not the LMDB.
 
 ## Band-Aids Being Resolved (legacy → target)
 

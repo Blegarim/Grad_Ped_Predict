@@ -1,0 +1,14 @@
+# BalanceCfg — offline class-balancing (Prompt 1.3). OPT-IN majority-downsample lever, OFF by default.
+# Default runtime imbalance policy = online WeightedRandomSampler (train.yaml) + loss class weights;
+# offline augmentation (1.4) shapes the data. Enable this only as the opt-in alternative to augment,
+# and relax the online levers when you do (see CLAUDE.md / MIGRATION.md "Imbalance policy").
+enabled: false
+cross_pos_ratio: 0.30      # target crosses=1 fraction (30/70; flexible)
+target_action_rate: 0.5
+target_look_rate: 0.5
+x11_select: lower          # "lower" | "upper"
+subsample_cross1: true     # priority-subsample cross=1 to n1 (vs keep all)
+allow_approx: true         # greedy fallback when the exact solve is infeasible
+on_infeasible: empty       # "raise" | "empty"
+legacy_x00_sign_bug: false # reproduce OLD solve_exact sign bug (parity only); Phase-B drop
+seed: 0

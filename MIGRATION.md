@@ -27,7 +27,7 @@ For each module you port:
 | 0.3 | `utils/{seed,device,amp,memory,logging}.py`, `paths.py` | `train.py` perf/AMP/mem idioms | n/a | B8, part B1/B9 | ✅ | infra (no numeric fixture). B8 = `to_float_logits` value-parity tested; perf flags/AMP gate/mem-poll relocated 1:1 from `train.py:244-255`,`347`,`train_utils.py:74-77`. 14 utils tests green on py3.10. Added `runs_dir` to `PathsCfg`; `outputs/` gitignored. See Utils decisions below. |
 | 1.1 | `data/pie_sequences.py`, `scripts/make_sequences.py` | `scripts/generate_sequences.py` | `tests/fixtures/golden/pie_sequences_counts.json` | B5 | ✅ | EXACT (int labels, deterministic PIE 'all' path → tol=0). Legacy-oracle parity (synthetic) + count gate vs the legacy pkls green (train 95,684 / val 22,665 / test 76,048 reproduced). `has_onset` dropped; abs image paths re-rooted to this repo. See Data decisions below. |
 | 1.2 | `data/transforms.py`, `data/lmdb_writer.py`, `scripts/build_lmdb.py` | `scripts/preprocess_data_lmdb.py`, `PIE_sequence_Dataset_1.py` | `tests/fixtures/golden/lmdb_process_record.pt` | B5, upstream B7 | ✅ / ⚠️ | geometry+motion EXACT vs OLD `_process_sequence` (motions/labels tol=0, crops atol=1e-6). ⚠️ flagged: `bboxes` dropped from meta; TurboJPEG→PIL; write-time img_augment + `_dataaug` dropped; `context_scale` unified to 3.0. 15 tests green. See Data decisions (1.2) below. |
-| 1.3 | `data/balance.py` | `scripts/balance_sequences.py`, `split_balance_sequences_all.py` | | B3 (offline), B5 | — | imbalance policy (w/ 1.6, 3.1) |
+| 1.3 | `data/balance.py`, `scripts/balance_dataset.py`, `config/{schema,loader}.py`, `configs/balance.yaml` | `scripts/balance_sequences.py`, `split_balance_sequences_all.py` | `tests/fixtures/golden/balance_cases.json` | B3 (offline), B5 | ✅ / ⚠️ | Both legacy balancers reproduced EXACTLY (selected indices + all 3 solvers, tol=0) via `BALANCE_EQUAL` / `BALANCE_RATIO_30_70` presets. ⚠️ flagged: default solver fixes the `solve_exact` sign bug (legacy reachable only via `legacy_x00_sign_bug=True`); `summarize` now clamps crosses; random `split_indices` dropped (PIE provides splits, 1.1). Balance is OPT-IN (`enabled=false`). 21 balance tests green. See Data decisions (1.3) below. |
 | 1.4 | `data/augment.py` | `scripts/augment_sequences.py` | | B5 | — | flip negates motion[:,2] — verify index |
 | 1.5 | `data/lmdb_dataset.py`, `data/collate.py` | `scripts/lmdb_dataset.py`, `train_utils.py` | | B7 | — | worker-safe LMDB env |
 | 1.6 | `data/sampler.py` | `train.py:34-123` | | B3 (online, dedup scans) | — | single metadata scan (w/ 1.3, 3.1) |
@@ -58,7 +58,14 @@ For each module you port:
 
 Record cross-cutting decisions here as they're made (so coupled prompts stay consistent):
 
-- **Imbalance policy** (1.3 / 1.6 / 3.1): _TBD — which of offline-balance / sampler / loss-weight is the default; which are opt-in._
+- **Imbalance policy** (1.3 / 1.6 / 3.1): _DECIDED (1.3). Default = **online sampler (1.6) + inverse-freq
+  loss class weights (3.1)**, both already ON in `TrainCfg`, layered on offline **augmentation** (1.4) —
+  this is what OLD `train.py` actually ran (`['preprocessed_train','preprocessed_train_aug']` +
+  `compute_class_weights_from_lmdb` + `build_sampler_weights`). Offline **balance** (1.3) is the OPT-IN
+  majority-downsample **alternative** to augment, `BalanceCfg.enabled=false` by default; when enabled,
+  relax the online levers so the three never silently triple-stack (B3). The balance scripts did NOT feed
+  the legacy final pipeline. 1.6 owns the single metadata scan feeding both sampler + loss; 1.3 scans the
+  sequence pkls (a separate offline artifact), not the LMDB._
 - **`crosses_pooled` fate** (B4, Prompt 2.3): _TBD — auxiliary-diagnostic vs config-gated-off._
 - **8-dim motion channel definition** (1.2 / 1.4 / 2.2): _LOCKED in `transforms.compute_motion`.
   Order `(cx, cy, dx, dy, w, h, dw, dh)` from the int-truncated bbox. **Flip-negated channel = index 2
@@ -149,6 +156,40 @@ Locked so the downstream data prompts (1.4 augment, 1.5 collate/dataset) stay co
 - **Worker parallelism preserved.** `CropSequenceDataset` + `DataLoader(bs=1, shuffle=False, num_workers)` keep
   the OLD parallelism (behavior-neutral, deterministic order); the OLD `unbatch` hack → module-level
   `_passthrough_collate` (picklable for Windows `spawn`).
+
+### Data decisions (Prompt 1.3)
+
+Locked so the coupled imbalance prompts (1.6 sampler, 3.1 loss) and the data DAG stay consistent:
+
+- **One module, two legacy presets (B5).** OLD `balance_sequences.py` + `split_balance_sequences_all.py`
+  → `data/balance.py` (pure, deterministic, stdlib `random.Random(seed)`) + thin `scripts/balance_dataset.py`.
+  The two scripts used *genuinely different* solvers; both are reproduced EXACTLY by `BALANCE_EQUAL`
+  (50/50, `x11=upper`, keep-all-cross1, raise) and `BALANCE_RATIO_30_70` (30/70, `x11=lower`, subsample,
+  approx, empty). Parity class = EXACT (integer indices, tol=0); golden = `tests/fixtures/golden/balance_cases.json`
+  (captured by `tests/_capture/capture_balance_golden.py`, run against the OLD scripts — pure stdlib, no venv).
+- **⚠️ Intentional behavior changes (flagged, not silent):**
+  1. **`solve_exact` sign bug fixed.** OLD `split_balance.solve_exact` used `n0 - a - l` for the `x00`
+     bound instead of `a + l - n0` (sign-flipped), which can silently miscount in the 30/70 regime
+     (`pick` clamps a negative/over-large `x00`). The default `solve_cross0_counts` ships the **corrected**
+     constraint; the buggy interval is reachable only via `legacy_x00_sign_bug=True` (used by the `RATIO`
+     golden test). `test_legacy_sign_bug_rejects_a_solvable_case` documents the divergence numerically.
+     Phase-B: drop the flag.
+  2. **`summarize` clamps crosses.** OLD `balance_sequences.summarize` summed raw `{-1,0,1}` (reported
+     ~0.46 on the equal preset); the new `summarize` clamps (reports 0.5). Selected-index parity is
+     unaffected (grouping always clamped); only the *reported rate* changes.
+  3. **Random `split_indices` dropped from the DAG.** The canonical train/val/test come from PIE's default
+     split (1.1, which reproduced N=95,684/22,665/76,048). The `split_balance` random-split half is
+     superseded; not ported (no `scripts/split_dataset.py`).
+- **Opt-in, outside the structure loop (B3).** `BalanceCfg.enabled=false`. Balance is a transform on the
+  *sequence pkl* artifact: `list[SequenceRecord] → subset[SequenceRecord]`, identical keys/format, so a
+  balanced pkl flows through the LMDB writer (1.2) → dataset (1.5) → training like any other. It is never a
+  branch in the model/sampler/loss/collate path.
+- **Config (additive, new top-level section).** Added `BalanceCfg` + `RootCfg.balance` + `configs/balance.yaml`,
+  registered in `loader._SECTIONS`. A **top-level** section (not `data.balance`) because `apply_overrides`
+  caps overrides at 2 levels (`section.field`); `--set balance.cross_pos_ratio=0.25` works, `data.balance.*`
+  would not. `validate_config` gains balance invariants (`0<ratio<1`, rates ∈ `[0,1]`, enum fields).
+- **Determinism locked to stdlib `random`** (not numpy) — required to reproduce the legacy index sets; the
+  group-build → per-group `pick` → `cross1+cross0` → `shuffle` call order is the parity contract.
 
 ### Config decisions (Prompt 0.2)
 

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from .schema import DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
+from .schema import BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
 
 __all__ = [
     "ConfigError",
@@ -41,6 +41,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
     "model": (ModelCfg, "model.yaml"),
     "train": (TrainCfg, "train.yaml"),
     "eval": (EvalCfg, "eval.yaml"),
+    "balance": (BalanceCfg, "balance.yaml"),
 }
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
@@ -175,7 +176,7 @@ def apply_overrides(root: RootCfg, flat: dict[str, str]) -> RootCfg:
 
 def validate_config(root: RootCfg) -> None:
     """Structural invariants. Raises ``ConfigError`` on violation (no silent passthrough)."""
-    m, d, t, e = root.model, root.data, root.train, root.eval
+    m, d, t, e, b = root.model, root.data, root.train, root.eval, root.balance
 
     lengths = {
         "stage_dims": len(m.stage_dims),
@@ -231,6 +232,17 @@ def validate_config(root: RootCfg) -> None:
             f"require 0 <= threshold_sweep_lo < threshold_sweep_hi <= 1; "
             f"got lo={e.threshold_sweep_lo}, hi={e.threshold_sweep_hi}"
         )
+
+    # offline balance invariants (Prompt 1.3)
+    if not (0.0 < b.cross_pos_ratio < 1.0):
+        raise ConfigError(f"balance.cross_pos_ratio must be in (0, 1); got {b.cross_pos_ratio}")
+    for name, rate in {"target_action_rate": b.target_action_rate, "target_look_rate": b.target_look_rate}.items():
+        if not (0.0 <= rate <= 1.0):
+            raise ConfigError(f"balance.{name} must be in [0, 1]; got {rate}")
+    if b.x11_select not in {"lower", "upper"}:
+        raise ConfigError(f"balance.x11_select must be 'lower' or 'upper'; got {b.x11_select!r}")
+    if b.on_infeasible not in {"raise", "empty"}:
+        raise ConfigError(f"balance.on_infeasible must be 'raise' or 'empty'; got {b.on_infeasible!r}")
 
 
 # --------------------------------------------------------------------------- public load / dump

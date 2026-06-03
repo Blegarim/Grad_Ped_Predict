@@ -1,5 +1,19 @@
 """Data pipeline: sequences, LMDB writer/dataset, balance, augment, collate (P1)."""
 
+from .balance import (
+    BALANCE_EQUAL,
+    BALANCE_RATIO_30_70,
+    X11Select,
+    balance_indices,
+    balance_records,
+    balance_sequence_file,
+    choose_cross1,
+    clamp_cross,
+    group_by_labels,
+    solve_cross0_counts,
+    solve_cross0_counts_approx,
+    summarize,
+)
 from .lmdb_writer import (
     compute_map_size,
     encode_jpeg_bytes,
@@ -33,6 +47,19 @@ from .transforms import (
 )
 
 __all__ = [
+    # balance (1.3)
+    "BALANCE_EQUAL",
+    "BALANCE_RATIO_30_70",
+    "X11Select",
+    "balance_indices",
+    "balance_records",
+    "balance_sequence_file",
+    "choose_cross1",
+    "clamp_cross",
+    "group_by_labels",
+    "solve_cross0_counts",
+    "solve_cross0_counts_approx",
+    "summarize",
     # sequences (1.1)
     "SequenceRecord",
     "clamp_to_binary",
