@@ -3,6 +3,8 @@ max_seq_len: 20
 motion_dim: 8            # must equal model.motion_dim (validated)
 img_height: 128
 img_width: 128
+read_context_height: 224  # read-time context model input (OLD train.py); write-time context is img*context_scale=384
+read_context_width: 224
 context_scale: 3.0       # context crop = scale * tight bbox (uniform 3.0; override for ablation)
 jpeg_quality: 90
 chunk_size: 5000

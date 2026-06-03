@@ -41,6 +41,7 @@ __all__ = [
     "compute_motion",
     "resize_to_tensor",
     "build_write_transforms",
+    "build_read_transforms",
     "imagenet_normalize",
     "ProcessedSample",
     "process_record",
@@ -154,6 +155,24 @@ def build_write_transforms(cfg: DataCfg) -> tuple[Callable, Callable]:
 def imagenet_normalize(cfg: DataCfg) -> transforms.Normalize:
     """ImageNet ``Normalize`` for READ-time use (lmdb_dataset, 1.5) — not applied by the writer."""
     return transforms.Normalize(mean=list(cfg.norm_mean), std=list(cfg.norm_std))
+
+
+def build_read_transforms(cfg: DataCfg) -> tuple[Callable, Callable]:
+    """Read-time transforms ``(tight, context)``: ``Resize -> ToTensor -> ImageNet Normalize``.
+
+    Mirrors OLD ``train.py:355-366`` (the only place the runtime dataset's transforms were defined).
+    Stored crops are un-normalized ``[0, 1]`` JPEG (1.2 contract); normalize is applied here, at read
+    time, by ``lmdb_dataset``. Tight resizes to ``(img_height, img_width)``; context resizes to
+    ``(read_context_height, read_context_width)`` — the model input (224), NOT the larger write size.
+    """
+    norm = imagenet_normalize(cfg)
+    tight = transforms.Compose(
+        [transforms.Resize((cfg.img_height, cfg.img_width)), transforms.ToTensor(), norm]
+    )
+    context = transforms.Compose(
+        [transforms.Resize((cfg.read_context_height, cfg.read_context_width)), transforms.ToTensor(), norm]
+    )
+    return tight, context
 
 
 @dataclass(slots=True)

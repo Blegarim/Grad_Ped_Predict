@@ -40,8 +40,12 @@ class DataCfg:
     # B7: magic constants relocated from scripts/train_utils.py
     max_seq_len: int = 20            # was train_utils.MAX_SEQ_LEN
     motion_dim: int = 8              # was the [..., :8] slice; writer must emit exactly this many channels
-    img_height: int = 128
+    img_height: int = 128            # write+read tight size; also read-tight model input
     img_width: int = 128
+    # read-time context model input (OLD train.py:362 Resize((224,224))) — distinct from the write-time
+    # context size (img_*  * context_scale = 384); stored 384 crops are re-decoded and shrunk to this.
+    read_context_height: int = 224
+    read_context_width: int = 224
     context_scale: float = 3.0       # context crop = scale * tight bbox (uniform 3.0; flex for ablation)
     jpeg_quality: int = 90
     chunk_size: int = 5000           # Q4: canonical 5000 (OLD main() default was 4500); does not affect parity
@@ -185,6 +189,38 @@ class BalanceCfg:
 
 
 @dataclass(frozen=True, slots=True)
+class AugmentCfg:
+    """Offline minority-class augmentation (Prompt 1.4). Defaults = OLD ``SequenceAugmenter`` literals.
+
+    The DEFAULT imbalance lever (policy 1.3): ``enabled=True``. Produces the ``preprocessed_train_aug``
+    LMDB (``PathsCfg.lmdb_train[1]``) of minority records + their single-transform augmented copies
+    (negatives are NOT included — they already live in ``preprocessed_train``). Top-level section (not
+    ``data.augment``) because ``apply_overrides`` caps overrides at ``section.field``.
+    """
+
+    enabled: bool = True              # offline augmentation is the default imbalance lever (policy 1.3)
+    # per-call compose: OLD random.randint(2, 4) single-transform variants drawn from the 4 below
+    n_augs_min: int = 2
+    n_augs_max: int = 4
+    # per-transform probabilities (OLD SequenceAugmenter.__init__)
+    p_flip: float = 0.5
+    p_color: float = 0.4
+    p_noise: float = 0.3
+    p_erase: float = 0.2
+    # ColorJitter params (OLD T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.3, hue=0.1))
+    color_brightness: float = 0.2
+    color_contrast: float = 0.2
+    color_saturation: float = 0.3
+    color_hue: float = 0.1
+    motion_noise_std: float = 0.02    # OLD motion_noise(noise_std=0.02)
+    erase_n_frames: int = 2           # OLD random_erase_frames(n_frames=2)
+    # oversampling multipliers (OLD augment_minority_sequences)
+    crosses_multiplier: int = 6
+    looks_multiplier: int = 3
+    seed: int = 42
+
+
+@dataclass(frozen=True, slots=True)
 class RootCfg:
     """Top-level config tree. Built by ``loader.load_config``."""
 
@@ -194,3 +230,4 @@ class RootCfg:
     train: TrainCfg = field(default_factory=TrainCfg)
     eval: EvalCfg = field(default_factory=EvalCfg)
     balance: BalanceCfg = field(default_factory=BalanceCfg)
+    augment: AugmentCfg = field(default_factory=AugmentCfg)

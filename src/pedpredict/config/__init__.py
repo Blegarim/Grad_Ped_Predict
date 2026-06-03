@@ -10,9 +10,10 @@ from .loader import (
     parse_overrides,
     validate_config,
 )
-from .schema import BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
+from .schema import AugmentCfg, BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
 
 __all__ = [
+    "AugmentCfg",
     "BalanceCfg",
     "ConfigError",
     "DataCfg",

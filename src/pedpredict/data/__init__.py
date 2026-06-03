@@ -14,6 +14,8 @@ from .balance import (
     solve_cross0_counts_approx,
     summarize,
 )
+from .collate import build_collate, collate_sequences
+from .lmdb_dataset import LMDBChunkDataset
 from .lmdb_writer import (
     compute_map_size,
     encode_jpeg_bytes,
@@ -36,6 +38,7 @@ from .pie_sequences import (
 from .transforms import (
     CropSequenceDataset,
     ProcessedSample,
+    build_read_transforms,
     build_write_transforms,
     compute_motion,
     crop_context,
@@ -70,6 +73,11 @@ __all__ = [
     "save_sequences",
     "window_track",
     "windows_from_pie",
+    # runtime dataset + collate (1.5)
+    "LMDBChunkDataset",
+    "build_collate",
+    "build_read_transforms",
+    "collate_sequences",
     # transforms / geometry (1.2)
     "CropSequenceDataset",
     "ProcessedSample",

@@ -31,7 +31,7 @@ from pathlib import Path
 import lmdb
 import torch
 from torch import Tensor
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision.io import encode_jpeg
 
 from pedpredict.config.schema import DataCfg
@@ -43,7 +43,9 @@ __all__ = [
     "encode_jpeg_bytes",
     "pack_meta",
     "write_sample",
+    "write_dataset_to_lmdb",
     "write_chunk",
+    "write_dataset_chunks_from",
     "write_dataset_chunks",
 ]
 
@@ -101,16 +103,20 @@ def _passthrough_collate(batch: list[ProcessedSample]) -> ProcessedSample:
     return batch[0]
 
 
-def write_chunk(
-    records: list[SequenceRecord],
+def write_dataset_to_lmdb(
+    dataset: Dataset,
     lmdb_path: str | Path,
     cfg: DataCfg,
     *,
     num_workers: int,
     prefetch_factor: int,
 ) -> Path:
-    """Crop+encode ``records`` (deterministic order) into a single chunk LMDB at ``lmdb_path``."""
-    dataset = CropSequenceDataset(records, cfg)
+    """Encode every ``ProcessedSample`` of ``dataset`` (deterministic order) into one chunk LMDB.
+
+    The single low-level write path: a ``DataLoader(batch_size=1)`` drives crop/encode in workers, the
+    main process puts each sample's blobs. Source-agnostic — ``dataset`` may be a plain
+    :class:`CropSequenceDataset` (1.2) or an augmenting dataset (1.4); the bytes written are identical.
+    """
     loader_kwargs: dict = {
         "batch_size": 1,
         "shuffle": False,
@@ -124,7 +130,7 @@ def write_chunk(
     loader = DataLoader(dataset, **loader_kwargs)
 
     path = Path(lmdb_path)
-    env = lmdb.open(str(path), map_size=compute_map_size(len(records), cfg))
+    env = lmdb.open(str(path), map_size=compute_map_size(len(dataset), cfg))  # type: ignore[arg-type]
     try:
         with env.begin(write=True) as txn:
             for j, sample in enumerate(loader):
@@ -133,6 +139,51 @@ def write_chunk(
     finally:
         env.close()
     return path
+
+
+def write_chunk(
+    records: list[SequenceRecord],
+    lmdb_path: str | Path,
+    cfg: DataCfg,
+    *,
+    num_workers: int,
+    prefetch_factor: int,
+) -> Path:
+    """Crop+encode ``records`` (deterministic order) into a single chunk LMDB at ``lmdb_path``."""
+    return write_dataset_to_lmdb(
+        CropSequenceDataset(records, cfg), lmdb_path, cfg, num_workers=num_workers, prefetch_factor=prefetch_factor
+    )
+
+
+def write_dataset_chunks_from(
+    dataset: Dataset,
+    out_dir: str | Path,
+    cfg: DataCfg,
+    *,
+    start_idx: int = 0,
+    end_idx: int | None = None,
+    num_workers: int | None = None,
+    prefetch_factor: int | None = None,
+) -> list[Path]:
+    """Split any ``Dataset[ProcessedSample]`` into ``cfg.chunk_size`` chunks via ``Subset``.
+
+    The generalization of :func:`write_dataset_chunks` to a pre-built dataset (used by 1.4 augmentation,
+    whose sample count != record count). Per-chunk keys reset to ``j=0`` because each chunk gets its own
+    ``Subset`` + LMDB. Worker/prefetch counts default to ``cfg.preprocess_*``.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if end_idx is None:
+        end_idx = len(dataset)  # type: ignore[arg-type]
+    nw = cfg.preprocess_num_workers if num_workers is None else num_workers
+    pf = cfg.preprocess_prefetch_factor if prefetch_factor is None else prefetch_factor
+
+    paths: list[Path] = []
+    for i in range(start_idx, end_idx, cfg.chunk_size):
+        sub = Subset(dataset, list(range(i, min(i + cfg.chunk_size, end_idx))))
+        paths.append(write_dataset_to_lmdb(sub, out / f"chunk_{i:06d}.lmdb", cfg, num_workers=nw, prefetch_factor=pf))
+        gc.collect()
+    return paths
 
 
 def write_dataset_chunks(
@@ -150,16 +201,13 @@ def write_dataset_chunks(
     Worker/prefetch counts default to ``cfg.preprocess_*`` (offline parallelism only — output is
     identical to a serial write). Returns the written chunk paths in order.
     """
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    if end_idx is None:
-        end_idx = len(records)
-    nw = cfg.preprocess_num_workers if num_workers is None else num_workers
-    pf = cfg.preprocess_prefetch_factor if prefetch_factor is None else prefetch_factor
-
-    paths: list[Path] = []
-    for i in range(start_idx, end_idx, cfg.chunk_size):
-        chunk = records[i : i + cfg.chunk_size]
-        paths.append(write_chunk(chunk, out / f"chunk_{i:06d}.lmdb", cfg, num_workers=nw, prefetch_factor=pf))
-        gc.collect()
-    return paths
+    end = len(records) if end_idx is None else end_idx
+    return write_dataset_chunks_from(
+        CropSequenceDataset(records, cfg),
+        out_dir,
+        cfg,
+        start_idx=start_idx,
+        end_idx=end,
+        num_workers=num_workers,
+        prefetch_factor=prefetch_factor,
+    )

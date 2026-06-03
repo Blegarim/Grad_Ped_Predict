@@ -28,8 +28,8 @@ For each module you port:
 | 1.1 | `data/pie_sequences.py`, `scripts/make_sequences.py` | `scripts/generate_sequences.py` | `tests/fixtures/golden/pie_sequences_counts.json` | B5 | ✅ | EXACT (int labels, deterministic PIE 'all' path → tol=0). Legacy-oracle parity (synthetic) + count gate vs the legacy pkls green (train 95,684 / val 22,665 / test 76,048 reproduced). `has_onset` dropped; abs image paths re-rooted to this repo. See Data decisions below. |
 | 1.2 | `data/transforms.py`, `data/lmdb_writer.py`, `scripts/build_lmdb.py` | `scripts/preprocess_data_lmdb.py`, `PIE_sequence_Dataset_1.py` | `tests/fixtures/golden/lmdb_process_record.pt` | B5, upstream B7 | ✅ / ⚠️ | geometry+motion EXACT vs OLD `_process_sequence` (motions/labels tol=0, crops atol=1e-6). ⚠️ flagged: `bboxes` dropped from meta; TurboJPEG→PIL; write-time img_augment + `_dataaug` dropped; `context_scale` unified to 3.0. 15 tests green. See Data decisions (1.2) below. |
 | 1.3 | `data/balance.py`, `scripts/balance_dataset.py`, `config/{schema,loader}.py`, `configs/balance.yaml` | `scripts/balance_sequences.py`, `split_balance_sequences_all.py` | `tests/fixtures/golden/balance_cases.json` | B3 (offline), B5 | ✅ / ⚠️ | Both legacy balancers reproduced EXACTLY (selected indices + all 3 solvers, tol=0) via `BALANCE_EQUAL` / `BALANCE_RATIO_30_70` presets. ⚠️ flagged: default solver fixes the `solve_exact` sign bug (legacy reachable only via `legacy_x00_sign_bug=True`); `summarize` now clamps crosses; random `split_indices` dropped (PIE provides splits, 1.1). Balance is OPT-IN (`enabled=false`). 21 balance tests green. See Data decisions (1.3) below. |
-| 1.4 | `data/augment.py` | `scripts/augment_sequences.py` | | B5 | — | flip negates motion[:,2] — verify index |
-| 1.5 | `data/lmdb_dataset.py`, `data/collate.py` | `scripts/lmdb_dataset.py`, `train_utils.py` | | B7 | — | worker-safe LMDB env |
+| 1.4 | `data/augment.py`, `scripts/augment_dataset.py`, `config/{schema,loader}.py`, `configs/augment.yaml` | `scripts/augment_sequences.py` | `tests/fixtures/golden/augment_cases.pt` | B5 | ✅ / ⚠️ | All 4 transform kernels reproduce OLD `SequenceAugmenter` EXACTLY (flip/erase tol=0; color/noise atol=1e-6 under matched seeding). Flip-negated channel = **idx 2 (dx)**, guarded by a cross-module test vs `compute_motion`. ⚠️ flagged: OLD augmenter was DEAD (assumed tensor pkls; real pkl is path-based) → re-homed onto `ProcessedSample` at write time; negatives excluded from aug LMDB; per-transform copies (not composed); seedable per-item RNG (distribution-, not draw-, parity for the *plan*). 12 augment tests green. See Data decisions (1.4). |
+| 1.5 | `data/lmdb_dataset.py`, `data/collate.py` | `scripts/lmdb_dataset.py`, `train_utils.py` | `tests/fixtures/golden/lmdb_dataset_cases.pt` | B7 | ✅ | Read parity vs OLD dataset+`collate_fn` (images atol=1e-6, motions/labels tol=0). Worker-safe env (pid-keyed) + picklable dataset/collate tested under `num_workers=2`. B7: `MAX_SEQ_LEN→DataCfg.max_seq_len`; `motions[...,:8]` slice **deleted** + guarded. Read transforms config-driven; read context=224. 4 tests green. See Data decisions (1.5). |
 | 1.6 | `data/sampler.py` | `train.py:34-123` | | B3 (online, dedup scans) | — | single metadata scan (w/ 1.3, 3.1) |
 | 1.7 | `data/stats.py`, `scripts/count_labels.py` | `label_count.py` | | — | — | drift check vs stat table |
 | 2.1 | `models/vit.py` | `models/Vision_Transformer.py` | | B2, B13, B6 | — | eager params → strict=True load |
@@ -76,8 +76,10 @@ Record cross-cutting decisions here as they're made (so coupled prompts stay con
   `preprocess_data_lmdb.__main__` actually ran; the earlier "2.0" claim was drift). `DataCfg.context_scale`
   now 3.0; kept config-flexible for ablation. `EvalCfg.bench_context_scale=3.0` is now redundant with it —
   unify/drop in 5.2._
-- **Sequence-length policy** (1.5): _runtime collate TBD (truncate vs pad vs variable). Generation
-  (1.1) emits exactly `seq_len`-frame windows; tracks shorter than `seq_len` are dropped._
+- **Sequence-length policy** (1.5): _DECIDED — **fixed-length, truncate, no pad**. Windows are exactly
+  `seq_len=20` frames by construction (1.1 drops short tracks); the collate `[:max_seq_len]` cap is a
+  defensive truncation that is a no-op while `seq_len <= max_seq_len`. No padding path (stacking needs a
+  common T); variable-length is a Phase-B concern._
 - **Custom chunk prefetch vs torch DataLoader** (4.2): _default to preserving custom prefetch this phase._
 
 ### Data decisions (Prompt 1.1)
@@ -190,6 +192,77 @@ Locked so the coupled imbalance prompts (1.6 sampler, 3.1 loss) and the data DAG
   would not. `validate_config` gains balance invariants (`0<ratio<1`, rates ∈ `[0,1]`, enum fields).
 - **Determinism locked to stdlib `random`** (not numpy) — required to reproduce the legacy index sets; the
   group-build → per-group `pick` → `cross1+cross0` → `shuffle` call order is the parity contract.
+
+### Data decisions (Prompt 1.4)
+
+Locked so the coupled imbalance prompts (1.3 balance / 1.6 sampler / 3.1 loss) stay consistent:
+
+- **OLD `augment_sequences.py` was dead/broken code (B5).** Its `SequenceAugmenter` indexed
+  `seq['images_tight']/'images_context']/'motions']` — pre-cropped *tensor* sequences — but the real
+  pipeline pkl is path-based (`{images, bboxes, actions, looks, crosses}`, confirmed by loading
+  `sequences_train.pkl`) and the writer crops from paths, so it could never have run. The
+  `sequences_train_augmented.pkl` / `preprocessed_train_aug` artifacts are gone, so "reproduce what
+  trained the weights" is unrecoverable for this module. **Parity target = the transform MATH**, re-homed
+  onto `ProcessedSample` and applied at write time (`AugmentedCropSequenceDataset`).
+- **Parity class.** The four kernels reproduce OLD EXACTLY: flip + random-erase are tol=0; color-jitter and
+  motion-noise are atol=1e-6 under **matched seeding** (`apply()` seeds `torch.manual_seed`/`random.Random`
+  the same way the capture did, so the same RNG stream → identical draws). Golden =
+  `tests/fixtures/golden/augment_cases.pt` (`tests/_capture/capture_augment_golden.py`, run vs the OLD repo
+  on a synthetic tensor dict). The *oversampling plan* is deterministic (seeded) but is **distribution-, not
+  draw-, parity** vs OLD's single global-RNG stream — an intentional consequence of per-item seedability.
+- **⚠️ Intentional behavior changes (flagged, not silent):**
+  1. **Re-homed to write time.** Augmentation transforms `ProcessedSample` (post-crop) inside the writer
+     dataset, not a phantom tensor pkl. Required: the OLD tensor-pkl path was non-functional.
+  2. **Negatives excluded (Q1, decided).** OLD `augment_minority_sequences` re-emitted all `crosses=0`
+     records into its output; unioning that with `preprocessed_train` would double-count negatives. The aug
+     LMDB now holds **only** minority records (crosses=1 ×6, looks=1 ×3) + their copies; the union
+     `['preprocessed_train','preprocessed_train_aug']` = full base set + boosted minorities.
+  3. **Single transform per copy.** OLD `__call__` appended a fresh copy per *selected* transform (it never
+     composed); preserved — one `AugItem` carries one transform (or `None` = identity).
+- **Flip↔motion-channel coupling made explicit (the schematic's silent-corruption risk).** Module constant
+  `_FLIP_NEGATE_IDX = 2` (= `dx`), cross-checked against `compute_motion`'s layout by
+  `test_flip_index_matches_motion_channel_def`. ⚠️ Preserved Phase-A quirks: `cx` (idx 0) is NOT reflected
+  under flip; motion noise hits absolute channels too (Phase-B candidates, per the 1.2 motion decision).
+- **Config (additive, new top-level section).** `AugmentCfg` (+ `RootCfg.augment` + `configs/augment.yaml`,
+  registered in `loader._SECTIONS`). Top-level (not `data.augment`) because overrides cap at `section.field`
+  (same rationale as `BalanceCfg`). `enabled=True` by default — augmentation is the default imbalance lever
+  (policy 1.3). `validate_config` gains augment invariants (probs ∈ [0,1], `1≤n_augs_min≤n_augs_max≤4`,
+  multipliers ≥ 1, σ ≥ 0, erase_n_frames ≥ 0).
+- **Writer seam (behavior-neutral).** `lmdb_writer` gained `write_dataset_to_lmdb` + `write_dataset_chunks_from`
+  (a generalized chunker over any `Dataset[ProcessedSample]` via `Subset`); `write_chunk`/`write_dataset_chunks`
+  now delegate to them with identical signatures — all 1.2 roundtrip tests still green.
+
+### Data decisions (Prompt 1.5)
+
+Locked so the chunk loader (4.2) and training (4.1) stay consistent:
+
+- **Concern split.** OLD `scripts/lmdb_dataset.py` → `data/lmdb_dataset.py` (`LMDBChunkDataset`); OLD
+  `train_utils.collate_fn` → `data/collate.py`. The rest of `train_utils.py` ports elsewhere per the
+  disposition table (`EarlyStopping`→4.3, `mp_async_load`/`wait_for_memory`→4.2/0.3, `gather_chunks`→4.2).
+- **Parity class.** Read parity is EXACT for motions/labels (`tol=0`) and `atol=1e-6` for the decoded+
+  resized+normalized crops — OLD and new read **byte-identical** JPEG from the *same* deterministic 1.2
+  writer, then apply identical torchvision transforms. Golden = `tests/fixtures/golden/lmdb_dataset_cases.pt`
+  (`tests/_capture/capture_lmdb_dataset_golden.py`, run vs OLD `LMDBChunkDataset` + `collate_fn`).
+- **Worker-safety preserved verbatim.** Per-process env via `_get_env` (pid-keyed, reopens on pid change),
+  `__getstate__` drops `_env`/`_pid` so the dataset pickles to workers, `__del__` closes. Lexicographic
+  `_meta` cursor order for `seq_ids` kept. The corrupt-chunk frame-count-mismatch raise is kept (fails
+  loudly, never silently short). Tested under `DataLoader(num_workers=2)`.
+- **B7 closure (completes 0.2's partial).** `MAX_SEQ_LEN` → `DataCfg.max_seq_len`; the `motions[..., :8]`
+  slice is **deleted** (writer emits exactly `motion_dim`, 1.2-locked) and replaced by a cheap guard in
+  `collate_sequences` that raises on a stale wider-motion LMDB (`test_collate_guard_rejects_wide_motion`).
+- **Read transforms are config-driven (lifted from `train.py:355-366`).** New `transforms.build_read_transforms(cfg)`
+  → `(tight, context)` = `Resize → ToTensor → ImageNet Normalize`; `LMDBChunkDataset.from_config` consumes it.
+  Normalize is **read-time only** (writer stores un-normalized — 1.2 contract).
+- **Config addition (additive): read-time context size.** OLD `train.py` hardcoded the runtime context
+  resize to **224** (`Resize((224,224))`), distinct from the *write-time* context size
+  (`img_* * context_scale = 384`). Added `DataCfg.read_context_height/width = 224` (+ `configs/data.yaml`,
+  `validate_config` positivity check); tight read reuses `img_height/img_width = 128`. ⚠️ The stored 384
+  crops are re-decoded and shrunk to 224 at read time — a legacy inefficiency preserved this phase.
+- **`build_collate(cfg)` returns a `functools.partial`** (picklable under Windows `spawn`), not a closure —
+  so 4.2's prefetcher / DataLoader workers can carry it without a pickling failure.
+- **Couples to 4.2 (chunk loader):** it opens one `LMDBChunkDataset.from_config(chunk, cfg)` per chunk and
+  uses `build_collate(cfg.data)` for the DataLoader; `__getstate__` + the partial-collate keep it crash- and
+  pickle-safe under prefetch.
 
 ### Config decisions (Prompt 0.2)
 

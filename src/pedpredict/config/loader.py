@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from .schema import BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
+from .schema import AugmentCfg, BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
 
 __all__ = [
     "ConfigError",
@@ -42,6 +42,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
     "train": (TrainCfg, "train.yaml"),
     "eval": (EvalCfg, "eval.yaml"),
     "balance": (BalanceCfg, "balance.yaml"),
+    "augment": (AugmentCfg, "augment.yaml"),
 }
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
@@ -176,7 +177,7 @@ def apply_overrides(root: RootCfg, flat: dict[str, str]) -> RootCfg:
 
 def validate_config(root: RootCfg) -> None:
     """Structural invariants. Raises ``ConfigError`` on violation (no silent passthrough)."""
-    m, d, t, e, b = root.model, root.data, root.train, root.eval, root.balance
+    m, d, t, e, b, a = root.model, root.data, root.train, root.eval, root.balance, root.augment
 
     lengths = {
         "stage_dims": len(m.stage_dims),
@@ -226,6 +227,11 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(f"data.jpeg_quality must be in [1, 100]; got {d.jpeg_quality}")
     if d.img_height <= 0 or d.img_width <= 0:
         raise ConfigError(f"data.img_height/img_width must be positive; got {d.img_height}x{d.img_width}")
+    if d.read_context_height <= 0 or d.read_context_width <= 0:  # read-time context model input (1.5)
+        raise ConfigError(
+            f"data.read_context_height/width must be positive; "
+            f"got {d.read_context_height}x{d.read_context_width}"
+        )
 
     if not (0.0 <= e.threshold_sweep_lo < e.threshold_sweep_hi <= 1.0):
         raise ConfigError(
@@ -243,6 +249,22 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(f"balance.x11_select must be 'lower' or 'upper'; got {b.x11_select!r}")
     if b.on_infeasible not in {"raise", "empty"}:
         raise ConfigError(f"balance.on_infeasible must be 'raise' or 'empty'; got {b.on_infeasible!r}")
+
+    # offline augmentation invariants (Prompt 1.4)
+    for name, prob in {"p_flip": a.p_flip, "p_color": a.p_color, "p_noise": a.p_noise, "p_erase": a.p_erase}.items():
+        if not (0.0 <= prob <= 1.0):
+            raise ConfigError(f"augment.{name} must be in [0, 1]; got {prob}")
+    if not (1 <= a.n_augs_min <= a.n_augs_max <= 4):
+        raise ConfigError(f"require 1 <= augment.n_augs_min <= n_augs_max <= 4; got {a.n_augs_min}, {a.n_augs_max}")
+    if a.crosses_multiplier < 1 or a.looks_multiplier < 1:
+        raise ConfigError(
+            f"augment.crosses_multiplier/looks_multiplier must be >= 1; "
+            f"got {a.crosses_multiplier}, {a.looks_multiplier}"
+        )
+    if a.motion_noise_std < 0.0:
+        raise ConfigError(f"augment.motion_noise_std must be >= 0; got {a.motion_noise_std}")
+    if a.erase_n_frames < 0:
+        raise ConfigError(f"augment.erase_n_frames must be >= 0; got {a.erase_n_frames}")
 
 
 # --------------------------------------------------------------------------- public load / dump
