@@ -218,6 +218,14 @@ def validate_config(root: RootCfg) -> None:
         if value <= 0:
             raise ConfigError(f"{name} must be a positive integer; got {value}")
 
+    # writer geometry/encode invariants (Prompt 1.2)
+    if d.context_scale <= 0.0:
+        raise ConfigError(f"data.context_scale must be > 0; got {d.context_scale}")
+    if not (1 <= d.jpeg_quality <= 100):
+        raise ConfigError(f"data.jpeg_quality must be in [1, 100]; got {d.jpeg_quality}")
+    if d.img_height <= 0 or d.img_width <= 0:
+        raise ConfigError(f"data.img_height/img_width must be positive; got {d.img_height}x{d.img_width}")
+
     if not (0.0 <= e.threshold_sweep_lo < e.threshold_sweep_hi <= 1.0):
         raise ConfigError(
             f"require 0 <= threshold_sweep_lo < threshold_sweep_hi <= 1; "

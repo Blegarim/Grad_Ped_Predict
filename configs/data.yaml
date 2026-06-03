@@ -3,9 +3,16 @@ max_seq_len: 20
 motion_dim: 8            # must equal model.motion_dim (validated)
 img_height: 128
 img_width: 128
-context_scale: 2.0       # LMDB crops were written at this scale; do not change
+context_scale: 3.0       # context crop = scale * tight bbox (uniform 3.0; override for ablation)
 jpeg_quality: 90
 chunk_size: 5000
+# LMDB map_size heuristic (compute_map_size); defaults reproduce the OLD preprocess literals
+lmdb_map_size_bytes: null   # null -> heuristic; set an int to force an exact map_size
+lmdb_map_size_floor_gib: 4.0
+lmdb_map_size_safety: 1.5
+# offline writer DataLoader parallelism (preprocessing only)
+preprocess_num_workers: 8
+preprocess_prefetch_factor: 2
 seq_len: 20
 stride: 3
 future_offset: 30

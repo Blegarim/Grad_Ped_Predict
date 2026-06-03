@@ -42,9 +42,16 @@ class DataCfg:
     motion_dim: int = 8              # was the [..., :8] slice; writer must emit exactly this many channels
     img_height: int = 128
     img_width: int = 128
-    context_scale: float = 2.0       # LMDB crops were physically written at this scale (do not change)
+    context_scale: float = 3.0       # context crop = scale * tight bbox (uniform 3.0; flex for ablation)
     jpeg_quality: int = 90
     chunk_size: int = 5000           # Q4: canonical 5000 (OLD main() default was 4500); does not affect parity
+    # LMDB map_size heuristic (lmdb_writer.compute_map_size) — defaults reproduce OLD preprocess literals
+    lmdb_map_size_bytes: int | None = None   # explicit override; None -> heuristic
+    lmdb_map_size_floor_gib: float = 4.0     # OLD floor: 4 * 1024**3
+    lmdb_map_size_safety: float = 1.5        # OLD safety multiplier
+    # offline writer DataLoader parallelism (preprocessing only — behavior-neutral)
+    preprocess_num_workers: int = 8
+    preprocess_prefetch_factor: int = 2
     # sequence generation — sliding-window params (generate_sequences.py)
     seq_len: int = 20
     stride: int = 3

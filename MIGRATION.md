@@ -26,7 +26,7 @@ For each module you port:
 | 0.2 | `config/schema.py`, `config/loader.py`, `configs/*.yaml` | `config.py`, hardcoded args | `tests/fixtures/golden/legacy_config.json` | B1, B6, B7 | ✅ | `vit_kwargs()`/`motion_kwargs()` reproduce OLD `config.py` dicts exactly; 23 config tests green on py3.10. See Config decisions below. |
 | 0.3 | `utils/{seed,device,amp,memory,logging}.py`, `paths.py` | `train.py` perf/AMP/mem idioms | n/a | B8, part B1/B9 | ✅ | infra (no numeric fixture). B8 = `to_float_logits` value-parity tested; perf flags/AMP gate/mem-poll relocated 1:1 from `train.py:244-255`,`347`,`train_utils.py:74-77`. 14 utils tests green on py3.10. Added `runs_dir` to `PathsCfg`; `outputs/` gitignored. See Utils decisions below. |
 | 1.1 | `data/pie_sequences.py`, `scripts/make_sequences.py` | `scripts/generate_sequences.py` | `tests/fixtures/golden/pie_sequences_counts.json` | B5 | ✅ | EXACT (int labels, deterministic PIE 'all' path → tol=0). Legacy-oracle parity (synthetic) + count gate vs the legacy pkls green (train 95,684 / val 22,665 / test 76,048 reproduced). `has_onset` dropped; abs image paths re-rooted to this repo. See Data decisions below. |
-| 1.2 | `data/lmdb_writer.py`, `data/transforms.py` | `scripts/preprocess_data_lmdb.py`, `PIE_sequence_Dataset_1.py` | | B5, upstream B7 | — | document 8-dim motion channels |
+| 1.2 | `data/transforms.py`, `data/lmdb_writer.py`, `scripts/build_lmdb.py` | `scripts/preprocess_data_lmdb.py`, `PIE_sequence_Dataset_1.py` | `tests/fixtures/golden/lmdb_process_record.pt` | B5, upstream B7 | ✅ / ⚠️ | geometry+motion EXACT vs OLD `_process_sequence` (motions/labels tol=0, crops atol=1e-6). ⚠️ flagged: `bboxes` dropped from meta; TurboJPEG→PIL; write-time img_augment + `_dataaug` dropped; `context_scale` unified to 3.0. 15 tests green. See Data decisions (1.2) below. |
 | 1.3 | `data/balance.py` | `scripts/balance_sequences.py`, `split_balance_sequences_all.py` | | B3 (offline), B5 | — | imbalance policy (w/ 1.6, 3.1) |
 | 1.4 | `data/augment.py` | `scripts/augment_sequences.py` | | B5 | — | flip negates motion[:,2] — verify index |
 | 1.5 | `data/lmdb_dataset.py`, `data/collate.py` | `scripts/lmdb_dataset.py`, `train_utils.py` | | B7 | — | worker-safe LMDB env |
@@ -60,7 +60,15 @@ Record cross-cutting decisions here as they're made (so coupled prompts stay con
 
 - **Imbalance policy** (1.3 / 1.6 / 3.1): _TBD — which of offline-balance / sampler / loss-weight is the default; which are opt-in._
 - **`crosses_pooled` fate** (B4, Prompt 2.3): _TBD — auxiliary-diagnostic vs config-gated-off._
-- **8-dim motion channel definition** (1.2 / 1.4 / 2.2): _TBD — document each channel; confirm flip-negated index._
+- **8-dim motion channel definition** (1.2 / 1.4 / 2.2): _LOCKED in `transforms.compute_motion`.
+  Order `(cx, cy, dx, dy, w, h, dw, dh)` from the int-truncated bbox. **Flip-negated channel = index 2
+  (dx)** for 1.4. ⚠️ Two preserved legacy quirks: frame-0 dx/dy hold the first *delta* but dw/dh (idx
+  6/7) hold the *raw* w0/h0 (not a delta); and the absolute `cx` (idx 0) is not reflected under flip —
+  1.4 negates only dx, so reconsider reflecting cx there (Phase-B candidates). See Data decisions (1.2)._
+- **`context_scale` = 3.0 uniform** (1.2 / 5.2): _user-mandated single value (matches what OLD
+  `preprocess_data_lmdb.__main__` actually ran; the earlier "2.0" claim was drift). `DataCfg.context_scale`
+  now 3.0; kept config-flexible for ablation. `EvalCfg.bench_context_scale=3.0` is now redundant with it —
+  unify/drop in 5.2._
 - **Sequence-length policy** (1.5): _runtime collate TBD (truncate vs pad vs variable). Generation
   (1.1) emits exactly `seq_len`-frame windows; tracks shorter than `seq_len` are dropped._
 - **Custom chunk prefetch vs torch DataLoader** (4.2): _default to preserving custom prefetch this phase._
@@ -103,6 +111,45 @@ Locked so the downstream data prompts (1.2 writer, 1.5 collate) stay consistent:
   are cloned into the repo** (`test_legacy_pkl_counts_match_fixture` is `@pytest.mark.slow`, skips if
   pkls/PIE absent).
 
+### Data decisions (Prompt 1.2)
+
+Locked so the downstream data prompts (1.4 augment, 1.5 collate/dataset) stay consistent:
+
+- **Concern split (B5).** OLD `PIE_sequence_Dataset_1.py` + `preprocess_data_lmdb.py` → `data/transforms.py`
+  (crop geometry + motion + resize/normalize, the math) and `data/lmdb_writer.py` (serialization/chunking
+  only) + thin `scripts/build_lmdb.py`. Dead `scripts/preprocess_data.py` stays dropped.
+- **Parity class.** Geometry/motion EXACT vs OLD `_process_sequence`: motions + labels `tol=0`, resized
+  crops `atol=1e-6` (same Pillow 11.2.1 / torchvision 0.22.1 captured in `.venv`). Golden =
+  `tests/fixtures/golden/lmdb_process_record.pt`, produced by `tests/_capture/capture_lmdb_golden.py`
+  (run against the OLD repo, TurboJPEG force-disabled). Plus a verbatim motion oracle in `test_transforms.py`.
+- **8-dim motion (upstream B7).** `compute_motion` emits exactly `motion_dim` (=8) channels
+  `(cx, cy, dx, dy, w, h, dw, dh)` from the **int-truncated** bbox → the collate `motions[..., :8]` slice
+  (1.5) is now a provable no-op to delete. Channel table + the frame-0 dw/dh quirk documented in the
+  `compute_motion` docstring. Flip-negated channel for 1.4 = **index 2 (dx)**.
+- **⚠️ Intentional behavior changes (flagged, not silent):**
+  1. **`bboxes` dropped from `_meta`.** OLD stored "everything not `images*`", silently including `bboxes`;
+     the frozen contract is `{motions, actions, looks, crosses}`. Image JPEG bytes + motions + labels are
+     unchanged. 1.5 must not read `meta['bboxes']` (it doesn't need to — motions encode bbox geometry).
+  2. **TurboJPEG dropped → PIL decode only.** Removes the hardcoded `C:\libjpeg-turbo64` DLL path. Golden
+     captured on the PIL path so parity holds.
+  3. **Write-time `img_augment` / `data_aug` / `_dataaug` LMDB dropped** (user-confirmed dead artifact;
+     real augmentation is offline sequence-level in 1.4). Writer is deterministic resize-only.
+  4. **`context_scale` = 3.0 uniform** (was the OLD `__main__` value; the schema's 2.0 was drift).
+- **LMDB key contract (frozen, consumed by 1.5):** keys reset **per chunk** — `f"{j}_{t}_tight"`,
+  `f"{j}_{t}_context"` (JPEG, un-normalized `[0,1]*255`), `f"{j}_meta"` (pickle). No global length key
+  (1.5 derives N by counting `_meta`). ImageNet normalize is **read-time** (`imagenet_normalize` defined in
+  transforms but applied in 1.5), never at write time.
+- **`map_size` heuristic.** OLD lines 52-54 reproduced in `compute_map_size` with named/documented factors
+  + `lmdb_map_size_bytes` override (and `lmdb_map_size_floor_gib`/`_safety` config fields). ⚠️ LMDB
+  **pre-allocates the file on Windows**, so the 4 GiB floor reserves 4 GiB/chunk there — tests pass an
+  explicit small `lmdb_map_size_bytes`.
+- **Config additions (additive, defaults = OLD literals):** `DataCfg` gains `lmdb_map_size_bytes`,
+  `lmdb_map_size_floor_gib`, `lmdb_map_size_safety`, `preprocess_num_workers`, `preprocess_prefetch_factor`;
+  `validate_config` now also asserts `context_scale > 0`, `jpeg_quality ∈ [1,100]`, `img_height/width > 0`.
+- **Worker parallelism preserved.** `CropSequenceDataset` + `DataLoader(bs=1, shuffle=False, num_workers)` keep
+  the OLD parallelism (behavior-neutral, deterministic order); the OLD `unbatch` hack → module-level
+  `_passthrough_collate` (picklable for Windows `spawn`).
+
 ### Config decisions (Prompt 0.2)
 
 Locked so the later prompts that consume config stay consistent:
@@ -116,10 +163,11 @@ Locked so the later prompts that consume config stay consistent:
   drops `actions`/`looks`. Documented in `loader.py`; asserted by `test_override_dict_replaces_not_merges`.
 - **Q2 — `TrainCfg.use_amp: bool` is the *request*;** runtime ANDs it with CUDA availability in
   `utils/amp.py` (Prompt 0.3). Schema stores intent, not the resolved value.
-- **Q3 — `EvalCfg.bench_context_scale = 3.0`** kept as the single, deliberate synthetic-benchmark scale
-  (FLOPs/latency only; real-data eval uses `DataCfg.context_scale = 2.0`, which is fixed by how the LMDB
-  crops were physically written). Treated as an intentional value, not a "drift to fix later".
-  ⚠️ *Confirm with user:* if "unify to 3.0" meant something other than "keep the benchmark at 3.0", revisit.
+- **Q3 — `context_scale` unified to 3.0 (RESOLVED in 1.2).** The original note kept `DataCfg.context_scale=2.0`
+  ("fixed by how the LMDB crops were written") vs `EvalCfg.bench_context_scale=3.0`. That 2.0 was **wrong**:
+  OLD `preprocess_data_lmdb.__main__` actually wrote at `context_scale=3.0`. Per user mandate, `context_scale`
+  is now a single uniform **3.0** (`DataCfg.context_scale=3.0`), kept config-flexible for ablation.
+  `bench_context_scale` is now redundant (also 3.0) → unify/drop in 5.2.
 - **Q4 — `DataCfg.chunk_size = 5000`** is canonical (OLD `preprocess_data_lmdb.main()` default was 4500).
   Affects only future LMDB re-writes, never model parity.
 - **Q5 — frozen dataclasses with `slots=True`;** list-like fields are `tuple`s (immutable, hashable),

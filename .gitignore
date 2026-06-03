@@ -31,6 +31,12 @@ htmlcov/
 *.lmdb
 *.mdb
 *.onnx
+# ...but golden test fixtures (small, versioned parity snapshots) MUST be tracked.
+!tests/fixtures/golden/*.pt
+!tests/fixtures/golden/*.pkl
+
+# --- Generated LMDB datasets (writer output; content already covered by *.lmdb/*.mdb) ---
+/preprocessed_*/
 
 # --- Run artifacts the OLD repo wrongly committed (B11) ---
 training_log/

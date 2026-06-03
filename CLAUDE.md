@@ -87,18 +87,22 @@ tests/      test_config.py test_data_shapes.py test_lmdb_roundtrip.py
 
 ## Data Pipeline
 
-**LMDB schema (written contract)** — each sample:
-- `<key>_meta` (pickle): `motions[T,8]`, `actions`, `looks`, `crosses`
-- per-frame `<key>_<t>_tight` and `<key>_<t>_context` JPEG blobs
+**LMDB schema (written contract)** — keys reset **per chunk** (`<key>` = sample index within the chunk):
+- `<key>_meta` (pickle): `motions[T,8]`, `actions`, `looks`, `crosses` (no `bboxes` — dropped in 1.2)
+- per-frame `<key>_<t>_tight` and `<key>_<t>_context` JPEG blobs (stored **un-normalized** `[0,1]·255`;
+  ImageNet normalize is applied at read time, not by the writer)
 
 Stages (offline → runtime): PIE → sequence generation (sliding windows `seq_len=20`, `stride=3`,
 `future_offset=30`, `tol=2`; filter #2 drops windows with any crossing during observation) → crop/motion
-extraction + LMDB writer (`context_scale=2.0`, `jpeg_quality=90`, `chunk_size=5000`) → offline balance/split
+extraction + LMDB writer (`context_scale=3.0`, `jpeg_quality=90`, `chunk_size=5000`) → offline balance/split
 → offline augmentation (minority classes) → runtime `LMDBChunkDataset` (per-process env keyed on pid) + collate.
 
-- `crosses` raw labels `{-1,0,1}` are clamped to `{0,1}`.
-- The **8-dim motion feature** must be documented per channel; `horizontal_flip` augmentation negates
-  motion channel index 2 — the index must match the channel definition or augmented data corrupts silently.
+- `crosses` raw labels `{-1,0,1}` are clamped to `{0,1}` (at sequence generation, 1.1; the writer does not re-clamp).
+- `context_scale` is a single uniform **3.0** across data + benchmark (kept config-flexible for ablation).
+- The **8-dim motion feature** is `(cx, cy, dx, dy, w, h, dw, dh)` from the int-truncated bbox (documented per
+  channel in `data/transforms.compute_motion`); `horizontal_flip` augmentation (1.4) negates **index 2 (dx)** —
+  the index must match the channel definition or augmented data corrupts silently. ⚠️ Preserved legacy quirk:
+  frame-0 `dw`/`dh` (idx 6/7) hold the *raw* `w0`/`h0`, not a delta (Phase-B fix candidate).
 
 ### Dataset Statistics (keep current)
 
