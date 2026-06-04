@@ -39,8 +39,7 @@ from pedpredict.models.heads import (
     build_crosses_frame_head,
     build_pool_mlp,
     build_task_classifiers,
-    frame_pool_reduce,
-    temporal_attention_pool,
+    emit_task_logits,
 )
 
 
@@ -93,26 +92,17 @@ class CrossAttentionModule(nn.Module):
             value=image_feats,
         )  # [B, T, D]
 
-        pooled, weights = temporal_attention_pool(attn_output, self.pool_mlp)  # [B, D], [B, T]
-
-        logits: dict[str, torch.Tensor] = {}
-
-        # Pooled-feature heads. actions/looks are supervised; crosses (-> crosses_pooled) is the B4
-        # live-but-unsupervised auxiliary head (skipped only if explicitly disabled).
-        for key, head in self.classifier.items():
-            if key == "crosses":
-                if self.emit_crosses_pooled:
-                    logits["crosses_pooled"] = head(pooled)
-            else:
-                logits[key] = head(pooled)
-
-        if self.use_frame_crosses:
-            frame_logits = self.crosses_frame_head(attn_output)  # [B, T, C]
-            logits["crosses_frame"] = frame_pool_reduce(frame_logits, self.frame_pool)
-
-        logits["temporal_weights"] = weights  # [B, T]
-
-        return logits
+        # Shared output-contract block (heads.emit_task_logits) — the full model emits temporal_weights.
+        return emit_task_logits(
+            attn_output,
+            self.pool_mlp,
+            self.classifier,
+            self.crosses_frame_head,
+            frame_pool=self.frame_pool,
+            use_frame_crosses=self.use_frame_crosses,
+            emit_crosses_pooled=self.emit_crosses_pooled,
+            emit_temporal_weights=True,
+        )
 
 
 if __name__ == "__main__":  # B6: smoke test driven by ModelCfg, not drifting legacy kwargs

@@ -82,3 +82,40 @@ def frame_pool_reduce(frame_logits: torch.Tensor, mode: FramePool) -> torch.Tens
     if mode == "mean":
         return frame_logits.mean(dim=1)
     raise ValueError(f"Unsupported frame_pool: {mode}")
+
+
+def emit_task_logits(
+    feats: torch.Tensor,
+    pool_mlp: nn.Module,
+    classifier: nn.ModuleDict,
+    crosses_frame_head: nn.Module,
+    *,
+    frame_pool: FramePool,
+    use_frame_crosses: bool,
+    emit_crosses_pooled: bool,
+    emit_temporal_weights: bool,
+) -> dict[str, torch.Tensor]:
+    """Shared output-contract head block (Prompt 2.5): pooled heads + B4 gate + frame reduce.
+
+    The identical tail of ``CrossAttentionModule`` (Prompt 2.3) and all three ablations (Prompt 2.5),
+    factored here so the output contract lives in ONE place. ``feats [B, T, D]`` are the post-fusion /
+    post-encoder features to pool and classify.
+
+    Emission order matches the legacy modules: pooled ``actions`` / ``looks`` -> gated ``crosses_pooled``
+    (B4: the legacy-dead ``classifier['crosses']`` head, live-but-unsupervised) -> ``crosses_frame``
+    (logsumexp/max/mean over time) -> ``temporal_weights`` (full model only). Gating ``crosses_pooled`` /
+    ``temporal_weights`` never perturbs the other keys.
+    """
+    pooled, weights = temporal_attention_pool(feats, pool_mlp)  # [B, D], [B, T]
+    logits: dict[str, torch.Tensor] = {}
+    for key, head in classifier.items():
+        if key == "crosses":
+            if emit_crosses_pooled:
+                logits["crosses_pooled"] = head(pooled)
+        else:
+            logits[key] = head(pooled)
+    if use_frame_crosses:
+        logits["crosses_frame"] = frame_pool_reduce(crosses_frame_head(feats), frame_pool)
+    if emit_temporal_weights:
+        logits["temporal_weights"] = weights
+    return logits

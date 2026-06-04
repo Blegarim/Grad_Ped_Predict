@@ -36,7 +36,7 @@ For each module you port:
 | 2.2 | `models/motion_encoder.py` | `models/Motion_Encoder.py` | `tests/fixtures/golden/motion_encoder.pt` | B6, B7 (confirm) | ✅ / ⚠️ | Output parity vs OLD `MotionEncoder` EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval mode), 51 keys / 685,010 params; strict=True load with **no dummy forward** (no lazy params — not a B2 case). ⚠️ flagged: T>capacity now raises a clear error vs an opaque broadcast crash (numerically neutral, `T=20≤200`); `max_positions` constructor-only (kept out of `motion_kwargs`, like `img_size` in 2.1). Resolution-agnostic (adaptive pool). 5 model tests green. See Model decisions (2.2). |
 | 2.3 | `models/cross_attention.py`, `models/heads.py` | `models/Cross_Attention_Module.py` | `tests/fixtures/golden/cross_attention.pt` | B4 | ✅ / ⚠️ | Output parity vs OLD `CrossAttentionModule` EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval), 22 keys / 124,937 params; strict=True load (no lazy params), incl. the legacy-dead `classifier.crosses`. ⚠️ flagged: **`crosses_pooled` made LIVE** (default on) but **unsupervised** — legacy ALLOCATED the head yet never emitted it (dead param); rebuild emits it as a ready-to-swap auxiliary (golden ref recomputed from legacy weights), never routed to loss. `key_padding_mask` removed (always `None` at every call site; fixed seq_len=20, no padding — 1.5). Heads factored into `heads.py` as builders (state_dict keys byte-identical) shared with ablations (2.5). `num_heads=4` (get_model), not class default 8. 8 cross/heads tests green. See Model decisions (2.3). |
 | 2.4 | `models/ensemble.py`, `models/registry.py` (+ `models/ablations.py` stubs) | `models/Unified_Module.py`, `scripts/model_utils.py` | `tests/fixtures/golden/ensemble.pt` | B10 | ✅ / ⚠️ | EnsembleModel output parity vs OLD full model EXACT under a shared `state_dict` loaded `strict=True` (eval, `atol=1e-6, rtol=1e-5`), 342-key dict — attrs `motion_enc`/`vit`/`cross_attention`/`image_norm`/`motion_norm` preserved; LayerNorm-before-fusion + `return_feats` path kept. Registry replaces `model_utils` (B10): `ModelType` str-Enum + `coerce` (typo = clear error), `build_model(RootCfg, model_type?)` stamps intrinsic `model.model_type`, single `forward_model(model, *batch[:3])` adapter. ⚠️ inherits `crosses_pooled` (B4, recomputed from legacy weights) + `key_padding_mask` removal (2.3). Ablations are 2.5 stubs (`build_model` for them raises `NotImplementedError("Prompt 2.5")`; registry needs no edit when filled). **14 Prompt-2.4 tests green (36 model+smoke total).** See Model decisions (2.4). |
-| 2.5 | `models/ablations.py` | `models/AblationModels.py` | | B11 | — | per-ablation output keys |
+| 2.5 | `models/ablations.py`, `models/heads.py` (+`emit_task_logits`) | `models/AblationModels.py` | `tests/fixtures/golden/ensemble.pt` (extended to 4 types) | B4, B6, B10 (reuse), B11 | ✅ / ⚠️ | All three ablations port EXACT under shared `state_dict` loaded `strict=True` (eval, `atol=1e-6, rtol=1e-5`) — `motion_only` 71-key, `visual_only` 285-key, `vanilla_concat` 342-key dicts; legacy attrs (`norm`/`motion_norm`/`visual_norm`/`fusion`/`pool_mlp`/`classifier`/`crosses_frame_head` + sub-encoders) preserved, incl. the legacy-dead `classifier.crosses`. Heads built via `heads.py` (keys byte-identical). ⚠️ flagged: **`crosses_pooled` made LIVE-but-unsupervised UNIFORMLY** with the full model (B4, default on, gated by `emit_crosses_pooled`; golden ref recomputed from legacy weights, never routed to loss) — legacy ablation `forward` emitted 3 keys. **`temporal_weights` is structurally full-model-only** (ablations never emit it). Legacy per-call `frame_pool` `forward` arg dropped (permanently default at every call site, like 2.3 `key_padding_mask`; behavior-neutral). Output-contract head block factored into `heads.emit_task_logits` (shared by all 4 model types); `cross_attention.py` retrofitted to it (behavior-neutral, golden still EXACT). Registry (2.4) needed **no edit** — stubs swapped for real classes. OLD root one-offs folded/dropped (B11): `test_ablation_models.py`→shape asserts in `test_all_model_types_build_and_forward`; `ablation_usage_example.py`/`test_ablation_structure_clean.py` dropped; `final_ablation_verification.py` suffix-naming deferred to eval/8.1. **13 Prompt-2.5 tests green (46 model+smoke total; full suite 179 passed, 1 skipped).** See Model decisions (2.5). |
 | 3.1 | `losses/multitask.py` | `train.py:144-153,341-345` | | B3 (loss), part B1 | — | imbalance policy (w/ 1.3, 1.6) |
 | 3.2 | `training/metrics.py` | `train.py` val, `test.py` eval | | B1 | — | shared by train+test |
 | 4.1 | `training/trainer.py` | `train.py:125-175,236-632` | | B1, B2 (consumer), B8 | — | no dummy-forward |
@@ -501,6 +501,48 @@ consumers (2.5 ablations, 4.1 trainer, 5.1 eval, 6.2 viz, 7.1 export) stay consi
   `models.geometry` for validation, so eager submodule imports in `__init__` created a `config` ↔ `models`
   cycle. Resolved by keeping `__init__` a docstring only (matches the existing vit/motion/cross convention);
   consumers import from the concrete module (`from pedpredict.models.registry import build_model`).
+
+### Model decisions (Prompt 2.5)
+
+The three ablation models, filling the 2.4 seam. Built on the merged 2.4 base (registry + ensemble), so
+the registry needed **no edit**. Locked so the downstream consumers (4.1 trainer, 5.1 eval, 6.x viz) branch
+the output contract correctly:
+
+- **Parity class.** Each ablation's math is copied verbatim from OLD `models/AblationModels.py`
+  (`MotionOnly`/`VisualOnly` = `norm(encoder)` → pool → heads; `VanillaConcat` = `fusion(cat[motion, image])`
+  → pool → heads, concat order **`[motion, image]`** per OLD line 185). EXACT vs OLD under shared `state_dict`
+  (`strict=True`, eval, `atol=1e-6, rtol=1e-5`); rests on the locked 2.1/2.2 sub-encoders + the ablation glue.
+  Golden = the **extended** `tests/fixtures/golden/ensemble.pt` (now 4 entries; `_MODEL_TYPES` widened to all
+  four and recaptured). Legacy attr names preserved verbatim → OLD ablation checkpoints strict-load, incl. the
+  legacy-dead `classifier.crosses`.
+- **Q2 (decided) — `crosses_pooled` UNIFORM with the full model.** Each legacy ablation allocated
+  `classifier['crosses']` but its `forward` skipped it (`if key != 'crosses'`) — the same B4 dead param as the
+  full model. Resolution mirrors 2.3: emit it **live-but-unsupervised**, gated by `cfg.emit_crosses_pooled`
+  (default ON), golden ref recomputed from the legacy weights, **never routed to loss**. Keeps the output
+  contract singular across all four model types. Flagged ADDITION (legacy ablation `forward` emitted 3 keys).
+- **`temporal_weights` stays full-model-only** (confirmed from the OLD source, as flagged in the 2.4 note):
+  ablations emit `{actions, looks, crosses_frame, crosses_pooled}`; the pooling softmax weights are computed
+  internally but **not** exposed. Eval/train/viz (3.2/5.1/6.x) must treat `temporal_weights` as `full`-only.
+- **Q3 (decided) — shared `heads.emit_task_logits`.** The pooled-head + B4 gate + frame-reduce block (identical
+  in `CrossAttentionModule` and all three ablations) is factored into one stateless helper
+  (`emit_temporal_weights` flag: `True` for `full`, `False` for ablations). `cross_attention.py` was retrofitted
+  to call it — **behavior-neutral**, the locked 2.3 golden test stays EXACT. Kills the 4× duplication.
+- **Behavior-neutral removal.** The legacy per-call `frame_pool` `forward` argument is dropped (permanently the
+  default at every call site, like the 2.3 `key_padding_mask`); the pooling mode is fixed at construction from
+  `cfg.frame_pool`, matching `CrossAttentionModule`/`EnsembleModel`.
+- **Registry untouched.** `from_config(cfg, img_size)` is the uniform 2.4 signature (`motion_only` ignores
+  `img_size`); forward signatures match `MODEL_INPUT_SIGNATURE`; `build_model` stamps `model.model_type`. The
+  2.4 `test_build_model_ablations_pending_2_5` (asserted `NotImplementedError`) was **replaced** by
+  `test_build_model_ablations` (real build) + per-ablation golden/strict/contract tests + a parametrized
+  `test_all_model_types_build_and_forward` over all four types.
+- **B11 — OLD root one-offs folded/dropped.** `test_ablation_models.py` shape checks → folded into
+  `test_all_model_types_build_and_forward`; `ablation_usage_example.py` (usage doc) and
+  `test_ablation_structure_clean.py` (grep-the-file structure check, obsolete under B12) → dropped;
+  `final_ablation_verification.py`'s `model_suffix` artifact-naming check → deferred to eval/experiment-tracking
+  (8.1), not a model-shape concern.
+- **⚠️ Fixture size.** Extending to 4 types grew `ensemble.pt` ≈29 MB → ≈91 MB (three extra sub-encoder
+  state_dicts; `visual_only`/`vanilla_concat` carry the ViT). Accepted as golden test data; revisit (dedup /
+  Git LFS / smaller-config capture) if repo weight becomes a problem in Phase B.
 
 ### Config decisions (Prompt 0.2)
 

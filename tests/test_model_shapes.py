@@ -14,8 +14,10 @@ from pathlib import Path
 
 import pytest
 import torch
+import torch.nn as nn
 
 from pedpredict.config import DataCfg, ModelCfg, RootCfg
+from pedpredict.models.ablations import MotionOnlyModel, VanillaConcatModel, VisualOnlyModel
 from pedpredict.models.cross_attention import CrossAttentionModule
 from pedpredict.models.ensemble import EnsembleModel
 from pedpredict.models.geometry import feature_map_size
@@ -412,11 +414,19 @@ def test_build_model_defaults_to_eval_model_type() -> None:
     assert build_model(cfg).model_type is ModelType.FULL
 
 
+_ABLATION_CLASS = {
+    ModelType.MOTION_ONLY: MotionOnlyModel,
+    ModelType.VISUAL_ONLY: VisualOnlyModel,
+    ModelType.VANILLA_CONCAT: VanillaConcatModel,
+}
+
+
 @pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
-def test_build_model_ablations_pending_2_5(mt: ModelType) -> None:
-    """Ablation builds are wired but their classes are 2.5 stubs (swiftly replaceable seam)."""
-    with pytest.raises(NotImplementedError, match="Prompt 2.5"):
-        build_model(RootCfg(), mt)
+def test_build_model_ablations(mt: ModelType) -> None:
+    """Prompt 2.5: ablation classes now build through the registry to their concrete types (B10)."""
+    model = build_model(RootCfg(), mt)
+    assert isinstance(model, _ABLATION_CLASS[mt])
+    assert model.model_type is mt
 
 
 # --------------------------------------------------------------------------- registry: forward adapter
@@ -457,3 +467,114 @@ def test_forward_model_dispatch_is_intrinsic() -> None:
     """forward_model needs no type argument — it reads model.model_type set by build_model (B10)."""
     model = build_model(RootCfg(), "full")
     assert model.model_type is ModelType.FULL
+
+
+# =========================================================================== Prompt 2.5 — Ablation models
+
+_ABLATION_KEYS_ON = {"actions", "looks", "crosses_frame", "crosses_pooled"}
+_ABLATION_KEYS_OFF = {"actions", "looks", "crosses_frame"}
+# Per-type registry forward call, from the collate triple (images_tight, images_context, motions).
+_ABLATION_FORWARD = {
+    ModelType.MOTION_ONLY: lambda m, ti, ctx, mo: m(mo, ti),
+    ModelType.VISUAL_ONLY: lambda m, ti, ctx, mo: m(ctx),
+    ModelType.VANILLA_CONCAT: lambda m, ti, ctx, mo: m(ti, ctx, mo),
+}
+
+
+def _build_ablation(mt: ModelType, entry: dict) -> nn.Module:
+    return _ABLATION_CLASS[mt].from_config(ModelCfg(), entry["img_size"])
+
+
+def _rebuild_ablation_with_gate(mt: ModelType, ref: nn.Module, emit: bool) -> nn.Module:
+    """Rebuild an ablation sharing ``ref``'s sub-encoders but with ``emit_crosses_pooled=emit``; load ref weights."""
+    cfg = ModelCfg()
+    kw = {
+        "d_model": cfg.d_model,
+        "num_classes_dict": dict(cfg.num_classes),
+        "dropout": cfg.head_dropout,
+        "use_frame_crosses": cfg.use_frame_crosses,
+        "frame_pool": cfg.frame_pool,
+        "emit_crosses_pooled": emit,
+    }
+    if mt is ModelType.MOTION_ONLY:
+        model = MotionOnlyModel(motion_enc=ref.motion_enc, **kw)
+    elif mt is ModelType.VISUAL_ONLY:
+        model = VisualOnlyModel(vit=ref.vit, **kw)
+    else:
+        model = VanillaConcatModel(motion_enc=ref.motion_enc, vit=ref.vit, **kw)
+    model.load_state_dict(ref.state_dict(), strict=True)
+    return model.eval()
+
+
+# --------------------------------------------------------------------------- golden parity (per ablation)
+
+
+@pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
+def test_golden_ablation_parity(ensemble_golden: dict, mt: ModelType) -> None:
+    """Each new ablation loads its OLD state_dict (strict=True) and reproduces every golden key (eval)."""
+    entry = ensemble_golden[mt.value]
+    model = _build_ablation(mt, entry)
+    model.load_state_dict(entry["state_dict"], strict=True)
+    model.eval()
+    inp = entry["inputs"]
+    with torch.no_grad():
+        out = _ABLATION_FORWARD[mt](model, inp["images_tight"], inp["images_context"], inp["motions"])
+    tol = entry["meta"]
+    # 3 genuine legacy keys + crosses_pooled (B4, recomputed from legacy weights); no temporal_weights.
+    assert set(out) == _ABLATION_KEYS_ON
+    for key, expected in entry["outputs"].items():
+        torch.testing.assert_close(out[key], expected, atol=tol["atol"], rtol=tol["rtol"])
+
+
+@pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
+def test_strict_load_ablation_no_missing_unexpected(ensemble_golden: dict, mt: ModelType) -> None:
+    """OLD ablation state_dict loads strict with zero missing/unexpected keys and NO forward (eager, 2.1)."""
+    entry = ensemble_golden[mt.value]
+    model = _build_ablation(mt, entry)  # never forward first
+    missing, unexpected = model.load_state_dict(entry["state_dict"], strict=False)
+    assert not missing, f"missing keys: {missing}"
+    assert not unexpected, f"unexpected keys: {unexpected}"
+    assert any(k.startswith("classifier.crosses") for k in entry["state_dict"]), (
+        "fixture should retain the legacy-dead classifier.crosses param (B4 param-layout parity)"
+    )
+    model.load_state_dict(entry["state_dict"], strict=True)  # must not raise
+
+
+# --------------------------------------------------------------------------- B4 gate + output contract
+
+
+@pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
+def test_ablation_emit_flag_gate(mt: ModelType) -> None:
+    """emit_crosses_pooled toggles ONLY crosses_pooled; ablations never emit temporal_weights; keys stable."""
+    on = _ABLATION_CLASS[mt].from_config(ModelCfg(), 224).eval()
+    off = _rebuild_ablation_with_gate(mt, on, emit=False)  # same weights, gate off
+    tight, context, motions = _dummy_full_inputs(ModelCfg())
+    fwd = _ABLATION_FORWARD[mt]
+    with torch.no_grad():
+        out_on = fwd(on, tight, context, motions)
+        out_off = fwd(off, tight, context, motions)
+    assert set(out_on) == _ABLATION_KEYS_ON
+    assert set(out_off) == _ABLATION_KEYS_OFF
+    assert "temporal_weights" not in out_on  # structurally full-model-only
+    for key in _ABLATION_KEYS_OFF:  # gating crosses_pooled must not perturb the other keys
+        torch.testing.assert_close(out_on[key], out_off[key])
+
+
+# --------------------------------------------------------------------------- consolidated: all four types
+
+
+@pytest.mark.parametrize("mt", list(ModelType), ids=lambda m: m.value)
+def test_all_model_types_build_and_forward(mt: ModelType) -> None:
+    """Every model_type builds via the registry and runs forward_model on a dummy batch (per-type contract)."""
+    cfg = ModelCfg()
+    model = build_model(RootCfg(), mt).eval()
+    tight, context, motions = _dummy_full_inputs(cfg)
+    with torch.no_grad():
+        out = forward_model(model, tight, context, motions)
+    expected = _FULL_KEYS if mt is ModelType.FULL else _ABLATION_KEYS_ON
+    assert set(out) == expected
+    # crosses_frame is the ONLY supervised key — present and finite for all four types.
+    assert out["crosses_frame"].shape == (2, cfg.num_classes["crosses"])
+    assert torch.isfinite(out["crosses_frame"]).all()
+    # temporal_weights is structurally full-model-only.
+    assert ("temporal_weights" in out) is (mt is ModelType.FULL)
