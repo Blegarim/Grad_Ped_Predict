@@ -39,7 +39,10 @@ OUT = Path(__file__).resolve().parents[1] / "fixtures" / "golden" / "ensemble.pt
 _B, _T = 2, 3
 _CTX, _TIGHT = 224, 128
 _SEED = 0
-_MODEL_TYPES = ("full", "motion_only", "visual_only", "vanilla_concat")
+# Prompt 2.4 captures only the full model (the module it ports). Prompt 2.5 extends this tuple to
+# ("full", "motion_only", "visual_only", "vanilla_concat") to add the ablation parity references — each
+# ablation carries its own ViT/motion state_dict, so capturing all four ~4x the fixture size; kept lean here.
+_MODEL_TYPES = ("full",)
 
 
 def _dummy_inputs(cfg: ModelCfg) -> dict[str, torch.Tensor]:
@@ -74,7 +77,7 @@ def main() -> None:
 
     for mt in _MODEL_TYPES:
         torch.manual_seed(_SEED)
-        vit = OldViT(img_size=_CTX, **cfg.vit_kwargs())
+        vit = OldViT(**cfg.vit_kwargs())  # OLD ViT is lazy: global table materializes at first forward
         motion_enc = OldMotion(**cfg.motion_kwargs())
         model = get_model(mt, motion_enc, vit, d_model=cfg.d_model, num_classes_dict=num_classes, dropout=0.1)
         model.eval()
