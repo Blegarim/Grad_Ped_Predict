@@ -16,12 +16,21 @@ import pytest
 import torch
 
 from pedpredict.config import DataCfg, ModelCfg
+from pedpredict.models.cross_attention import CrossAttentionModule
 from pedpredict.models.geometry import feature_map_size
+from pedpredict.models.heads import (
+    build_crosses_frame_head,
+    build_pool_mlp,
+    build_task_classifiers,
+    frame_pool_reduce,
+    temporal_attention_pool,
+)
 from pedpredict.models.motion_encoder import MotionEncoder
 from pedpredict.models.vit import ViT_Hierarchical
 
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "vit.pt"
 _MOTION_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "motion_encoder.pt"
+_CROSS_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "cross_attention.pt"
 
 
 @pytest.fixture(scope="module")
@@ -177,3 +186,124 @@ def test_motion_conv_in_channels_matches_datacfg() -> None:
     """Coupling guard (1.2/1.4/2.2): the Conv1d input width equals the 8-dim motion contract."""
     model = MotionEncoder.from_config(ModelCfg())
     assert model.motion_encoder[0].in_channels == DataCfg().motion_dim == ModelCfg().motion_dim
+
+
+# =========================================================================== Prompt 2.3 — CrossAttention
+
+_CROSS_DEFAULT_KEYS = {"actions", "looks", "crosses_pooled", "crosses_frame", "temporal_weights"}
+_CROSS_LEGACY_KEYS = ("actions", "looks", "crosses_frame", "temporal_weights")
+
+
+@pytest.fixture(scope="module")
+def cross_golden() -> dict:
+    if not _CROSS_FIXTURE.exists():
+        pytest.skip(
+            f"missing golden fixture {_CROSS_FIXTURE} (run tests/_capture/capture_cross_attention_golden.py)"
+        )
+    return torch.load(_CROSS_FIXTURE, weights_only=False)
+
+
+def _build_cross(cross_golden: dict) -> CrossAttentionModule:
+    return CrossAttentionModule(**cross_golden["cross_kwargs"])
+
+
+def test_golden_cross_attention_parity(cross_golden: dict) -> None:
+    """New module loads the OLD state_dict (strict=True) and reproduces every golden key (eval)."""
+    model = _build_cross(cross_golden)
+    model.load_state_dict(cross_golden["state_dict"], strict=True)
+    model.eval()
+    with torch.no_grad():
+        out = model(cross_golden["inputs"]["motion_feats"], cross_golden["inputs"]["image_feats"])
+    tol = cross_golden["meta"]
+    # All 5 keys: the 4 genuine legacy outputs + crosses_pooled (reconstructed from legacy weights, B4).
+    assert set(out) == _CROSS_DEFAULT_KEYS
+    for key, expected in cross_golden["outputs"].items():
+        torch.testing.assert_close(out[key], expected, atol=tol["atol"], rtol=tol["rtol"])
+
+
+def test_strict_load_cross_attention_no_lazy_params(cross_golden: dict) -> None:
+    """B4 param parity: OLD state_dict (incl. the legacy-dead classifier.crosses) loads strict, no forward."""
+    model = _build_cross(cross_golden)  # never call forward first
+    missing, unexpected = model.load_state_dict(cross_golden["state_dict"], strict=False)
+    assert not missing, f"missing keys: {missing}"
+    assert not unexpected, f"unexpected keys: {unexpected}"
+    assert any(k.startswith("classifier.crosses") for k in cross_golden["state_dict"]), (
+        "fixture should retain the legacy classifier.crosses param (param-layout parity)"
+    )
+    model.load_state_dict(cross_golden["state_dict"], strict=True)  # must not raise
+
+
+def test_cross_attention_emit_flag_default_on() -> None:
+    """B4 default: crosses_pooled IS emitted; shape [B, C]; the 4 legacy keys are byte-identical to off."""
+    cfg = ModelCfg()
+    motion = torch.randn(2, 5, cfg.d_model)
+    image = torch.randn(2, 5, cfg.d_model)
+
+    on = CrossAttentionModule.from_config(cfg).eval()
+    off = CrossAttentionModule(**cfg.cross_kwargs(), emit_crosses_pooled=False)
+    off.load_state_dict(on.state_dict(), strict=True)  # same weights
+    off.eval()
+
+    with torch.no_grad():
+        out_on = on(motion, image)
+        out_off = off(motion, image)
+
+    assert set(out_on) == _CROSS_DEFAULT_KEYS
+    assert "crosses_pooled" not in out_off
+    assert set(out_off) == set(_CROSS_LEGACY_KEYS)
+    assert out_on["crosses_pooled"].shape == (2, cfg.num_classes["crosses"])
+    for key in _CROSS_LEGACY_KEYS:  # gating crosses_pooled must not perturb the legacy keys
+        torch.testing.assert_close(out_on[key], out_off[key])
+
+
+def test_cross_attention_output_shapes() -> None:
+    cfg = ModelCfg()
+    b, t = 3, 7
+    model = CrossAttentionModule.from_config(cfg).eval()
+    with torch.no_grad():
+        out = model(torch.randn(b, t, cfg.d_model), torch.randn(b, t, cfg.d_model))
+    assert out["actions"].shape == (b, cfg.num_classes["actions"])
+    assert out["looks"].shape == (b, cfg.num_classes["looks"])
+    assert out["crosses_frame"].shape == (b, cfg.num_classes["crosses"])
+    assert out["crosses_pooled"].shape == (b, cfg.num_classes["crosses"])
+    assert out["temporal_weights"].shape == (b, t)
+    assert torch.isfinite(out["crosses_frame"]).all()
+
+
+def test_cross_attn_heads_from_config() -> None:
+    """get_model wired num_heads=4 (NOT the legacy class default 8); config must reproduce that."""
+    model = CrossAttentionModule.from_config(ModelCfg())
+    assert model.cross_attn.num_heads == 4
+
+
+# --------------------------------------------------------------------------- heads.py in isolation
+
+
+def test_heads_builders_shapes() -> None:
+    d, dropout = 128, 0.1
+    num_classes = {"actions": 2, "looks": 2, "crosses": 2}
+    pool_mlp = build_pool_mlp(d)
+    classifiers = build_task_classifiers(num_classes, d, dropout)
+    frame_head = build_crosses_frame_head(d, num_classes["crosses"])
+    assert set(classifiers) == set(num_classes)  # incl. crosses (param-layout parity)
+    feats = torch.randn(4, d)
+    assert pool_mlp(torch.randn(4, 6, d)).shape == (4, 6, 1)
+    assert classifiers["actions"](feats).shape == (4, 2)
+    assert frame_head(torch.randn(4, 6, d)).shape == (4, 6, 2)
+
+
+def test_temporal_attention_pool_weights_normalized() -> None:
+    feats = torch.randn(3, 8, 16)
+    pooled, weights = temporal_attention_pool(feats, build_pool_mlp(16))
+    assert pooled.shape == (3, 16)
+    assert weights.shape == (3, 8)
+    torch.testing.assert_close(weights.sum(dim=1), torch.ones(3))  # softmax over time
+
+
+def test_frame_pool_reduce_modes() -> None:
+    x = torch.randn(2, 5, 2)
+    torch.testing.assert_close(frame_pool_reduce(x, "mean"), x.mean(dim=1))
+    torch.testing.assert_close(frame_pool_reduce(x, "max"), x.max(dim=1).values)
+    torch.testing.assert_close(frame_pool_reduce(x, "logsumexp"), torch.logsumexp(x, dim=1))
+    with pytest.raises(ValueError, match="Unsupported frame_pool"):
+        frame_pool_reduce(x, "median")  # type: ignore[arg-type]

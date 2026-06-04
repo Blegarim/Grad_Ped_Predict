@@ -47,6 +47,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
 }
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
+_FRAME_POOLS = frozenset({"logsumexp", "max", "mean"})  # CrossAttentionModule frame-pool modes (2.3)
 
 
 class ConfigError(ValueError):
@@ -198,6 +199,14 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(
             f"motion_hidden_dim={m.motion_hidden_dim} not divisible by motion_num_heads={m.motion_num_heads}"
         )
+
+    # CrossAttentionModule (Prompt 2.3): MultiheadAttention requires d_model divisible by num_heads.
+    if m.cross_attn_num_heads <= 0 or m.d_model % m.cross_attn_num_heads != 0:
+        raise ConfigError(
+            f"model.d_model={m.d_model} not divisible by model.cross_attn_num_heads={m.cross_attn_num_heads}"
+        )
+    if m.frame_pool not in _FRAME_POOLS:
+        raise ConfigError(f"model.frame_pool must be one of {sorted(_FRAME_POOLS)}; got {m.frame_pool!r}")
 
     if d.motion_dim != m.motion_dim:  # B7: writer-channel / model-input agreement
         raise ConfigError(f"data.motion_dim ({d.motion_dim}) != model.motion_dim ({m.motion_dim})")

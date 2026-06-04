@@ -17,3 +17,8 @@ motion_num_heads: 8
 motion_dropout: 0.3
 head_dropout: 0.1
 num_classes: {actions: 2, looks: 2, crosses: 2}
+# CrossAttentionModule — mirrors scripts/model_utils.get_model() full-model wiring.
+cross_attn_num_heads: 4        # get_model passes num_heads=4 (NOT the class default 8)
+use_frame_crosses: true
+frame_pool: logsumexp          # {logsumexp, max, mean}
+emit_crosses_pooled: true      # B4: live-but-unsupervised auxiliary head (kept ready to swap in)

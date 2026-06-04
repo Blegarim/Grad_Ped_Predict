@@ -99,6 +99,16 @@ class ModelCfg:
     # head wiring (get_model(..., dropout=0.1))
     head_dropout: float = 0.1
     num_classes: dict[str, int] = field(default_factory=lambda: {"actions": 2, "looks": 2, "crosses": 2})
+    # CrossAttentionModule — mirror scripts/model_utils.get_model()'s full-model wiring EXACTLY.
+    # NOTE: get_model passes num_heads=4 (NOT the legacy class default 8) and does NOT forward dropout
+    # (so cross_attn + classifier use head_dropout=0.1, the class default).
+    cross_attn_num_heads: int = 4
+    use_frame_crosses: bool = True
+    frame_pool: str = "logsumexp"       # {"logsumexp", "max", "mean"}
+    # B4: crosses_pooled is the pooled-feature crosses head. Legacy ALLOCATED it but never called it
+    # (dead param). Here it is LIVE-but-unsupervised (default on): emitted as an auxiliary diagnostic kept
+    # ready to swap in for crosses_frame, never fed to the loss. See MIGRATION.md (2.3) / CLAUDE.md.
+    emit_crosses_pooled: bool = True
 
     def vit_kwargs(self) -> dict:
         """Reproduce OLD ``vit_args_config()`` — values as lists (parity surface)."""
@@ -125,6 +135,21 @@ class ModelCfg:
             "num_layers": self.motion_num_layers,
             "num_heads": self.motion_num_heads,
             "dropout": self.motion_dropout,
+        }
+
+    def cross_kwargs(self) -> dict:
+        """Reproduce OLD ``get_model()``'s ``CrossAttentionModule(...)`` call (parity surface).
+
+        ``emit_crosses_pooled`` is intentionally excluded (constructor-only, like ``img_size`` /
+        ``max_positions`` in the ViT / MotionEncoder ports) so this stays a pure legacy-parity surface.
+        """
+        return {
+            "d_model": self.d_model,
+            "num_heads": self.cross_attn_num_heads,
+            "num_classes_dict": dict(self.num_classes),
+            "dropout": self.head_dropout,
+            "use_frame_crosses": self.use_frame_crosses,
+            "frame_pool": self.frame_pool,
         }
 
 

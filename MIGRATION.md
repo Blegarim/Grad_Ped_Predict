@@ -34,7 +34,7 @@ For each module you port:
 | 1.7 | `data/stats.py`, `scripts/count_labels.py` | `label_count.py` | reuses `tests/fixtures/golden/pie_sequences_counts.json` (1.1) | B5, B3 (reuse) | ✅ / ⚠️ | No new scanner — aggregates the 1.6 `LabelScanCache` over base split LMDBs; drift = EXACT integer equality vs the 1.1 fixture (the table's numeric source). ⚠️ flagged: per-chunk rows → per-split aggregate; `crosses[-1]` column dropped (clamped at 1.1); aug dir excluded from the canonical table (opt-in `--include-aug` bypasses the gate). `tabulate` dropped (unused → hand-rolled table). 7 tests green. See Data decisions (1.7). |
 | 2.1 | `models/vit.py`, `models/geometry.py` | `models/Vision_Transformer.py` | `tests/fixtures/golden/vit.pt` | B2, B13, B6 | ✅ / ⚠️ | Output parity vs OLD ViT EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval mode); strict=True load with **no dummy forward** proven. ⚠️ flagged: eager resolution-bound rel-pos tables (no forward-time rebuild) — a 224-trained ckpt won't strict-load into another resolution by design (OLD lazy path silently reinit'd it). 6 model + 2 config tests green. See Model decisions (2.1). |
 | 2.2 | `models/motion_encoder.py` | `models/Motion_Encoder.py` | `tests/fixtures/golden/motion_encoder.pt` | B6, B7 (confirm) | ✅ / ⚠️ | Output parity vs OLD `MotionEncoder` EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval mode), 51 keys / 685,010 params; strict=True load with **no dummy forward** (no lazy params — not a B2 case). ⚠️ flagged: T>capacity now raises a clear error vs an opaque broadcast crash (numerically neutral, `T=20≤200`); `max_positions` constructor-only (kept out of `motion_kwargs`, like `img_size` in 2.1). Resolution-agnostic (adaptive pool). 5 model tests green. See Model decisions (2.2). |
-| 2.3 | `models/cross_attention.py`, `models/heads.py` | `models/Cross_Attention_Module.py` | | B4 | — | crosses_pooled decision |
+| 2.3 | `models/cross_attention.py`, `models/heads.py` | `models/Cross_Attention_Module.py` | `tests/fixtures/golden/cross_attention.pt` | B4 | ✅ / ⚠️ | Output parity vs OLD `CrossAttentionModule` EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval), 22 keys / 124,937 params; strict=True load (no lazy params), incl. the legacy-dead `classifier.crosses`. ⚠️ flagged: **`crosses_pooled` made LIVE** (default on) but **unsupervised** — legacy ALLOCATED the head yet never emitted it (dead param); rebuild emits it as a ready-to-swap auxiliary (golden ref recomputed from legacy weights), never routed to loss. `key_padding_mask` removed (always `None` at every call site; fixed seq_len=20, no padding — 1.5). Heads factored into `heads.py` as builders (state_dict keys byte-identical) shared with ablations (2.5). `num_heads=4` (get_model), not class default 8. 8 cross/heads tests green. See Model decisions (2.3). |
 | 2.4 | `models/ensemble.py`, `models/registry.py` | `models/Unified_Module.py`, `scripts/model_utils.py` | | B10 | — | typed factory + forward adapter |
 | 2.5 | `models/ablations.py` | `models/AblationModels.py` | | B11 | — | per-ablation output keys |
 | 3.1 | `losses/multitask.py` | `train.py:144-153,341-345` | | B3 (loss), part B1 | — | imbalance policy (w/ 1.3, 1.6) |
@@ -66,7 +66,21 @@ Record cross-cutting decisions here as they're made (so coupled prompts stay con
   relax the online levers so the three never silently triple-stack (B3). The balance scripts did NOT feed
   the legacy final pipeline. 1.6 owns the single metadata scan feeding both sampler + loss; 1.3 scans the
   sequence pkls (a separate offline artifact), not the LMDB._
-- **`crosses_pooled` fate** (B4, Prompt 2.3): _TBD — auxiliary-diagnostic vs config-gated-off._
+- **`crosses_pooled` fate** (B4, Prompt 2.3): _DECIDED (2.3) — **LIVE-but-unsupervised auxiliary head,
+  default ON** (`ModelCfg.emit_crosses_pooled=True`). Rationale: the OLD `forward` never emitted
+  `crosses_pooled` (the `classifier["crosses"]` MLP was allocated but skipped — a dead *parameter*, not
+  dead compute), yet the docs advertised a 5-key contract. We reconcile by keeping the head and computing
+  it every forward, emitted as `crosses_pooled`, kept ready to swap in for `crosses_frame` later — but
+  **never routed to the loss/metrics** (3.1/3.2 supervise `crosses_frame` only). This is an intentional,
+  flagged ADDITION over legacy: the 4 genuine legacy keys keep EXACT golden parity; `crosses_pooled` has
+  its own golden reference recomputed from the legacy weights. The `classifier["crosses"]` param is
+  retained 1:1 so OLD checkpoints still `strict=True`-load. A `emit_crosses_pooled=False` switch exists
+  (gating must not perturb the legacy keys — tested). Coupled siblings: keep `crosses → crosses_frame`
+  routing singular in loss (3.1), metrics (3.2), eval (5.1)._
+- **`key_padding_mask` removed** (B4-adjacent, Prompt 2.3): _the legacy `forward` accepted it but every
+  call site (`EnsembleModel`, `model_forward`) passed only 2 positional args (permanently `None`), and the
+  data layer emits fixed-length `seq_len=20` windows with no padding (1.5 fixed-length policy). Dropped the
+  unused param — behavior-neutral. Note for 2.4: `EnsembleModel.forward` calls `cross_attention(motion, image)`._
 - **8-dim motion channel definition** (1.2 / 1.4 / 2.2): _LOCKED in `transforms.compute_motion`.
   Order `(cx, cy, dx, dy, w, h, dw, dh)` from the int-truncated bbox. **Flip-negated channel = index 2
   (dx)** for 1.4. ⚠️ Two preserved legacy quirks: frame-0 dx/dy hold the first *delta* but dw/dh (idx
@@ -401,6 +415,43 @@ The second model port. Locked so the downstream prompts (2.4 ensemble, 2.5 ablat
   `motion_encoder[0].in_channels == DataCfg.motion_dim == ModelCfg.motion_dim`.
 - **`forward(motion, tight)` arg order** (= OLD `(motion_data, images_data)`) — the 2.4 ensemble / 2.5
   ablation call sites must pass `(motion, tight-crops)` in this order when wiring.
+
+### Model decisions (Prompt 2.3)
+
+The fusion + heads port. Locked so the downstream prompts (2.4 ensemble, 2.5 ablations, 3.1 loss, 3.2
+metrics, 5.1 eval) stay consistent:
+
+- **Parity class.** The 4 genuinely-legacy outputs (`actions`, `looks`, `crosses_frame`,
+  `temporal_weights`) are EXACT vs OLD `CrossAttentionModule` under a **shared `state_dict`** loaded
+  `strict=True`, eval mode (Dropout + MultiheadAttention dropout → identity), `atol=1e-6`, `rtol=1e-5`.
+  Golden = `tests/fixtures/golden/cross_attention.pt` (`tests/_capture/capture_cross_attention_golden.py`;
+  B=2, T=3, D=128). 22-key dict / 124,937 params maps 1:1 — attrs preserved verbatim (`cross_attn`,
+  `pool_mlp`, `classifier`, `crosses_frame_head`). No lazy params (not a B2 case).
+- **B4 RESOLVED — `crosses_pooled` is LIVE-but-unsupervised (default ON).** The OLD `forward` ALLOCATED
+  `classifier["crosses"]` but **skipped it** (`if key != "crosses"`) → `crosses_pooled` was never emitted;
+  the head was a dead *parameter* (checkpointed, optimizer-tracked, never run), while the docs claimed a
+  5-key contract. ⚠️ Intentional ADDITION: the head now runs every forward and is emitted as
+  `crosses_pooled`, kept ready to swap in for `crosses_frame`, but **never routed to loss/metrics**
+  (3.1/3.2/5.1 supervise `crosses_frame` only). Its golden reference is recomputed from the legacy weights
+  in the capture script (legacy `out` had 4 keys). `emit_crosses_pooled=False` disables it; gating must not
+  perturb the 4 legacy keys (`test_cross_attention_emit_flag_default_on`). The `classifier["crosses"]`
+  param is retained 1:1 so OLD checkpoints `strict`-load — the residual dead param under the off-switch is
+  a Phase-B / 9.1 drop candidate.
+- **⚠️ `key_padding_mask` removed.** Legacy `forward` accepted it; every call site passed it as `None`
+  (fixed `seq_len=20`, no padding — 1.5). Behavior-neutral removal. **2.4 note:** `EnsembleModel.forward`
+  must call `self.cross_attention(motion_feats, image_feats)` (two positional args).
+- **Heads factored into `heads.py` as BUILDERS, not a wrapping module.** `build_pool_mlp` /
+  `build_task_classifiers` / `build_crosses_frame_head` return bare `nn.Sequential`/`ModuleDict`/`Linear`
+  assigned to the OLD attr names → state_dict keys byte-identical (a wrapping `nn.Module` would prefix
+  `heads.*` and break strict-load). Stateless `temporal_attention_pool` + `frame_pool_reduce` live there
+  too. **2.5 must reuse these** to kill the pool-MLP/classifier/frame-pool duplication across the 3
+  ablations (same attr names → their OLD checkpoints also strict-load).
+- **`num_heads=4` (config hygiene).** `get_model` wired the full model's cross-attn with `num_heads=4`
+  (NOT the legacy class default 8) and did NOT forward dropout (so `cross_attn`+classifier use
+  `head_dropout=0.1`). New `ModelCfg.cross_attn_num_heads=4`, `frame_pool="logsumexp"`,
+  `use_frame_crosses=True`; `cross_kwargs()` mirrors the `get_model` call. `emit_crosses_pooled` is a
+  constructor-only field kept OUT of `cross_kwargs()` (same precedent as `img_size`/`max_positions`).
+  `validate_config` now checks `d_model % cross_attn_num_heads == 0` and `frame_pool ∈ {logsumexp,max,mean}`.
 
 ### Config decisions (Prompt 0.2)
 

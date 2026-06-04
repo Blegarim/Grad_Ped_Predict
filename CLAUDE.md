@@ -47,8 +47,12 @@ tight crop + motion → MotionEncoder    ───┘
 - **Unified `d_model = 128`** across ALL modules (`config.get_unified_dim_model()` in old repo). Never
   change one module's dim without the others.
 - **Output dict keys**: `actions`, `looks`, `crosses_pooled`, `crosses_frame`, `temporal_weights`.
-  Training & eval supervise **ONLY `crosses_frame`** (logsumexp-pooled over frames). `crosses_pooled` is
-  computed but **unused** — a known band-aid (B4) to resolve explicitly, not silently keep.
+  Training & eval supervise **ONLY `crosses_frame`** (logsumexp-pooled over frames). **B4 RESOLVED (2.3):**
+  the legacy `forward` *allocated* `classifier["crosses"]` but never called it, so `crosses_pooled` was a
+  dead **parameter**, not dead compute (the OLD module emitted only 4 keys). The rebuild makes it
+  **live-but-unsupervised** (`ModelCfg.emit_crosses_pooled=True` by default) — emitted as an auxiliary head
+  kept ready to swap in for `crosses_frame`, but **never routed to loss/metrics**. Set
+  `emit_crosses_pooled=false` to drop it; gating never perturbs the 4 supervised/legacy keys.
   `temporal_weights` is `[B, T]` softmax from the pooling MLP (full model only).
 
 ## Tech Stack
