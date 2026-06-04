@@ -37,7 +37,7 @@ For each module you port:
 | 2.3 | `models/cross_attention.py`, `models/heads.py` | `models/Cross_Attention_Module.py` | `tests/fixtures/golden/cross_attention.pt` | B4 | ✅ / ⚠️ | Output parity vs OLD `CrossAttentionModule` EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval), 22 keys / 124,937 params; strict=True load (no lazy params), incl. the legacy-dead `classifier.crosses`. ⚠️ flagged: **`crosses_pooled` made LIVE** (default on) but **unsupervised** — legacy ALLOCATED the head yet never emitted it (dead param); rebuild emits it as a ready-to-swap auxiliary (golden ref recomputed from legacy weights), never routed to loss. `key_padding_mask` removed (always `None` at every call site; fixed seq_len=20, no padding — 1.5). Heads factored into `heads.py` as builders (state_dict keys byte-identical) shared with ablations (2.5). `num_heads=4` (get_model), not class default 8. 8 cross/heads tests green. See Model decisions (2.3). |
 | 2.4 | `models/ensemble.py`, `models/registry.py` (+ `models/ablations.py` stubs) | `models/Unified_Module.py`, `scripts/model_utils.py` | `tests/fixtures/golden/ensemble.pt` | B10 | ✅ / ⚠️ | EnsembleModel output parity vs OLD full model EXACT under a shared `state_dict` loaded `strict=True` (eval, `atol=1e-6, rtol=1e-5`), 342-key dict — attrs `motion_enc`/`vit`/`cross_attention`/`image_norm`/`motion_norm` preserved; LayerNorm-before-fusion + `return_feats` path kept. Registry replaces `model_utils` (B10): `ModelType` str-Enum + `coerce` (typo = clear error), `build_model(RootCfg, model_type?)` stamps intrinsic `model.model_type`, single `forward_model(model, *batch[:3])` adapter. ⚠️ inherits `crosses_pooled` (B4, recomputed from legacy weights) + `key_padding_mask` removal (2.3). Ablations are 2.5 stubs (`build_model` for them raises `NotImplementedError("Prompt 2.5")`; registry needs no edit when filled). **14 Prompt-2.4 tests green (36 model+smoke total).** See Model decisions (2.4). |
 | 2.5 | `models/ablations.py`, `models/heads.py` (+`emit_task_logits`) | `models/AblationModels.py` | `tests/fixtures/golden/ensemble.pt` (extended to 4 types) | B4, B6, B10 (reuse), B11 | ✅ / ⚠️ | All three ablations port EXACT under shared `state_dict` loaded `strict=True` (eval, `atol=1e-6, rtol=1e-5`) — `motion_only` 71-key, `visual_only` 285-key, `vanilla_concat` 342-key dicts; legacy attrs (`norm`/`motion_norm`/`visual_norm`/`fusion`/`pool_mlp`/`classifier`/`crosses_frame_head` + sub-encoders) preserved, incl. the legacy-dead `classifier.crosses`. Heads built via `heads.py` (keys byte-identical). ⚠️ flagged: **`crosses_pooled` made LIVE-but-unsupervised UNIFORMLY** with the full model (B4, default on, gated by `emit_crosses_pooled`; golden ref recomputed from legacy weights, never routed to loss) — legacy ablation `forward` emitted 3 keys. **`temporal_weights` is structurally full-model-only** (ablations never emit it). Legacy per-call `frame_pool` `forward` arg dropped (permanently default at every call site, like 2.3 `key_padding_mask`; behavior-neutral). Output-contract head block factored into `heads.emit_task_logits` (shared by all 4 model types); `cross_attention.py` retrofitted to it (behavior-neutral, golden still EXACT). Registry (2.4) needed **no edit** — stubs swapped for real classes. OLD root one-offs folded/dropped (B11): `test_ablation_models.py`→shape asserts in `test_all_model_types_build_and_forward`; `ablation_usage_example.py`/`test_ablation_structure_clean.py` dropped; `final_ablation_verification.py` suffix-naming deferred to eval/8.1. **13 Prompt-2.5 tests green (46 model+smoke total; full suite 179 passed, 1 skipped).** See Model decisions (2.5). |
-| 3.1 | `losses/multitask.py` | `train.py:144-153,341-345` | | B3 (loss), part B1 | — | imbalance policy (w/ 1.3, 1.6) |
+| 3.1 | `losses/multitask.py` | `train.py:144-153,341-345` | `tests/fixtures/golden/losses_cases.pt` | B3 (loss), part B1, part B4, part B8 | ✅ | `MultiTaskLoss` reproduces OLD total + per-head CE EXACTLY (atol=1e-6). Class weights *imported* from 1.6 `class_weights_ce` (no re-scan). `crosses→crosses_frame` routing is the explicit `TASK_OUTPUT_KEY` contract; `crosses_pooled` provably never enters the loss. Trainer (4.1) owns the upstream `clamp_cross` + AMP/backward. 13 loss tests green (68 incl. sampler/config/utils). See Loss decisions (3.1). |
 | 3.2 | `training/metrics.py` | `train.py` val, `test.py` eval | | B1 | — | shared by train+test |
 | 4.1 | `training/trainer.py` | `train.py:125-175,236-632` | | B1, B2 (consumer), B8 | — | no dummy-forward |
 | 4.2 | `training/chunk_loader.py` | `train.py:368-504`, `train_utils.py:80-98` | | B9 | — | crash-safe ChunkPrefetcher |
@@ -543,6 +543,38 @@ the output contract correctly:
 - **⚠️ Fixture size.** Extending to 4 types grew `ensemble.pt` ≈29 MB → ≈91 MB (three extra sub-encoder
   state_dicts; `visual_only`/`vanilla_concat` carry the ViT). Accepted as golden test data; revisit (dedup /
   Git LFS / smaller-config capture) if repo weight becomes a problem in Phase B.
+
+### Loss decisions (Prompt 3.1)
+
+The loss-side imbalance lever (Lever 3). Locked so the coupled prompts (1.3 balance / 1.6 sampler / 3.2
+metrics / 4.1 trainer) stay consistent:
+
+- **Parity.** `MultiTaskLoss(class_weights, loss_weight)` reproduces the OLD loss math EXACTLY (`atol=1e-6`,
+  golden `tests/fixtures/golden/losses_cases.pt`): per task, `CrossEntropyLoss(weight=class_weights[task])`
+  over the contract-routed logits, scaled by `loss_weight[task]`, summed across `("actions","looks","crosses")`.
+  Uses `nn.ModuleDict` of `CrossEntropyLoss` (1:1 with OLD `criterion`, train.py:341-345) so `weight` stays a
+  buffer that `loss.to(device)` moves. **B3 (loss lever) + part B1** (extracted from the god-script).
+- **Single scan (B3, w/ 1.6).** The loss does **NOT** scan LMDB. Class weights are computed ONCE by the
+  Trainer via `class_weights_ce(LabelScanCache.aggregate_counts(train_lmdbs))` (Prompt 1.6) and passed into
+  `build_multitask_loss(cfg, class_weights)`. The two inverse-freq formulas (loss vs sampler) remain distinct
+  but share the one scan — the whole point of the 1.6 dedup.
+- **Explicit output contract (part B4, w/ 2.3).** `TASK_OUTPUT_KEY = {actions, looks, crosses→crosses_frame}`
+  replaces OLD's `if name == "crosses"` magic branch (train.py:146-149). `crosses` is supervised on
+  `crosses_frame` (logsumexp-pooled) ONLY; a test proves perturbing `crosses_pooled` leaves the loss invariant.
+  A missing `crosses_frame` raises a clear `KeyError` (vs OLD's bare one).
+- **Part B8.** The scattered `logits.float()` casts (train.py:152,215) collapse to one `to_float_logits`
+  call inside `forward` (no-op outside autocast → behavior-neutral).
+- **Return surface (decided — both raw + weighted).** `forward` returns `MultiTaskLossOutput(total, per_task,
+  weighted)`: `total` is live (carries grad, for backward); `per_task` (detached raw mean-CE) and `weighted`
+  (detached `loss_weight·CE`) are for the CSV log. Trainer must call `.item()` — the detach prevents graph
+  retention. Per-task raw CE columns are cross-run comparable (independent of `loss_weight`).
+- **Clamp lives in the Trainer (decided).** The single canonical crosses clamp (`data.balance.clamp_cross`,
+  1.6) is applied by the Trainer (4.1) to labels just before `loss(...)`, mirroring OLD's in-loop
+  `remap_cross_labels` position. The loss stays pure — it assumes binary `{0,1}` targets and never cleans data.
+- **Reduction.** Default `"mean"` = legacy `train_one_chunk`. Note weighted-CE `mean` normalizes by Σ
+  class-weights (so a single-class batch is weight-invariant — the test uses a mixed batch / unit weights to
+  exercise the levers). Validation's sum-over-samples accumulation (train.py:219) is logging and stays in the
+  Trainer, not the loss (single loss shared by train + val, no divergence).
 
 ### Config decisions (Prompt 0.2)
 
