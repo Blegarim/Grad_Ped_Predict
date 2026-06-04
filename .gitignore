@@ -34,6 +34,8 @@ htmlcov/
 # ...but golden test fixtures (small, versioned parity snapshots) MUST be tracked.
 !tests/fixtures/golden/*.pt
 !tests/fixtures/golden/*.pkl
+# ...and the OLD-repo golden reference samples (subsampled sequences) live in OLD/golden/.
+!OLD/golden/*.pkl
 
 # --- Generated LMDB datasets (writer output; content already covered by *.lmdb/*.mdb) ---
 /preprocessed_*/

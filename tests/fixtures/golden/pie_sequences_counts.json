@@ -1,7 +1,7 @@
 {
   "module": "src/pedpredict/data/pie_sequences.py",
   "source": "OLD scripts/generate_sequences.py (seq_type='all', seq_len=20, stride=3, future_offset=30, tol=2)",
-  "src_repo": "c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project",
+  "src_repo": "OLD/Undergrad_thesis_project",
   "captured": "2026-06-03",
   "tol": 0,
   "note": "Exact integer label counts read from the legacy sequences_{split}.pkl. The PIE 'all' path is deterministic (sorted iteration, no RNG) and labels are integers, so parity is EXACT equality, not float tolerance. Regenerating any split that changes these counts is a behavior break (flag it).",

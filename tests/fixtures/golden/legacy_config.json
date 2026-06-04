@@ -1,5 +1,5 @@
 {
-  "src": "c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project/config.py",
+  "src": "OLD/Undergrad_thesis_project/config.py",
   "d_model": 128,
   "vit": {
     "in_channels": 3,

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import torch
 
-OLD_SCRIPTS = Path(r"c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project/scripts")
+OLD_SCRIPTS = Path(__file__).resolve().parents[2] / "OLD" / "Undergrad_thesis_project" / "scripts"
 OUT = Path(__file__).resolve().parents[1] / "fixtures" / "golden" / "augment_cases.pt"
 
 T, C, HT, WT, HC, WC = 4, 3, 8, 6, 10, 7  # H != W to catch any axis transposition

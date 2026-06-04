@@ -5,7 +5,7 @@ module. See [REBUILD_SCHEMATIC.md](REBUILD_SCHEMATIC.md) for the prompts and [CL
 architecture, band-aid table (B1–B13), and imbalance policy. The porting workflow itself is the
 `behavior-preserving-port` skill.
 
-**OLD repo (read-only reference):** `c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project`
+**OLD repo (read-only reference):** `OLD/Undergrad_thesis_project` (vendored into this repo; golden reference samples in `OLD/golden/`)
 
 ## How to use this file
 

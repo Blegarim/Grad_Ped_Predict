@@ -145,8 +145,8 @@ REBUILD CONSTRAINTS:
     out explicitly and justify. Capture a golden-output fixture from the OLD repo before porting.
   - Python/PyTorch, AMP (torch.amp.autocast('cuda')), GradScaler, cudnn.benchmark.
 
-OLD REPO is read-only reference at:
-  c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project
+OLD REPO is read-only reference at (vendored into this repo, golden samples in OLD/golden/):
+  OLD/Undergrad_thesis_project
 
 DELIVERABLE OF THIS PROMPT: a DETAILED SUB-PLAN, not final production code. The sub-plan must contain:
   (a) exact target file(s) + public API (function/class signatures with type hints),

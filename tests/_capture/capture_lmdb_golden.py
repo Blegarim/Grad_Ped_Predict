@@ -27,7 +27,7 @@ from PIL import Image
 from torchvision import transforms
 
 # --- OLD repo (read-only reference) ---------------------------------------------------------------
-OLD_SCRIPTS = Path(r"c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project/scripts")
+OLD_SCRIPTS = Path(__file__).resolve().parents[2] / "OLD" / "Undergrad_thesis_project" / "scripts"
 OUT = Path(__file__).resolve().parents[1] / "fixtures" / "golden" / "lmdb_process_record.pt"
 
 # --- deterministic synthetic track ----------------------------------------------------------------

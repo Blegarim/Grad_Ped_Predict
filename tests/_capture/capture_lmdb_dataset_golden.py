@@ -29,7 +29,7 @@ from torchvision import transforms
 from pedpredict.config import DataCfg
 from pedpredict.data.lmdb_writer import write_dataset_chunks
 
-OLD_SCRIPTS = Path(r"c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project/scripts")
+OLD_SCRIPTS = Path(__file__).resolve().parents[2] / "OLD" / "Undergrad_thesis_project" / "scripts"
 OUT = Path(__file__).resolve().parents[1] / "fixtures" / "golden" / "lmdb_dataset_cases.pt"
 
 _N = 3

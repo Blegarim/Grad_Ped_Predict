@@ -10,7 +10,8 @@ undergraduate thesis project. It is **not yet implemented** — currently it hol
 copy-paste prompts (P0 Foundation → P1 Data → P2 Models → P3 Loss/Metrics → P4 Training → P5 Eval →
 P6 Viz → P7 Export → P8 Tests/Docs → P9 Cutover). **Read the schematic before doing structural work.**
 
-**Old repo is read-only reference** at `c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project`.
+**Old repo is read-only reference** at `OLD/Undergrad_thesis_project` (vendored into this repo so remote
+sandboxes have it; the golden artifact reference — subsampled sequence fixtures — lives in `OLD/golden/`).
 Code is ported piece-by-piece into the new layout.
 
 **Rebuild mode — two phases:**

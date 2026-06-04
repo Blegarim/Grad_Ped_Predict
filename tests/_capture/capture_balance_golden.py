@@ -26,7 +26,7 @@ import random
 import sys
 from pathlib import Path
 
-OLD_SCRIPTS = Path(r"c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project/scripts")
+OLD_SCRIPTS = Path(__file__).resolve().parents[2] / "OLD" / "Undergrad_thesis_project" / "scripts"
 OUT = Path(__file__).resolve().parents[1] / "fixtures" / "golden" / "balance_cases.json"
 
 N_RECORDS = 300

@@ -9,7 +9,7 @@ The Phase-A rebuild ports ~25 modules from the OLD repo into the new `src/pedpre
 Every port follows the **same loop**. This skill is that loop. Do not skip the golden-fixture step —
 it is the only thing that makes "behavior-preserving" verifiable rather than aspirational.
 
-**OLD repo (read-only reference):** `c:/Users/LENOVO/Desktop/Undergrad_Project/Undergrad_thesis_project`
+**OLD repo (read-only reference):** `OLD/Undergrad_thesis_project` (vendored into this repo; golden reference samples in `OLD/golden/`)
 **Contract:** the new module must produce numerically equivalent outputs (within float tolerance) to the
 legacy module for the same inputs and weights — UNLESS a listed band-aid (see CLAUDE.md table) changes
 behavior, in which case the change must be called out and justified.
