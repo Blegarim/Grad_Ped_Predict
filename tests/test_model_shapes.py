@@ -15,8 +15,9 @@ from pathlib import Path
 import pytest
 import torch
 
-from pedpredict.config import DataCfg, ModelCfg
+from pedpredict.config import DataCfg, ModelCfg, RootCfg
 from pedpredict.models.cross_attention import CrossAttentionModule
+from pedpredict.models.ensemble import EnsembleModel
 from pedpredict.models.geometry import feature_map_size
 from pedpredict.models.heads import (
     build_crosses_frame_head,
@@ -26,11 +27,18 @@ from pedpredict.models.heads import (
     temporal_attention_pool,
 )
 from pedpredict.models.motion_encoder import MotionEncoder
+from pedpredict.models.registry import (
+    MODEL_INPUT_SIGNATURE,
+    ModelType,
+    build_model,
+    forward_model,
+)
 from pedpredict.models.vit import ViT_Hierarchical
 
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "vit.pt"
 _MOTION_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "motion_encoder.pt"
 _CROSS_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "cross_attention.pt"
+_ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "ensemble.pt"
 
 
 @pytest.fixture(scope="module")
@@ -307,3 +315,145 @@ def test_frame_pool_reduce_modes() -> None:
     torch.testing.assert_close(frame_pool_reduce(x, "logsumexp"), torch.logsumexp(x, dim=1))
     with pytest.raises(ValueError, match="Unsupported frame_pool"):
         frame_pool_reduce(x, "median")  # type: ignore[arg-type]
+
+
+# =========================================================================== Prompt 2.4 — Ensemble + registry
+
+_FULL_KEYS = {"actions", "looks", "crosses_pooled", "crosses_frame", "temporal_weights"}
+_ABLATION_TYPES = (ModelType.MOTION_ONLY, ModelType.VISUAL_ONLY, ModelType.VANILLA_CONCAT)
+
+
+@pytest.fixture(scope="module")
+def ensemble_golden() -> dict:
+    if not _ENSEMBLE_FIXTURE.exists():
+        pytest.skip(
+            f"missing golden fixture {_ENSEMBLE_FIXTURE} (run tests/_capture/capture_ensemble_golden.py)"
+        )
+    return torch.load(_ENSEMBLE_FIXTURE, weights_only=False)
+
+
+def _dummy_full_inputs(cfg: ModelCfg, img_size: int = 224, b: int = 2, t: int = 3) -> tuple[torch.Tensor, ...]:
+    tight = torch.randn(b, t, cfg.in_channels, 128, 128)
+    context = torch.randn(b, t, cfg.in_channels, img_size, img_size)
+    motions = torch.randn(b, t, cfg.motion_dim)
+    return tight, context, motions
+
+
+# --------------------------------------------------------------------------- golden parity (full model)
+
+
+def test_golden_ensemble_full_parity(ensemble_golden: dict) -> None:
+    """New EnsembleModel loads the OLD full-model state_dict (strict=True) and reproduces every key (eval)."""
+    entry = ensemble_golden["full"]
+    model = EnsembleModel.from_config(ModelCfg(), img_size=entry["img_size"])
+    model.load_state_dict(entry["state_dict"], strict=True)
+    model.eval()
+    with torch.no_grad():
+        out = model(entry["inputs"]["images_tight"], entry["inputs"]["images_context"], entry["inputs"]["motions"])
+    tol = entry["meta"]
+    assert set(out) == _FULL_KEYS  # 4 legacy keys + crosses_pooled (B4, recomputed from legacy weights)
+    for key, expected in entry["outputs"].items():
+        torch.testing.assert_close(out[key], expected, atol=tol["atol"], rtol=tol["rtol"])
+
+
+def test_strict_load_ensemble_full_no_missing_unexpected(ensemble_golden: dict) -> None:
+    """The OLD full state_dict loads strict with zero missing/unexpected keys and NO forward (eager ViT, 2.1)."""
+    entry = ensemble_golden["full"]
+    model = EnsembleModel.from_config(ModelCfg(), img_size=entry["img_size"])  # never forward first
+    missing, unexpected = model.load_state_dict(entry["state_dict"], strict=False)
+    assert not missing, f"missing keys: {missing}"
+    assert not unexpected, f"unexpected keys: {unexpected}"
+    model.load_state_dict(entry["state_dict"], strict=True)  # must not raise
+
+
+def test_ensemble_return_feats_path(ensemble_golden: dict) -> None:
+    """return_feats yields the post-LayerNorm fusion features (the viz path, 6.2) alongside the logits."""
+    entry = ensemble_golden["full"]
+    model = EnsembleModel.from_config(ModelCfg(), img_size=entry["img_size"])
+    model.load_state_dict(entry["state_dict"], strict=True)
+    model.eval()
+    with torch.no_grad():
+        logits, image_feats, motion_feats = model(
+            entry["inputs"]["images_tight"],
+            entry["inputs"]["images_context"],
+            entry["inputs"]["motions"],
+            return_feats=True,
+        )
+    b, t = entry["inputs"]["motions"].shape[:2]
+    assert set(logits) == _FULL_KEYS
+    assert image_feats.shape == (b, t, ModelCfg().d_model)
+    assert motion_feats.shape == (b, t, ModelCfg().d_model)
+
+
+# --------------------------------------------------------------------------- registry: typed factory (B10)
+
+
+def test_modeltype_coerce_valid_and_invalid() -> None:
+    assert ModelType.coerce("full") is ModelType.FULL
+    assert ModelType.coerce(ModelType.MOTION_ONLY) is ModelType.MOTION_ONLY
+    with pytest.raises(ValueError, match="Unknown model type: 'ful'"):
+        ModelType.coerce("ful")  # B10: a typo is a clear error, not a silent wrong-branch
+
+
+def test_model_input_signature_covers_all_types() -> None:
+    assert set(MODEL_INPUT_SIGNATURE) == set(ModelType)
+
+
+def test_build_model_full_from_root() -> None:
+    model = build_model(RootCfg(), "full")
+    assert isinstance(model, EnsembleModel)
+    assert model.model_type is ModelType.FULL
+
+
+def test_build_model_defaults_to_eval_model_type() -> None:
+    """No explicit type -> read cfg.eval.model_type (default 'full')."""
+    cfg = RootCfg()
+    assert cfg.eval.model_type == "full"
+    assert build_model(cfg).model_type is ModelType.FULL
+
+
+@pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
+def test_build_model_ablations_pending_2_5(mt: ModelType) -> None:
+    """Ablation builds are wired but their classes are 2.5 stubs (swiftly replaceable seam)."""
+    with pytest.raises(NotImplementedError, match="Prompt 2.5"):
+        build_model(RootCfg(), mt)
+
+
+# --------------------------------------------------------------------------- registry: forward adapter
+
+
+def test_forward_model_full_shapes() -> None:
+    cfg = ModelCfg()
+    model = build_model(RootCfg(), "full").eval()
+    tight, context, motions = _dummy_full_inputs(cfg)
+    with torch.no_grad():
+        out = forward_model(model, tight, context, motions)
+    assert set(out) == _FULL_KEYS
+    assert out["actions"].shape == (2, cfg.num_classes["actions"])
+    assert out["crosses_frame"].shape == (2, cfg.num_classes["crosses"])
+    assert out["temporal_weights"].shape == (2, 3)
+
+
+def test_forward_model_unpacks_collate_triple() -> None:
+    """forward_model(model, *batch[:3]) is the intended call form (collate returns the triple + labels)."""
+    cfg = ModelCfg()
+    model = build_model(RootCfg(), "full").eval()
+    batch = (*_dummy_full_inputs(cfg), {"actions": torch.zeros(2, dtype=torch.long)})  # +labels
+    with torch.no_grad():
+        out = forward_model(model, *batch[:3])
+    assert set(out) == _FULL_KEYS
+
+
+def test_forward_model_return_feats_full_only() -> None:
+    cfg = ModelCfg()
+    model = build_model(RootCfg(), "full").eval()
+    tight, context, motions = _dummy_full_inputs(cfg)
+    with torch.no_grad():
+        result = forward_model(model, tight, context, motions, return_feats=True)
+    assert isinstance(result, tuple) and len(result) == 3
+
+
+def test_forward_model_dispatch_is_intrinsic() -> None:
+    """forward_model needs no type argument — it reads model.model_type set by build_model (B10)."""
+    model = build_model(RootCfg(), "full")
+    assert model.model_type is ModelType.FULL
