@@ -31,8 +31,8 @@ For each module you port:
 | 1.4 | `data/augment.py`, `scripts/augment_dataset.py`, `config/{schema,loader}.py`, `configs/augment.yaml` | `scripts/augment_sequences.py` | `tests/fixtures/golden/augment_cases.pt` | B5 | ✅ / ⚠️ | All 4 transform kernels reproduce OLD `SequenceAugmenter` EXACTLY (flip/erase tol=0; color/noise atol=1e-6 under matched seeding). Flip-negated channel = **idx 2 (dx)**, guarded by a cross-module test vs `compute_motion`. ⚠️ flagged: OLD augmenter was DEAD (assumed tensor pkls; real pkl is path-based) → re-homed onto `ProcessedSample` at write time; negatives excluded from aug LMDB; per-transform copies (not composed); seedable per-item RNG (distribution-, not draw-, parity for the *plan*). 12 augment tests green. See Data decisions (1.4). |
 | 1.5 | `data/lmdb_dataset.py`, `data/collate.py` | `scripts/lmdb_dataset.py`, `train_utils.py` | `tests/fixtures/golden/lmdb_dataset_cases.pt` | B7 | ✅ | Read parity vs OLD dataset+`collate_fn` (images atol=1e-6, motions/labels tol=0). Worker-safe env (pid-keyed) + picklable dataset/collate tested under `num_workers=2`. B7: `MAX_SEQ_LEN→DataCfg.max_seq_len`; `motions[...,:8]` slice **deleted** + guarded. Read transforms config-driven; read context=224. 4 tests green. See Data decisions (1.5). |
 | 1.6 | `data/sampler.py`, `config/{schema,loader}.py`, `configs/train.yaml` | `train.py:34-123` | `tests/fixtures/golden/sampler_cases.json` | B3 (online, dedup scans), part B1 | ✅ / ⚠️ | Both legacy weight fns reproduced EXACTLY (global CE class weights + per-chunk sampler weights, atol=1e-6) via ONE `scan_chunk_labels` + `LabelScanCache` (replaces the two scan loops + inline `weight_cache`). The two inverse-freq *formulas* kept verbatim (only the scan is shared). ⚠️ flagged: single canonical crosses clamp (`clamp_cross`) replaces the two legacy clamps — coincide on in-contract `{0,1}` data, diverge only on never-occurring `2`. Added `TrainCfg.sampler_min_weight`. 16 sampler tests green. See Data decisions (1.6). |
-| 1.7 | `data/stats.py`, `scripts/count_labels.py` | `label_count.py` | | — | — | drift check vs stat table |
-| 2.1 | `models/vit.py` | `models/Vision_Transformer.py` | | B2, B13, B6 | — | eager params → strict=True load |
+| 1.7 | `data/stats.py`, `scripts/count_labels.py` | `label_count.py` | reuses `tests/fixtures/golden/pie_sequences_counts.json` (1.1) | B5, B3 (reuse) | ✅ / ⚠️ | No new scanner — aggregates the 1.6 `LabelScanCache` over base split LMDBs; drift = EXACT integer equality vs the 1.1 fixture (the table's numeric source). ⚠️ flagged: per-chunk rows → per-split aggregate; `crosses[-1]` column dropped (clamped at 1.1); aug dir excluded from the canonical table (opt-in `--include-aug` bypasses the gate). `tabulate` dropped (unused → hand-rolled table). 7 tests green. See Data decisions (1.7). |
+| 2.1 | `models/vit.py`, `models/geometry.py` | `models/Vision_Transformer.py` | `tests/fixtures/golden/vit.pt` | B2, B13, B6 | ✅ / ⚠️ | Output parity vs OLD ViT EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval mode); strict=True load with **no dummy forward** proven. ⚠️ flagged: eager resolution-bound rel-pos tables (no forward-time rebuild) — a 224-trained ckpt won't strict-load into another resolution by design (OLD lazy path silently reinit'd it). 6 model + 2 config tests green. See Model decisions (2.1). |
 | 2.2 | `models/motion_encoder.py` | `models/Motion_Encoder.py` | | — | — | T≤200 guard |
 | 2.3 | `models/cross_attention.py`, `models/heads.py` | `models/Cross_Attention_Module.py` | | B4 | — | crosses_pooled decision |
 | 2.4 | `models/ensemble.py`, `models/registry.py` | `models/Unified_Module.py`, `scripts/model_utils.py` | | B10 | — | typed factory + forward adapter |
@@ -298,6 +298,75 @@ The online imbalance lever + the **single LMDB scanner**. Locked jointly with 1.
 - **Resource safety.** Every `lmdb.open` is paired with a `try/finally … close()`; no env handle escapes the
   scan. The module reads only the paths it is handed (train chunks) — no val/test leakage into the levers.
 
+### Data decisions (Prompt 1.7)
+
+The data-layer verification tool. Locked so the drift gate has one numeric source of truth:
+
+- **No third scanner (B3).** `data/stats.py` aggregates the 1.6 `LabelScanCache.aggregate_counts` over a
+  split's chunk envs; it adds no counting logic of its own. OLD `label_counts` (the per-chunk Counter helper)
+  is **deleted**, not ported. `test_aggregation_matches_scanner` pins stats == summing `scan_chunk_labels`.
+- **Canonical scope = sequence-level (base LMDB).** A split's stats come from its base dir(s) — `train` from
+  `lmdb_train[0]` only (`split_lmdb_dirs`). `preprocessed_train_aug` intentionally redistributes classes (the
+  imbalance lever, 1.3/1.4), so it is excluded; `--include-aug` opts in and **bypasses the drift gate**. The
+  base-train LMDB is a deterministic 1:1 image of `sequences_train.pkl`, so these counts reproduce the table.
+- **Drift = EXACT integer equality, reference = the 1.1 fixture.** `check_drift` diffs `N` + the 3 positive
+  counts against `tests/fixtures/golden/pie_sequences_counts.json` (already the table's numeric source — no
+  third transcription). `test_reference_fixture_matches_claude_table` guards the fixture↔CLAUDE.md prose link.
+  No tolerance/threshold config needed → **no new `StatsCfg` section** (config-first is satisfied: nothing to
+  configure; scope/gating are CLI flags).
+- **⚠️ Intentional changes vs OLD `label_count.py` (flagged, not silent):** per-chunk rows → per-split
+  aggregate (the documented form); the `crosses[irrelevant]` (-1) column dropped (crosses clamped to {0,1} at
+  1.1, none survive into the LMDB).
+- **`tabulate` watch RESOLVED → dropped.** It was core-but-unused; the printed/markdown table is hand-rolled
+  in `format_table` (one trivial table doesn't justify a dep — keeps the stack minimal). Removed from
+  `pyproject.toml` core deps.
+- **CI-friendliness.** The CLI `skip_missing=True` → exit 0 with a notice when no LMDB is built (CI without
+  data stays green); the real regenerate-and-diff gate is `@pytest.mark.slow` (deferred until LMDBs exist,
+  mirrors 1.1). `iter_chunk_lmdbs` (sorted `chunk_*.lmdb` glob) homes here for now — relocation candidate for
+  4.2 (chunk_loader), which needs the same enumeration.
+
+### Model decisions (Prompt 2.1)
+
+The first model port. Locked so the downstream model prompts (2.2–2.5, 4.1 trainer, 7.1 export) stay consistent:
+
+- **Parity class.** Output EXACT vs OLD `ViT_Hierarchical` under a **shared `state_dict`** loaded
+  `strict=True`, eval mode (Dropout/DropPath → identity ⇒ pure deterministic fp32 math), `atol=1e-6`,
+  `rtol=1e-5`. Golden = `tests/fixtures/golden/vit.pt` (`tests/_capture/capture_vit_golden.py`, run vs OLD;
+  the OLD state_dict is captured **after** a dummy forward so it contains the global table). Module/attr
+  names preserved verbatim (`stem`, `stages[i]["down_sample"|"block"]`, `attn.relative_position_bias_table`,
+  `relative_position_index`, …) so the 265-key dict maps 1:1.
+- **B2 RESOLVED — eager params, resolution-bound (the headline).** Only the *global* stage
+  (`window_size=None`) deferred its `relative_position_bias_table` to first forward (stages 0–2 were already
+  eager); that defer forced the `train.py:311-317` dummy forward and broke `strict=True`. The global window is
+  now resolved at `__init__` from a scalar `img_size` (the last stage's feature-map side: 224 → 7×7 → table
+  `[169,2]`), so **every param exists after construction**. `test_strict_load_without_dummy_forward` proves the
+  OLD dict loads with zero missing/unexpected keys and no forward. The stem/downsample geometry lives in a
+  torch-free `models/geometry.py` (`feature_map_size`) shared by the ViT and `config.validate_config`.
+- **⚠️ Intentional behavior change — no forward-time resolution adaptivity.** The OLD lazy path *rebuilt* the
+  global table for whatever feature size showed up at forward (and `load_state_dict(strict=False)` then
+  silently dropped a mismatched table — a latent weight-loss bug on resolution change). The new model is
+  **built for one resolution** (`ViT_Hierarchical.from_config(model_cfg, img_size=cfg.data.read_context_height)`)
+  and fixed within a run — matches the actual workflow (train+eval at a designated resolution; resolution
+  varied across runs, never within one model). A different resolution is an **explicit** `rebuild_position_bias(img_size)`
+  call (benchmark/export), never silent in `forward`. Consequence: a 224-trained checkpoint legitimately will
+  **not** `strict`-load into a model built for another resolution (the rel-pos table is a resolution-specific
+  weight) — now an explicit error instead of a silent reinit. Decided with the user.
+- **B13 RESOLVED (behavior-neutral).** `WindowTransformerBlock.forward` MLP residual rewritten with an
+  unambiguous `shortcut_flat = x_perm.reshape(B, H*W, C)`; identical math (both the MLP-internal dropout and
+  the post-MLP `self.dropout` preserved). Parity holds exactly.
+- **B6 RESOLVED.** `__main__` is now a `ModelCfg`-driven smoke test (`from_config(ModelCfg(), img_size=224)` →
+  asserts `[B,T,d_model]`); the drifting legacy kwargs (`d_model=224`, `stage_dims=[48,96,168,96]`) are gone.
+- **`img_size` is NOT a `ModelCfg` field (config hygiene).** It flows from the already-flexible
+  `DataCfg.read_context_height/width` at the call site, so the ViT can't drift from the crops it's fed and
+  `ModelCfg.vit_kwargs()` stays byte-identical to OLD `vit_args_config()` (0.2 golden untouched). New
+  `validate_config` checks (additive): context crop must be **square** and must **tile every stage window**
+  (`feature_map_size(ctx, i) % window_i == 0`), turning a runtime crash into a config-time error. Two new
+  `test_config.py` cases cover both.
+- **Windows generalized to `(Wh, Ww)`** in `window_partition`/`window_reverse`/`WindowAttention` (numerically
+  identical to the legacy square partition when `Wh==Ww`, which is the only case today) — keeps non-square
+  windows expressible without touching parity. `timm` watch: confirmed **`DropPath` is the only `timm`
+  symbol** used; kept this phase (identity in eval ⇒ parity-neutral), vendoring is a Phase-B simplification.
+
 ### Config decisions (Prompt 0.2)
 
 Locked so the later prompts that consume config stay consistent:
@@ -424,9 +493,11 @@ in 0.1 — this table is the contract the later prompts execute against.
 
 ### `tabulate` / `timm` watch
 
-- `tabulate==0.9.0` — kept as core; **verify usage in 1.7**, demote/drop if unused.
-- `timm==1.0.20` — imported by `Vision_Transformer.py`; keep until 2.1 confirms which symbols are used,
-  candidate to drop in Phase B.
+- `tabulate==0.9.0` — RESOLVED (1.7): unused across `src/` → **dropped** from core deps; the 1.7 stat table is
+  hand-rolled (`stats.format_table`).
+- `timm==1.0.20` — RESOLVED (2.1): `models/vit.py` uses **only `timm.layers.DropPath`**. Kept this phase
+  (behavior-preserving; identity in eval ⇒ parity-neutral). Vendoring the ~10-line DropPath to drop the dep
+  is a Phase-B simplification candidate.
 
 ### Prompt 0.1 verification checklist
 

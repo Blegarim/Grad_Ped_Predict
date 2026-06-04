@@ -44,6 +44,17 @@ from .sampler import (
     sample_weights,
     scan_chunk_labels,
 )
+from .stats import (
+    SplitStats,
+    check_drift,
+    compute_dataset_stats,
+    compute_split_stats,
+    format_table,
+    iter_chunk_lmdbs,
+    load_reference,
+    split_lmdb_dirs,
+    write_stats_csv,
+)
 from .transforms import (
     CropSequenceDataset,
     ProcessedSample,
@@ -80,6 +91,16 @@ __all__ = [
     "class_weights_ce",
     "sample_weights",
     "scan_chunk_labels",
+    # stats / drift check (1.7)
+    "SplitStats",
+    "check_drift",
+    "compute_dataset_stats",
+    "compute_split_stats",
+    "format_table",
+    "iter_chunk_lmdbs",
+    "load_reference",
+    "split_lmdb_dirs",
+    "write_stats_csv",
     # sequences (1.1)
     "SequenceRecord",
     "clamp_to_binary",

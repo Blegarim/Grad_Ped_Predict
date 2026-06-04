@@ -147,6 +147,20 @@ def test_validation_num_classes_keys() -> None:
         load_config(_CONFIG_DIR, overrides=["model.num_classes={actions: 2, looks: 2}"])
 
 
+def test_validation_vit_window_tiling() -> None:
+    """Prompt 2.1: a context resolution that doesn't tile a stage window is rejected.
+
+    225 -> stem 57 (57 % 8 != 0 at stage 0) is not tileable by window 8.
+    """
+    with pytest.raises(ConfigError):
+        load_config(_CONFIG_DIR, overrides=["data.read_context_height=225", "data.read_context_width=225"])
+
+
+def test_validation_vit_requires_square_context() -> None:
+    with pytest.raises(ConfigError):
+        load_config(_CONFIG_DIR, overrides=["data.read_context_width=256"])
+
+
 def test_validation_threshold_sweep_order() -> None:
     with pytest.raises(ConfigError):
         load_config(_CONFIG_DIR, overrides=["eval.threshold_sweep_lo=0.95"])

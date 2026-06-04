@@ -21,6 +21,7 @@ from pathlib import Path
 
 import yaml
 
+from ..models.geometry import feature_map_size, is_global
 from .schema import AugmentCfg, BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
 
 __all__ = [
@@ -232,6 +233,24 @@ def validate_config(root: RootCfg) -> None:
             f"data.read_context_height/width must be positive; "
             f"got {d.read_context_height}x{d.read_context_width}"
         )
+
+    # ViT window tiling (Prompt 2.1): the context-crop resolution must tile every stage's window so the
+    # eager relative-position tables (B2) are buildable. The ViT is built from a scalar img_size, so the
+    # context crop must be square; global windows (None) always tile (window == feature map).
+    if d.read_context_height != d.read_context_width:
+        raise ConfigError(
+            f"ViT requires a square context crop; got "
+            f"{d.read_context_height}x{d.read_context_width} (data.read_context_height/width)"
+        )
+    for i, win in enumerate(m.window_size):
+        side = feature_map_size(d.read_context_height, i)
+        if side <= 0:
+            raise ConfigError(f"ViT stage {i} feature map collapses to {side} at img_size={d.read_context_height}")
+        if not is_global(win) and side % int(win) != 0:
+            raise ConfigError(
+                f"ViT stage {i}: feature map {side} not divisible by window {win} "
+                f"(img_size={d.read_context_height})"
+            )
 
     # online sampler invariants (Prompt 1.6)
     if t.sampler_min_weight <= 0.0:
