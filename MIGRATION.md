@@ -33,7 +33,7 @@ For each module you port:
 | 1.6 | `data/sampler.py`, `config/{schema,loader}.py`, `configs/train.yaml` | `train.py:34-123` | `tests/fixtures/golden/sampler_cases.json` | B3 (online, dedup scans), part B1 | ✅ / ⚠️ | Both legacy weight fns reproduced EXACTLY (global CE class weights + per-chunk sampler weights, atol=1e-6) via ONE `scan_chunk_labels` + `LabelScanCache` (replaces the two scan loops + inline `weight_cache`). The two inverse-freq *formulas* kept verbatim (only the scan is shared). ⚠️ flagged: single canonical crosses clamp (`clamp_cross`) replaces the two legacy clamps — coincide on in-contract `{0,1}` data, diverge only on never-occurring `2`. Added `TrainCfg.sampler_min_weight`. 16 sampler tests green. See Data decisions (1.6). |
 | 1.7 | `data/stats.py`, `scripts/count_labels.py` | `label_count.py` | reuses `tests/fixtures/golden/pie_sequences_counts.json` (1.1) | B5, B3 (reuse) | ✅ / ⚠️ | No new scanner — aggregates the 1.6 `LabelScanCache` over base split LMDBs; drift = EXACT integer equality vs the 1.1 fixture (the table's numeric source). ⚠️ flagged: per-chunk rows → per-split aggregate; `crosses[-1]` column dropped (clamped at 1.1); aug dir excluded from the canonical table (opt-in `--include-aug` bypasses the gate). `tabulate` dropped (unused → hand-rolled table). 7 tests green. See Data decisions (1.7). |
 | 2.1 | `models/vit.py`, `models/geometry.py` | `models/Vision_Transformer.py` | `tests/fixtures/golden/vit.pt` | B2, B13, B6 | ✅ / ⚠️ | Output parity vs OLD ViT EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval mode); strict=True load with **no dummy forward** proven. ⚠️ flagged: eager resolution-bound rel-pos tables (no forward-time rebuild) — a 224-trained ckpt won't strict-load into another resolution by design (OLD lazy path silently reinit'd it). 6 model + 2 config tests green. See Model decisions (2.1). |
-| 2.2 | `models/motion_encoder.py` | `models/Motion_Encoder.py` | | — | — | T≤200 guard |
+| 2.2 | `models/motion_encoder.py` | `models/Motion_Encoder.py` | `tests/fixtures/golden/motion_encoder.pt` | B6, B7 (confirm) | ✅ / ⚠️ | Output parity vs OLD `MotionEncoder` EXACT under shared state_dict (atol=1e-6, rtol=1e-5, eval mode), 51 keys / 685,010 params; strict=True load with **no dummy forward** (no lazy params — not a B2 case). ⚠️ flagged: T>capacity now raises a clear error vs an opaque broadcast crash (numerically neutral, `T=20≤200`); `max_positions` constructor-only (kept out of `motion_kwargs`, like `img_size` in 2.1). Resolution-agnostic (adaptive pool). 5 model tests green. See Model decisions (2.2). |
 | 2.3 | `models/cross_attention.py`, `models/heads.py` | `models/Cross_Attention_Module.py` | | B4 | — | crosses_pooled decision |
 | 2.4 | `models/ensemble.py`, `models/registry.py` | `models/Unified_Module.py`, `scripts/model_utils.py` | | B10 | — | typed factory + forward adapter |
 | 2.5 | `models/ablations.py` | `models/AblationModels.py` | | B11 | — | per-ablation output keys |
@@ -366,6 +366,41 @@ The first model port. Locked so the downstream model prompts (2.2–2.5, 4.1 tra
   identical to the legacy square partition when `Wh==Ww`, which is the only case today) — keeps non-square
   windows expressible without touching parity. `timm` watch: confirmed **`DropPath` is the only `timm`
   symbol** used; kept this phase (identity in eval ⇒ parity-neutral), vendoring is a Phase-B simplification.
+
+### Model decisions (Prompt 2.2)
+
+The second model port. Locked so the downstream prompts (2.4 ensemble, 2.5 ablations, 4.1 trainer) stay consistent:
+
+- **Parity class.** Output EXACT vs OLD `MotionEncoder` under a **shared `state_dict`** loaded `strict=True`,
+  eval mode (Dropout / GRU-dropout / MultiheadAttention-dropout → identity; BatchNorm uses captured running
+  stats), `atol=1e-6`, `rtol=1e-5`. Golden = `tests/fixtures/golden/motion_encoder.pt`
+  (`tests/_capture/capture_motion_golden.py`, run vs OLD; B=2, T=3, tight 128×128). Module/attr names
+  preserved verbatim (`img_encoder`, `motion_encoder`, `fusion`, `gru`, `temporal_attn`, `pos_encoding`,
+  `norm`, `dropout`, `proj`) so the 51-key dict maps 1:1. Math + op order copied verbatim, incl. the
+  in-forward per-sequence motion normalization (`(x-mean)/(std+1e-6)`, **unbiased `std`**).
+- **NOT a B2 case (the contrast with 2.1).** MotionEncoder has **no lazy parameters** — every weight exists
+  at `__init__`, so the state_dict is captured right after construction (no dummy forward) and
+  `test_strict_load_motion_no_lazy_params` proves a zero-missing/unexpected strict load with no forward.
+  `img_encoder` ends in `AdaptiveAvgPool2d(1)` ⇒ the module is **resolution-agnostic** (no `img_size`
+  constructor arg, no `rebuild_*` machinery, no resolution-strict-load caveat — unlike the ViT).
+- **⚠️ Intentional behavior change — T≤capacity guard (numerically neutral).** OLD `pos_encoding[:, :T]`
+  silently yields `[1,200,hidden]` for `T>200` then crashes on broadcast with an opaque `RuntimeError`. The
+  port raises a clear `ValueError` ("exceeds positional-encoding capacity") at the top of `forward`. For every
+  valid `T` the numbers are identical (runtime `T = seq_len = 20 ≤ DataCfg.max_seq_len = 20 ≪ 200`) — both
+  paths already errored for `T>200`, so this only improves the message, not the math.
+- **`max_positions` is a constructor arg, NOT a `ModelCfg` field (config hygiene).** Default `200` keeps
+  `pos_encoding`'s shape — and thus the OLD state_dict — unchanged, and keeps `ModelCfg.motion_kwargs()`
+  byte-identical to OLD `motion_enc_args_config()` (the 0.2 config golden untouched). Exact parallel to the
+  2.1 decision to keep `img_size` out of `vit_kwargs`.
+- **B6 RESOLVED.** `__main__` is a `ModelCfg`-driven shape test (`from_config(ModelCfg())` → asserts
+  `[B,T,d_model]`); the drifting legacy kwargs (`hidden_dim=224`) are gone. With training dims `hidden_dim=168
+  ≠ d_model=128`, `proj` is a **real `Linear`** (residual projection), present in the golden dict.
+- **B7 confirmed (motion-dim contract).** The Conv1d input width is the only coupling to the 8-channel motion
+  definition (1.2 writer / 1.4 flip-negation) and it uses the channel *count*, never the per-channel
+  semantics — so it cannot corrupt the flip contract. `test_motion_conv_in_channels_matches_datacfg` pins
+  `motion_encoder[0].in_channels == DataCfg.motion_dim == ModelCfg.motion_dim`.
+- **`forward(motion, tight)` arg order** (= OLD `(motion_data, images_data)`) — the 2.4 ensemble / 2.5
+  ablation call sites must pass `(motion, tight-crops)` in this order when wiring.
 
 ### Config decisions (Prompt 0.2)
 

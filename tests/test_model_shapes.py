@@ -15,11 +15,13 @@ from pathlib import Path
 import pytest
 import torch
 
-from pedpredict.config import ModelCfg
+from pedpredict.config import DataCfg, ModelCfg
 from pedpredict.models.geometry import feature_map_size
+from pedpredict.models.motion_encoder import MotionEncoder
 from pedpredict.models.vit import ViT_Hierarchical
 
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "vit.pt"
+_MOTION_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "motion_encoder.pt"
 
 
 @pytest.fixture(scope="module")
@@ -120,3 +122,58 @@ def test_rebuild_position_bias_changes_global_window() -> None:
     with torch.no_grad():
         out = model(torch.randn(1, 2, 3, 128, 128))
     assert out.shape == (1, 2, 128)
+
+
+# =========================================================================== Prompt 2.2 — MotionEncoder
+
+
+@pytest.fixture(scope="module")
+def motion_golden() -> dict:
+    if not _MOTION_FIXTURE.exists():
+        pytest.skip(f"missing golden fixture {_MOTION_FIXTURE} (run tests/_capture/capture_motion_golden.py)")
+    return torch.load(_MOTION_FIXTURE, weights_only=False)
+
+
+def test_golden_motion_parity(motion_golden: dict) -> None:
+    """New MotionEncoder loads the OLD state_dict (strict=True) and reproduces the OLD output (eval)."""
+    model = MotionEncoder(**motion_golden["motion_kwargs"])
+    model.load_state_dict(motion_golden["state_dict"], strict=True)
+    model.eval()
+    with torch.no_grad():
+        y = model(motion_golden["inputs"]["motion"], motion_golden["inputs"]["tight"])
+    tol = motion_golden["meta"]
+    torch.testing.assert_close(y, motion_golden["outputs"]["y"], atol=tol["atol"], rtol=tol["rtol"])
+
+
+def test_strict_load_motion_no_lazy_params(motion_golden: dict) -> None:
+    """No B2-style lazy params: the OLD state_dict loads strict with no missing/unexpected keys, no forward."""
+    model = MotionEncoder(**motion_golden["motion_kwargs"])  # never call forward first
+    missing, unexpected = model.load_state_dict(motion_golden["state_dict"], strict=False)
+    assert not missing, f"missing keys: {missing}"
+    assert not unexpected, f"unexpected keys: {unexpected}"
+    model.load_state_dict(motion_golden["state_dict"], strict=True)  # must not raise
+
+
+def test_motion_from_config_output_shape() -> None:
+    cfg = ModelCfg()
+    model = MotionEncoder.from_config(cfg).eval()
+    with torch.no_grad():
+        out = model(torch.randn(2, 5, cfg.motion_dim), torch.randn(2, 5, 3, 128, 128))
+    assert out.shape == (2, 5, cfg.d_model)
+    assert torch.isfinite(out).all()
+
+
+def test_motion_pos_encoding_capacity_guard() -> None:
+    """T == capacity forwards; T > capacity raises a clear error instead of an opaque broadcast crash."""
+    model = MotionEncoder(max_positions=6).eval()
+    with torch.no_grad():
+        out = model(torch.randn(1, 6, model.motion_dim), torch.randn(1, 6, 3, 128, 128))
+    assert out.shape == (1, 6, model.d_model)
+    with pytest.raises(ValueError, match="exceeds positional-encoding capacity"):
+        model(torch.randn(1, 7, model.motion_dim), torch.randn(1, 7, 3, 128, 128))
+
+
+def test_motion_conv_in_channels_matches_datacfg() -> None:
+    """Coupling guard (1.2/1.4/2.2): the Conv1d input width equals the 8-dim motion contract."""
+    model = MotionEncoder.from_config(ModelCfg())
+    assert model.motion_encoder[0].in_channels == DataCfg().motion_dim == ModelCfg().motion_dim
