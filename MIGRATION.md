@@ -30,7 +30,7 @@ For each module you port:
 | 1.3 | `data/balance.py`, `scripts/balance_dataset.py`, `config/{schema,loader}.py`, `configs/balance.yaml` | `scripts/balance_sequences.py`, `split_balance_sequences_all.py` | `tests/fixtures/golden/balance_cases.json` | B3 (offline), B5 | ✅ / ⚠️ | Both legacy balancers reproduced EXACTLY (selected indices + all 3 solvers, tol=0) via `BALANCE_EQUAL` / `BALANCE_RATIO_30_70` presets. ⚠️ flagged: default solver fixes the `solve_exact` sign bug (legacy reachable only via `legacy_x00_sign_bug=True`); `summarize` now clamps crosses; random `split_indices` dropped (PIE provides splits, 1.1). Balance is OPT-IN (`enabled=false`). 21 balance tests green. See Data decisions (1.3) below. |
 | 1.4 | `data/augment.py`, `scripts/augment_dataset.py`, `config/{schema,loader}.py`, `configs/augment.yaml` | `scripts/augment_sequences.py` | `tests/fixtures/golden/augment_cases.pt` | B5 | ✅ / ⚠️ | All 4 transform kernels reproduce OLD `SequenceAugmenter` EXACTLY (flip/erase tol=0; color/noise atol=1e-6 under matched seeding). Flip-negated channel = **idx 2 (dx)**, guarded by a cross-module test vs `compute_motion`. ⚠️ flagged: OLD augmenter was DEAD (assumed tensor pkls; real pkl is path-based) → re-homed onto `ProcessedSample` at write time; negatives excluded from aug LMDB; per-transform copies (not composed); seedable per-item RNG (distribution-, not draw-, parity for the *plan*). 12 augment tests green. See Data decisions (1.4). |
 | 1.5 | `data/lmdb_dataset.py`, `data/collate.py` | `scripts/lmdb_dataset.py`, `train_utils.py` | `tests/fixtures/golden/lmdb_dataset_cases.pt` | B7 | ✅ | Read parity vs OLD dataset+`collate_fn` (images atol=1e-6, motions/labels tol=0). Worker-safe env (pid-keyed) + picklable dataset/collate tested under `num_workers=2`. B7: `MAX_SEQ_LEN→DataCfg.max_seq_len`; `motions[...,:8]` slice **deleted** + guarded. Read transforms config-driven; read context=224. 4 tests green. See Data decisions (1.5). |
-| 1.6 | `data/sampler.py` | `train.py:34-123` | | B3 (online, dedup scans) | — | single metadata scan (w/ 1.3, 3.1) |
+| 1.6 | `data/sampler.py`, `config/{schema,loader}.py`, `configs/train.yaml` | `train.py:34-123` | `tests/fixtures/golden/sampler_cases.json` | B3 (online, dedup scans), part B1 | ✅ / ⚠️ | Both legacy weight fns reproduced EXACTLY (global CE class weights + per-chunk sampler weights, atol=1e-6) via ONE `scan_chunk_labels` + `LabelScanCache` (replaces the two scan loops + inline `weight_cache`). The two inverse-freq *formulas* kept verbatim (only the scan is shared). ⚠️ flagged: single canonical crosses clamp (`clamp_cross`) replaces the two legacy clamps — coincide on in-contract `{0,1}` data, diverge only on never-occurring `2`. Added `TrainCfg.sampler_min_weight`. 16 sampler tests green. See Data decisions (1.6). |
 | 1.7 | `data/stats.py`, `scripts/count_labels.py` | `label_count.py` | | — | — | drift check vs stat table |
 | 2.1 | `models/vit.py` | `models/Vision_Transformer.py` | | B2, B13, B6 | — | eager params → strict=True load |
 | 2.2 | `models/motion_encoder.py` | `models/Motion_Encoder.py` | | — | — | T≤200 guard |
@@ -263,6 +263,40 @@ Locked so the chunk loader (4.2) and training (4.1) stay consistent:
 - **Couples to 4.2 (chunk loader):** it opens one `LMDBChunkDataset.from_config(chunk, cfg)` per chunk and
   uses `build_collate(cfg.data)` for the DataLoader; `__getstate__` + the partial-collate keep it crash- and
   pickle-safe under prefetch.
+
+### Data decisions (Prompt 1.6)
+
+The online imbalance lever + the **single LMDB scanner**. Locked jointly with 1.3 (offline balance) and
+3.1 (loss weights) so the three levers read as one policy (B3), not three accidents:
+
+- **The dedup is the SCAN, not the math.** OLD `compute_class_weights_from_lmdb` (train.py:34-72) and
+  `build_sampler_weights`/`_inverse_class_weights` (74-123) duplicated the `_meta` cursor pass but use
+  *legitimately different* inverse-freq formulas (loss `t/(2·max(c,1))` over fixed 2 classes vs. sampler
+  `t/(len(counts)·c)` over observed classes) at *different scopes* (loss=GLOBAL over all train chunks;
+  sampler=PER-CHUNK). New design: one `scan_chunk_labels` → `ChunkLabelScan`, cached per chunk by
+  `LabelScanCache` (replaces the inline `weight_cache` at train.py:426). `class_weights_ce` and
+  `sample_weights` are byte-for-byte ports of the two formulas; `aggregate_counts` sums cached per-chunk
+  counts for the global loss path (no second scan). **Prompt 3.1 imports `class_weights_ce` from here** —
+  it must not add a third scanner.
+- **Scope asymmetry preserved (not "fixed").** Sampler weights stay PER-CHUNK and class weights GLOBAL,
+  exactly as legacy ran — fixing the sampler to global frequencies would be a Phase-B behavior change.
+- **Parity class.** EXACT (`atol=1e-6`) for both levers vs the legacy oracle (transcribed verbatim into
+  `tests/_capture/capture_sampler_golden.py`; OLD `train.py` is not importable). Golden =
+  `tests/fixtures/golden/sampler_cases.json` (two synthetic label-only chunks, one with single-class
+  crosses to exercise `n_classes=1`).
+- **⚠️ Flagged behavior change — single canonical clamp.** The scan clamps `crosses` once via
+  `data.balance.clamp_cross` (`==1 → 1 else 0`) instead of the two legacy clamps (loss `max(0,min(1,·))`,
+  sampler `<0 → 0`). All three agree on in-contract data (writer guarantees `crosses ∈ {0,1}`, clamped at
+  1.1); they diverge only on the never-occurring value `2` (where the legacy sampler's `n_classes=len(counts)`
+  would spuriously inflate to 3 classes). Zero effect on real data → parity stays exact.
+- **Legacy quirk kept on purpose.** Sampler `_inverse_class_weights` uses `n_classes = len(counts)` (observed
+  classes), so a single-class chunk uses `n_classes=1`; and the `if power > 0` guards let a zeroed task drop
+  out entirely. Both preserved + tested.
+- **Config addition (additive).** `TrainCfg.sampler_min_weight = 1e-6` (was the `build_sampler_weights`
+  default literal) + `configs/train.yaml` + a `validate_config` guard (`> 0`, powers keyed to the 3 tasks,
+  powers `>= 0`). `sampler_powers` already existed.
+- **Resource safety.** Every `lmdb.open` is paired with a `try/finally … close()`; no env handle escapes the
+  scan. The module reads only the paths it is handed (train chunks) — no val/test leakage into the levers.
 
 ### Config decisions (Prompt 0.2)
 

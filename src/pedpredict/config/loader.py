@@ -233,6 +233,17 @@ def validate_config(root: RootCfg) -> None:
             f"got {d.read_context_height}x{d.read_context_width}"
         )
 
+    # online sampler invariants (Prompt 1.6)
+    if t.sampler_min_weight <= 0.0:
+        raise ConfigError(f"train.sampler_min_weight must be > 0; got {t.sampler_min_weight}")
+    if set(t.sampler_powers) != _TASK_KEYS:
+        raise ConfigError(
+            f"train.sampler_powers keys must be {sorted(_TASK_KEYS)}; got {sorted(t.sampler_powers)}"
+        )
+    for task, power in t.sampler_powers.items():
+        if power < 0.0:
+            raise ConfigError(f"train.sampler_powers[{task}] must be >= 0; got {power}")
+
     if not (0.0 <= e.threshold_sweep_lo < e.threshold_sweep_hi <= 1.0):
         raise ConfigError(
             f"require 0 <= threshold_sweep_lo < threshold_sweep_hi <= 1; "

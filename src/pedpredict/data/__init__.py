@@ -35,6 +35,15 @@ from .pie_sequences import (
     window_track,
     windows_from_pie,
 )
+from .sampler import (
+    TASKS,
+    ChunkLabelScan,
+    LabelScanCache,
+    build_weighted_sampler,
+    class_weights_ce,
+    sample_weights,
+    scan_chunk_labels,
+)
 from .transforms import (
     CropSequenceDataset,
     ProcessedSample,
@@ -63,6 +72,14 @@ __all__ = [
     "solve_cross0_counts",
     "solve_cross0_counts_approx",
     "summarize",
+    # sampler + scan dedup (1.6)
+    "TASKS",
+    "ChunkLabelScan",
+    "LabelScanCache",
+    "build_weighted_sampler",
+    "class_weights_ce",
+    "sample_weights",
+    "scan_chunk_labels",
     # sequences (1.1)
     "SequenceRecord",
     "clamp_to_binary",
