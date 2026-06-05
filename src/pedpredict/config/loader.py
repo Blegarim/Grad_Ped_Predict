@@ -265,6 +265,26 @@ def validate_config(root: RootCfg) -> None:
     if t.grad_clip_max_norm <= 0.0:
         raise ConfigError(f"train.grad_clip_max_norm must be > 0; got {t.grad_clip_max_norm}")
 
+    # chunk prefetch loader invariants (Prompt 4.2)
+    if t.chunk_preload_depth < 1:
+        raise ConfigError(f"train.chunk_preload_depth must be >= 1; got {t.chunk_preload_depth}")
+    if not (0.0 < t.chunk_warm_ram_threshold <= 100.0):
+        raise ConfigError(
+            f"train.chunk_warm_ram_threshold must be in (0, 100]; got {t.chunk_warm_ram_threshold}"
+        )
+    if t.chunk_warm_mem_interval <= 0.0:
+        raise ConfigError(f"train.chunk_warm_mem_interval must be > 0; got {t.chunk_warm_mem_interval}")
+    if t.chunk_warm_mem_timeout is not None and t.chunk_warm_mem_timeout <= 0.0:
+        raise ConfigError(
+            f"train.chunk_warm_mem_timeout must be > 0 or null; got {t.chunk_warm_mem_timeout}"
+        )
+    if t.chunk_queue_timeout <= 0.0:
+        raise ConfigError(f"train.chunk_queue_timeout must be > 0; got {t.chunk_queue_timeout}")
+    if t.dataloader_prefetch_factor < 1:
+        raise ConfigError(
+            f"train.dataloader_prefetch_factor must be >= 1; got {t.dataloader_prefetch_factor}"
+        )
+
     # online sampler invariants (Prompt 1.6)
     if t.sampler_min_weight <= 0.0:
         raise ConfigError(f"train.sampler_min_weight must be > 0; got {t.sampler_min_weight}")

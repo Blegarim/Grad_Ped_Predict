@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from pedpredict.training.callbacks import EarlyStopping
+from pedpredict.training.chunk_loader import (
+    ChunkLoaderIterator,
+    ChunkPrefetcher,
+    gather_lmdb_chunks,
+    warm_lmdb_chunk,
+)
 from pedpredict.training.metrics import (
     METRIC_COLUMNS,
     MetricAccumulator,
@@ -23,6 +29,8 @@ __all__ = [
     "METRIC_COLUMNS",
     "TRAIN_LOG_COLUMNS",
     "Checkpointer",
+    "ChunkLoaderIterator",
+    "ChunkPrefetcher",
     "ChunkProvider",
     "EarlyStopping",
     "EpochResult",
@@ -32,4 +40,6 @@ __all__ = [
     "TaskMetrics",
     "Trainer",
     "build_trainer",
+    "gather_lmdb_chunks",
+    "warm_lmdb_chunk",
 ]

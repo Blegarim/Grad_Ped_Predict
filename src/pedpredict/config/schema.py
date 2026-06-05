@@ -177,6 +177,13 @@ class TrainCfg:
     sched_factor: float = 0.5
     sched_patience: int = 2
     sched_threshold: float = 1e-4
+    # chunk prefetch loader (Prompt 4.2, B9) — OLD train.py:367-498 literals.
+    chunk_preload_depth: int = 3            # OLD min(3, n) warm-ahead window
+    chunk_warm_ram_threshold: float = 96.0  # OLD wait_for_memory(threshold=96)
+    chunk_warm_mem_interval: float = 1.0    # OLD wait_for_memory(interval=1)
+    chunk_warm_mem_timeout: float | None = None   # opt-in cap on the legacy infinite RAM wait
+    chunk_queue_timeout: float = 300.0      # OLD queue.get(timeout=300) skip-on-timeout
+    dataloader_prefetch_factor: int = 2     # OLD loader_kwargs['prefetch_factor'] = 2 (num_workers>0)
 
 
 @dataclass(frozen=True, slots=True)

@@ -40,7 +40,7 @@ For each module you port:
 | 3.1 | `losses/multitask.py` | `train.py:144-153,341-345` | `tests/fixtures/golden/losses_cases.pt` | B3 (loss), part B1, part B4, part B8 | ✅ | `MultiTaskLoss` reproduces OLD total + per-head CE EXACTLY (atol=1e-6). Class weights *imported* from 1.6 `class_weights_ce` (no re-scan). `crosses→crosses_frame` routing is the explicit `TASK_OUTPUT_KEY` contract; `crosses_pooled` provably never enters the loss. Trainer (4.1) owns the upstream `clamp_cross` + AMP/backward. 13 loss tests green (68 incl. sampler/config/utils). See Loss decisions (3.1). |
 | 3.2 | `training/metrics.py` | `train.py:186-234,580-595`, `test.py:74-100,463-470` | `tests/fixtures/golden/metrics_cases.pt` | B1, part B8 | ✅ / ⚠️ | `MetricAccumulator` reproduces BOTH OLD metric paths EXACTLY (atol=1e-6) — they are numerically identical, so one golden covers both (`main` + `degenerate` scenarios). Single impl shared by train-val (4.1) + test (5.1); `crosses→crosses_frame` routing reuses `losses.TASK_OUTPUT_KEY` (B4). ⚠️ flagged: AUC now computed on the val path too (OLD `validate` logged none — free enrichment); `zero_division=0` adopted everywhere (silences OLD test's warning, value-identical). Loss/temporal-weights/threshold-sweep kept OUT of the core (eval-only `optimal_threshold_metrics`). 13 metric tests green (full suite 205 passed, 1 skipped). See Metrics decisions (3.2). |
 | 4.1 | `training/trainer.py`, `training/callbacks.py` (+ `TrainCfg.grad_clip_max_norm`) | `train.py:140-164,204-228,236-632`, `train_utils.py:23-37` | `tests/fixtures/golden/trainer_step.pt` | B1, B2 (consumer), B8 | ✅ | Step parity EXACT vs transcribed legacy `train_one_chunk` (per-batch loss + post-step `state_dict`, atol=1e-6) + `validate_one_epoch` (val_loss + per-task acc); seed-synced dropout. **B2: optimizer covers ALL params with NO dummy forward** (proven) + strict-load round-trip no-forward. B8: no `.float()` casts (loss/metrics own the upcast). `EarlyStopping` ported verbatim. Trainer is DI: `ChunkProvider`(4.2)/`Checkpointer`(4.3)/`CsvLogger`(4.5) are seams. 7 trainer tests green (full suite 212 passed, 1 skipped). See Training decisions (4.1). |
-| 4.2 | `training/chunk_loader.py` | `train.py:368-504`, `train_utils.py:80-98` | | B9 | — | crash-safe ChunkPrefetcher |
+| 4.2 | `training/chunk_loader.py`, `data/lmdb_warm.py` (+ 6 `TrainCfg` knobs) | `train.py:367-498`, `train_utils.py:80-98` | n/a (infra; behavioral) | B9 | ✅ / ⚠️ | All OLD queue/process bookkeeping encapsulated behind `ChunkPrefetcher` (`ChunkProvider`) + `ChunkLoaderIterator` (`start/__next__/close/__enter__/__exit__`); warm worker = EXACT `mp_async_load` port. Crash-safe: full pass / early break / exception / real-timeout all return `active_children` to baseline (proven w/ REAL spawn). ⚠️ flagged: warm moved to torch-free `data/lmdb_warm.py` so `spawn` children don't import torch; next-chunk warm spawned *before* yielding the current loader (vs OLD after `train_one_chunk`) — both behavior-neutral (warm = unobservable OS-cache side effect). `mp.get_context("spawn")` pinned; opt-in `chunk_warm_mem_timeout` caps the legacy infinite RAM wait. Shared `LabelScanCache` threaded via `build_trainer` (one scan/chunk across sampler+loss levers). 17 tests green (42s). See Training decisions (4.2). |
 | 4.3 | `training/callbacks.py` | `train.py` ckpt/early-stop/sched | | B2 (load), B11, B1 | — | full-state resume, strict=True |
 | 4.4 | two-phase schedule on Trainer | `train_two_phase.py` | | B1 | — | phases as config, not god-script |
 | 4.5 | `utils/logging.py` CSV conventions | `train.py`/`test.py` CSV writers | n/a | B11, B1 | — | run-dir + index.csv |
@@ -661,6 +661,52 @@ The clean training loop replacing the `train.py` god-script (B1). Locked so the 
   `> 0` guard) — the last hardcoded literal in the step loop (`train.py:158,163`), now config-first (B1).
 - **Known pre-existing lint nit (NOT 4.1):** `tests/_capture/capture_ensemble_golden.py:93` trips ruff `I001`
   on HEAD (Prompt 2.4's provenance script, untouched here) — flagged for a separate tidy, not folded in.
+
+### Training decisions (Prompt 4.2)
+
+The crash-safe chunk prefetch loader (B9), fulfilling the 4.1 `ChunkProvider` seam. Locked decisions:
+
+- **Parity class = BEHAVIORAL, no tensor fixture.** This layer warms OS cache + builds DataLoaders; it moves
+  no numbers (same class as the 0.3 infra rows). Tests pin the orchestration the OLD `train.py:367-498`
+  hand-rolled: warm-worker contract, in-order traversal, timeout/err **skip**, per-epoch reshuffle, and — the
+  headline — **no leaked processes**. The leak guarantee is proven with REAL spawned processes across four
+  paths: full pass, early `break`, exception in the consumer, and a real warmer that hangs past
+  `queue_timeout` (the OLD `proc.terminate()` path). Order/skip/wiring tests drive the *same* iterator logic
+  through an in-process `_InlineCtx` (synchronous warm) so the suite stays ~40s on Windows instead of ~18min.
+- **Two layers, all queue/process state hidden.** `ChunkLoaderIterator` owns the `mp.Queue` + live warmers +
+  the N-ahead window and exposes `start/__next__/close/__enter__/__exit__`; `close()` is idempotent
+  (terminate+join all, drain) and runs on `GeneratorExit`/exception via the `with` inside each
+  `epoch_loaders`/`val_loaders`, **and** from the Trainer's `finally`. `ChunkPrefetcher` is the
+  `ChunkProvider`; the Trainer is unchanged.
+- **Warm worker isolated to a torch-free module — `data/lmdb_warm.py`.** ⚠️ Behavior-neutral but structurally
+  intentional: under `spawn` the child re-imports the target's module, so leaving the worker in `chunk_loader`
+  (which imports `torch` via `DataLoader`) made every warm process pay torch's multi-second import before
+  reading a key (observed: a 1 s test `queue_timeout` skipped *everything*). `warm_lmdb_chunk` (EXACT
+  `mp_async_load` port) now imports only `lmdb`; re-exported from `chunk_loader` for API stability.
+- **Spawn pinned + RAM-wait made finite-able.** `mp.get_context("spawn")` is the default context
+  (deterministic on the Windows/`win32` dev box; CUDA-safe). `wait_for_memory` gains an opt-in
+  `chunk_warm_mem_timeout` (None = legacy infinite wait) so a stuck spawn can't wedge the loop.
+- **Next-chunk warm spawned BEFORE yielding the current loader** (vs OLD, which spawned it after
+  `train_one_chunk`). ⚠️ flagged behavior-neutral: warming is an unobservable OS-cache side effect; only its
+  timing moves (now overlaps the *current* chunk's training). Skip paths (timeout/err) do **not** spawn a
+  replacement — the warm window shrinks exactly as the legacy `continue` did.
+- **One scan per chunk across both imbalance levers.** `build_trainer` threads the provider's `LabelScanCache`
+  into the Trainer (`scan_cache=getattr(chunks, "scan_cache", None)`), so the per-chunk sampler scan (1.6) and
+  the global class-weight scan (3.1) share one cursor pass. Sampler weights are built from the dataset's own
+  `seq_ids` (`scan_cache.get(path, dataset.seq_ids)`) so per-sample weight order matches dataset order.
+- **Dataset built in the MAIN process (1.5 coupling).** Warm processes (here) and DataLoader workers never
+  share an LMDB env; the dataset's pid-keyed env + picklable `__getstate__` (1.5) own the worker boundary
+  independently. `gather_lmdb_chunks` reproduces OLD `gather_chunks` (sorted, skip-missing, raise-if-empty).
+- **Config (additive, B1): 6 `TrainCfg` knobs** (+ `configs/train.yaml` + `validate_config` guards) replacing
+  the OLD literals — `chunk_preload_depth=3`, `chunk_warm_ram_threshold=96.0`, `chunk_warm_mem_interval=1.0`,
+  `chunk_warm_mem_timeout=null`, `chunk_queue_timeout=300.0`, `dataloader_prefetch_factor=2`.
+- **Recommendation on custom-prefetch vs DataLoader workers (the prompt's explicit decision):** KEEP the
+  custom warm-ahead this phase. It preserves the per-chunk shuffle + per-chunk `WeightedRandomSampler`
+  contract and overlaps the *next chunk's* page-cache warm with the *current chunk's* training (which torch
+  workers don't). Honest caveat: the benefit is modest (cache-warm only; dataset build + sampler scan stay
+  synchronous in the main process). **Phase-B candidate (deferred):** a `ConcatDataset` across chunks +
+  standard worker sharding — changes shuffle granularity (global vs per-chunk) and the sampler contract, so
+  out of scope for behavior-preserving Phase A.
 
 ### Config decisions (Prompt 0.2)
 

@@ -325,8 +325,11 @@ def build_trainer(cfg: RootCfg, chunks: ChunkProvider, *, device: torch.device |
     run_id = make_run_id(cfg.eval.model_type, tag)
     run_dir = create_run_dir(Path(cfg.paths.runs_dir), run_id)
     logger = CsvLogger(run_dir / "train_log.csv", TRAIN_LOG_COLUMNS)
+    # Share the provider's scan cache (4.2 ChunkPrefetcher) so the global class-weight scan (1.6) and the
+    # per-chunk sampler scans reuse ONE cursor pass per chunk. A non-prefetcher provider yields None.
     return Trainer(
         cfg, model, device, chunks,
+        scan_cache=getattr(chunks, "scan_cache", None),
         checkpointer=ModelStateCheckpointer(run_dir / "checkpoints"),
         logger=logger,
         run_dir=run_dir,
