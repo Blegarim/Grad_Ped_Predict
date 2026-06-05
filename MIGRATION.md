@@ -38,7 +38,7 @@ For each module you port:
 | 2.4 | `models/ensemble.py`, `models/registry.py` (+ `models/ablations.py` stubs) | `models/Unified_Module.py`, `scripts/model_utils.py` | `tests/fixtures/golden/ensemble.pt` | B10 | ✅ / ⚠️ | EnsembleModel output parity vs OLD full model EXACT under a shared `state_dict` loaded `strict=True` (eval, `atol=1e-6, rtol=1e-5`), 342-key dict — attrs `motion_enc`/`vit`/`cross_attention`/`image_norm`/`motion_norm` preserved; LayerNorm-before-fusion + `return_feats` path kept. Registry replaces `model_utils` (B10): `ModelType` str-Enum + `coerce` (typo = clear error), `build_model(RootCfg, model_type?)` stamps intrinsic `model.model_type`, single `forward_model(model, *batch[:3])` adapter. ⚠️ inherits `crosses_pooled` (B4, recomputed from legacy weights) + `key_padding_mask` removal (2.3). Ablations are 2.5 stubs (`build_model` for them raises `NotImplementedError("Prompt 2.5")`; registry needs no edit when filled). **14 Prompt-2.4 tests green (36 model+smoke total).** See Model decisions (2.4). |
 | 2.5 | `models/ablations.py`, `models/heads.py` (+`emit_task_logits`) | `models/AblationModels.py` | `tests/fixtures/golden/ensemble.pt` (extended to 4 types) | B4, B6, B10 (reuse), B11 | ✅ / ⚠️ | All three ablations port EXACT under shared `state_dict` loaded `strict=True` (eval, `atol=1e-6, rtol=1e-5`) — `motion_only` 71-key, `visual_only` 285-key, `vanilla_concat` 342-key dicts; legacy attrs (`norm`/`motion_norm`/`visual_norm`/`fusion`/`pool_mlp`/`classifier`/`crosses_frame_head` + sub-encoders) preserved, incl. the legacy-dead `classifier.crosses`. Heads built via `heads.py` (keys byte-identical). ⚠️ flagged: **`crosses_pooled` made LIVE-but-unsupervised UNIFORMLY** with the full model (B4, default on, gated by `emit_crosses_pooled`; golden ref recomputed from legacy weights, never routed to loss) — legacy ablation `forward` emitted 3 keys. **`temporal_weights` is structurally full-model-only** (ablations never emit it). Legacy per-call `frame_pool` `forward` arg dropped (permanently default at every call site, like 2.3 `key_padding_mask`; behavior-neutral). Output-contract head block factored into `heads.emit_task_logits` (shared by all 4 model types); `cross_attention.py` retrofitted to it (behavior-neutral, golden still EXACT). Registry (2.4) needed **no edit** — stubs swapped for real classes. OLD root one-offs folded/dropped (B11): `test_ablation_models.py`→shape asserts in `test_all_model_types_build_and_forward`; `ablation_usage_example.py`/`test_ablation_structure_clean.py` dropped; `final_ablation_verification.py` suffix-naming deferred to eval/8.1. **13 Prompt-2.5 tests green (46 model+smoke total; full suite 179 passed, 1 skipped).** See Model decisions (2.5). |
 | 3.1 | `losses/multitask.py` | `train.py:144-153,341-345` | `tests/fixtures/golden/losses_cases.pt` | B3 (loss), part B1, part B4, part B8 | ✅ | `MultiTaskLoss` reproduces OLD total + per-head CE EXACTLY (atol=1e-6). Class weights *imported* from 1.6 `class_weights_ce` (no re-scan). `crosses→crosses_frame` routing is the explicit `TASK_OUTPUT_KEY` contract; `crosses_pooled` provably never enters the loss. Trainer (4.1) owns the upstream `clamp_cross` + AMP/backward. 13 loss tests green (68 incl. sampler/config/utils). See Loss decisions (3.1). |
-| 3.2 | `training/metrics.py` | `train.py` val, `test.py` eval | | B1 | — | shared by train+test |
+| 3.2 | `training/metrics.py` | `train.py:186-234,580-595`, `test.py:74-100,463-470` | `tests/fixtures/golden/metrics_cases.pt` | B1, part B8 | ✅ / ⚠️ | `MetricAccumulator` reproduces BOTH OLD metric paths EXACTLY (atol=1e-6) — they are numerically identical, so one golden covers both (`main` + `degenerate` scenarios). Single impl shared by train-val (4.1) + test (5.1); `crosses→crosses_frame` routing reuses `losses.TASK_OUTPUT_KEY` (B4). ⚠️ flagged: AUC now computed on the val path too (OLD `validate` logged none — free enrichment); `zero_division=0` adopted everywhere (silences OLD test's warning, value-identical). Loss/temporal-weights/threshold-sweep kept OUT of the core (eval-only `optimal_threshold_metrics`). 13 metric tests green (full suite 205 passed, 1 skipped). See Metrics decisions (3.2). |
 | 4.1 | `training/trainer.py` | `train.py:125-175,236-632` | | B1, B2 (consumer), B8 | — | no dummy-forward |
 | 4.2 | `training/chunk_loader.py` | `train.py:368-504`, `train_utils.py:80-98` | | B9 | — | crash-safe ChunkPrefetcher |
 | 4.3 | `training/callbacks.py` | `train.py` ckpt/early-stop/sched | | B2 (load), B11, B1 | — | full-state resume, strict=True |
@@ -575,6 +575,45 @@ metrics / 4.1 trainer) stay consistent:
   class-weights (so a single-class batch is weight-invariant — the test uses a mixed batch / unit weights to
   exercise the levers). Validation's sum-over-samples accumulation (train.py:219) is logging and stays in the
   Trainer, not the loss (single loss shared by train + val, no divergence).
+
+### Metrics decisions (Prompt 3.2)
+
+The single metric implementation shared by training-validation (4.1) and test/eval (5.1). Locked so the
+coupled output-contract prompts (2.3 / 3.1 / 5.1) stay singular:
+
+- **B1 RESOLVED — one `MetricAccumulator`, no second path.** OLD `train.validate` (186-234,580-595) and
+  `test.evaluate` (74-100,463-470) computed the same 5 metrics with only cosmetic differences. The two
+  oracles are transcribed verbatim in `tests/_capture/capture_metrics_golden.py`, which **asserts they
+  agree** before saving — so the one golden (`metrics_cases.pt`, `main` + `degenerate` scenarios) pins both
+  (planned tests #2 and #3 collapse into one parity test).
+- **Canonical choices for the B1 divergences (deliberate, not silently picked):** preds via
+  `argmax(logits)` (== `argmax(softmax)`, cheaper); `average="binary"` (all tasks 2-class; the `macro`
+  branch is kept guarded but unreachable); `zero_division=0` **everywhere** (adopts `train`'s explicit form,
+  silences `test`'s `UndefinedMetricWarning`, value-identical) so the OLD `len(set)>1` guard is dropped as
+  redundant; AUC via `roc_auc_score(y_true, prob[:,1])` with single-class → `nan` (handles both the legacy
+  `ValueError` and sklearn-1.7's warn-and-return-`nan`).
+- **⚠️ Intentional change — AUC on the validation path too.** OLD `validate` logged only acc/f1; the
+  accumulator holds the probs, so it computes the full 5-metric set for val as well. A free enrichment, not a
+  regression — the val CSV simply gains `*_auc/*_precision/*_recall` columns (logging layer 4.5 chooses what
+  to write). OQ2 (user-approved).
+- **Output contract reused, not re-declared (B4, w/ 3.1).** `crosses → crosses_frame` routing imports
+  `TASKS` / `TASK_OUTPUT_KEY` from `losses.multitask` (OQ3, user-approved) so loss / metrics / eval cannot
+  drift; `crosses_pooled` + `temporal_weights` are provably never scored (`test_crosses_scored_on_frame_not_pooled`).
+  Part B8: the AMP upcast reuses `utils.amp.to_float_logits` (same single site as 3.1).
+- **Scope kept tight (OQ4, user-approved):** **loss** aggregation stays in the Trainer (4.1, via
+  `MultiTaskLoss` — mirrors the 3.1 "val loss is logging" decision); **temporal-weight** collection is a viz
+  artifact (6.2); the **threshold sweep** is eval-only, exposed as `optimal_threshold_metrics(EvalCfg)`
+  (ports `find_optimal_thresholds`, driven by the existing `EvalCfg.threshold_sweep_*` — no magic
+  `range(2,19)`), so train-val and test still share the identical core `compute()`.
+- **CSV schema = one canonical flat dict.** `METRIC_COLUMNS` (task-major:
+  `{task}_{acc,f1,auc,precision,recall}` × 3 + `macro_f1` + `overall_acc`) via `MetricResult.as_flat_dict()` /
+  `csv_row()`; rounding + context columns (epoch / timestamp+chunk) + loss columns are the logging layer's
+  (4.5/5.1). **Migration note:** P/R use full `_precision`/`_recall` (OQ1, vs OLD test's `_p`/`_r`); val CSV
+  gains auc/p/r, test CSV gains `macro_f1`; rounding standardized (recommend 4 dp).
+- **Aggregate vs per-chunk.** `compute()` metrics are computed over ALL accumulated samples (== OLD
+  `test.py` final `avg_metrics`), NOT a mean of per-chunk metrics — aggregate AUC/F1 ≠ averaged per-chunk.
+  Per-chunk CSV rows (if 5.1 wants them) = a fresh accumulator per chunk. `compute()` raises on an empty
+  accumulator (vs OLD's silent zeros).
 
 ### Config decisions (Prompt 0.2)
 
