@@ -171,6 +171,7 @@ class TrainCfg:
         default_factory=lambda: {"crosses": 1.5, "actions": 0.3, "looks": 0.7}
     )
     sampler_min_weight: float = 1e-6   # floor for per-sample sampler weights (OLD build_sampler_weights)
+    grad_clip_max_norm: float = 1.0    # clip_grad_norm_ bound (OLD train.py:158,163 literal — B1)
     early_stop_patience: int = 15
     early_stop_min_delta: float = 0.001
     sched_factor: float = 0.5

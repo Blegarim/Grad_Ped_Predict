@@ -39,7 +39,7 @@ For each module you port:
 | 2.5 | `models/ablations.py`, `models/heads.py` (+`emit_task_logits`) | `models/AblationModels.py` | `tests/fixtures/golden/ensemble.pt` (extended to 4 types) | B4, B6, B10 (reuse), B11 | ✅ / ⚠️ | All three ablations port EXACT under shared `state_dict` loaded `strict=True` (eval, `atol=1e-6, rtol=1e-5`) — `motion_only` 71-key, `visual_only` 285-key, `vanilla_concat` 342-key dicts; legacy attrs (`norm`/`motion_norm`/`visual_norm`/`fusion`/`pool_mlp`/`classifier`/`crosses_frame_head` + sub-encoders) preserved, incl. the legacy-dead `classifier.crosses`. Heads built via `heads.py` (keys byte-identical). ⚠️ flagged: **`crosses_pooled` made LIVE-but-unsupervised UNIFORMLY** with the full model (B4, default on, gated by `emit_crosses_pooled`; golden ref recomputed from legacy weights, never routed to loss) — legacy ablation `forward` emitted 3 keys. **`temporal_weights` is structurally full-model-only** (ablations never emit it). Legacy per-call `frame_pool` `forward` arg dropped (permanently default at every call site, like 2.3 `key_padding_mask`; behavior-neutral). Output-contract head block factored into `heads.emit_task_logits` (shared by all 4 model types); `cross_attention.py` retrofitted to it (behavior-neutral, golden still EXACT). Registry (2.4) needed **no edit** — stubs swapped for real classes. OLD root one-offs folded/dropped (B11): `test_ablation_models.py`→shape asserts in `test_all_model_types_build_and_forward`; `ablation_usage_example.py`/`test_ablation_structure_clean.py` dropped; `final_ablation_verification.py` suffix-naming deferred to eval/8.1. **13 Prompt-2.5 tests green (46 model+smoke total; full suite 179 passed, 1 skipped).** See Model decisions (2.5). |
 | 3.1 | `losses/multitask.py` | `train.py:144-153,341-345` | `tests/fixtures/golden/losses_cases.pt` | B3 (loss), part B1, part B4, part B8 | ✅ | `MultiTaskLoss` reproduces OLD total + per-head CE EXACTLY (atol=1e-6). Class weights *imported* from 1.6 `class_weights_ce` (no re-scan). `crosses→crosses_frame` routing is the explicit `TASK_OUTPUT_KEY` contract; `crosses_pooled` provably never enters the loss. Trainer (4.1) owns the upstream `clamp_cross` + AMP/backward. 13 loss tests green (68 incl. sampler/config/utils). See Loss decisions (3.1). |
 | 3.2 | `training/metrics.py` | `train.py:186-234,580-595`, `test.py:74-100,463-470` | `tests/fixtures/golden/metrics_cases.pt` | B1, part B8 | ✅ / ⚠️ | `MetricAccumulator` reproduces BOTH OLD metric paths EXACTLY (atol=1e-6) — they are numerically identical, so one golden covers both (`main` + `degenerate` scenarios). Single impl shared by train-val (4.1) + test (5.1); `crosses→crosses_frame` routing reuses `losses.TASK_OUTPUT_KEY` (B4). ⚠️ flagged: AUC now computed on the val path too (OLD `validate` logged none — free enrichment); `zero_division=0` adopted everywhere (silences OLD test's warning, value-identical). Loss/temporal-weights/threshold-sweep kept OUT of the core (eval-only `optimal_threshold_metrics`). 13 metric tests green (full suite 205 passed, 1 skipped). See Metrics decisions (3.2). |
-| 4.1 | `training/trainer.py` | `train.py:125-175,236-632` | | B1, B2 (consumer), B8 | — | no dummy-forward |
+| 4.1 | `training/trainer.py`, `training/callbacks.py` (+ `TrainCfg.grad_clip_max_norm`) | `train.py:140-164,204-228,236-632`, `train_utils.py:23-37` | `tests/fixtures/golden/trainer_step.pt` | B1, B2 (consumer), B8 | ✅ | Step parity EXACT vs transcribed legacy `train_one_chunk` (per-batch loss + post-step `state_dict`, atol=1e-6) + `validate_one_epoch` (val_loss + per-task acc); seed-synced dropout. **B2: optimizer covers ALL params with NO dummy forward** (proven) + strict-load round-trip no-forward. B8: no `.float()` casts (loss/metrics own the upcast). `EarlyStopping` ported verbatim. Trainer is DI: `ChunkProvider`(4.2)/`Checkpointer`(4.3)/`CsvLogger`(4.5) are seams. 7 trainer tests green (full suite 212 passed, 1 skipped). See Training decisions (4.1). |
 | 4.2 | `training/chunk_loader.py` | `train.py:368-504`, `train_utils.py:80-98` | | B9 | — | crash-safe ChunkPrefetcher |
 | 4.3 | `training/callbacks.py` | `train.py` ckpt/early-stop/sched | | B2 (load), B11, B1 | — | full-state resume, strict=True |
 | 4.4 | two-phase schedule on Trainer | `train_two_phase.py` | | B1 | — | phases as config, not god-script |
@@ -614,6 +614,53 @@ coupled output-contract prompts (2.3 / 3.1 / 5.1) stay singular:
   `test.py` final `avg_metrics`), NOT a mean of per-chunk metrics — aggregate AUC/F1 ≠ averaged per-chunk.
   Per-chunk CSV rows (if 5.1 wants them) = a fresh accumulator per chunk. `compute()` raises on an empty
   accumulator (vs OLD's silent zeros).
+
+### Training decisions (Prompt 4.1)
+
+The clean training loop replacing the `train.py` god-script (B1). Locked so the downstream training prompts
+(4.2 chunk loader, 4.3 callbacks, 4.4 two-phase, 4.5 logging) slot in as injected dependencies:
+
+- **Parity class = COMPOSITIONAL, not a single end-to-end tensor.** The full loop is stochastic
+  (sampler / `shuffle` / workers), so there is no whole-run golden. The Trainer adds **no math** — loss
+  (3.1), metrics (3.2), model+forward (2.4), class-weights/sampler (1.6) are each already golden-locked — so
+  4.1 pins the **orchestration**. Golden = `tests/fixtures/golden/trainer_step.pt`
+  (`tests/_capture/capture_trainer_golden.py`): the transcribed-verbatim legacy `train_one_chunk`
+  (`train.py:140-164`, scaler=None/AMP-off branch) + `validate_one_epoch` (`:204-228,572`) run on the NEW
+  model from a fixed init `state_dict` + fixed synthetic batches. Tests assert EXACT (atol=1e-6) per-batch
+  loss, **post-step `state_dict`**, val_loss, and per-task correct counts.
+- **Dropout RNG is seed-synced, not disabled.** The train-step oracle runs `model.train()` (DropPath/Dropout
+  live); both capture and test `torch.manual_seed(STEP_SEED)` immediately before the loop and consume RNG
+  identically (only the forward draws), so masks match → bitwise-stable weights. Validation runs `eval()`
+  (dropout = identity) → deterministic, no seeding. This proves the *wrapper* (zero_grad → backward → clip →
+  step order, per-head weighting, Adam config) is faithful given the already-golden components.
+- **B2 (consumer side) RESOLVED — the headline.** OLD `train.py:311-317` dummy-forward materialization is
+  **deleted**. Since 2.1 made every ViT param eager, `Trainer.__init__` builds `Adam` over
+  `model.parameters()` with zero forwards; `test_optimizer_covers_all_params_without_forward` proves full
+  coverage and `test_state_dict_round_trips_strict_without_forward` proves `strict=True` load with no forward.
+- **B8 RESOLVED (consumer side).** No `.float()` casts in the loop — the single upcast is owned by
+  `MultiTaskLoss`/`MetricAccumulator` (`to_float_logits`); the Trainer uses `utils.amp`
+  (`resolve_amp`/`autocast_ctx`/`make_grad_scaler`) for the AMP context, scaler, and CUDA gating. Train puts
+  forward+loss inside autocast (OLD `:141-153`); validate puts only forward inside, loss outside (OLD
+  `:204-217`) — numerically identical via `to_float_logits`, structure preserved.
+- **Val-loss formula preserved exactly (it drives 3 decisions).** `val_loss = Σ(total·B)/ΣB` (OLD per-sample
+  mean weighted loss) is the scalar fed to `scheduler.step`, `EarlyStopping`, and best-checkpoint selection.
+  `MultiTaskLoss.total` == OLD `Σ_t w_t·CE_t`, so `Σ total·B / ΣB` reproduces OLD `:208-228,572` (pinned
+  atol=1e-6). Metrics come from the shared `MetricAccumulator` (B1), an enrichment over OLD `validate`.
+- **Dependency-injected seams (no edit to `fit` when they land).** `ChunkProvider` Protocol = the 4.2 seam
+  (Trainer just iterates `epoch_loaders`/`val_loaders`; per-epoch reshuffle + prefetch are 4.2's, B9);
+  `Checkpointer` Protocol = the 4.3 seam (interim `ModelStateCheckpointer` saves model-only `state_dict` like
+  OLD; **full-state resume + strict load deferred to 4.3** — user-confirmed); injected `CsvLogger` +
+  provisional `TRAIN_LOG_COLUMNS` = the 4.5 seam (final schema/run-dir/index are 4.5's). `build_trainer(cfg,
+  chunks)` wires device→perf-flags→`build_model`→run-dir; the real LMDB provider arrives with 4.2.
+- **`EarlyStopping` ported verbatim into `callbacks.py`** (OLD `train_utils.py:23-37`), so 4.3 only adds the
+  checkpoint half (user-approved). Same `min_delta`/`patience` latch semantics.
+- **Crosses clamp = plain `torch.clamp(labels,0,1)`** (OLD `remap_cross_labels`) — the least-complex form,
+  identical to 1.6's canonical `clamp_cross` on in-contract `{0,1}` data (user decision: "least complicated
+  as long as results are identical"). No new helper.
+- **Config (additive): `TrainCfg.grad_clip_max_norm = 1.0`** (+ `configs/train.yaml` + a `validate_config`
+  `> 0` guard) — the last hardcoded literal in the step loop (`train.py:158,163`), now config-first (B1).
+- **Known pre-existing lint nit (NOT 4.1):** `tests/_capture/capture_ensemble_golden.py:93` trips ruff `I001`
+  on HEAD (Prompt 2.4's provenance script, untouched here) — flagged for a separate tidy, not folded in.
 
 ### Config decisions (Prompt 0.2)
 

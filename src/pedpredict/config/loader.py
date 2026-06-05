@@ -261,6 +261,10 @@ def validate_config(root: RootCfg) -> None:
                 f"(img_size={d.read_context_height})"
             )
 
+    # training-loop invariants (Prompt 4.1)
+    if t.grad_clip_max_norm <= 0.0:
+        raise ConfigError(f"train.grad_clip_max_norm must be > 0; got {t.grad_clip_max_norm}")
+
     # online sampler invariants (Prompt 1.6)
     if t.sampler_min_weight <= 0.0:
         raise ConfigError(f"train.sampler_min_weight must be > 0; got {t.sampler_min_weight}")
