@@ -41,7 +41,7 @@ from pedpredict.config.schema import RootCfg
 from pedpredict.data.sampler import LabelScanCache, class_weights_ce
 from pedpredict.losses.multitask import MultiTaskLoss, build_multitask_loss
 from pedpredict.models.registry import build_model, forward_model
-from pedpredict.training.callbacks import EarlyStopping
+from pedpredict.training.callbacks import CheckpointManager, EarlyStopping
 from pedpredict.training.metrics import METRIC_COLUMNS, MetricAccumulator, MetricResult
 from pedpredict.utils.amp import autocast_ctx, make_grad_scaler, resolve_amp
 from pedpredict.utils.device import enable_perf_flags, get_device
@@ -152,6 +152,7 @@ class Trainer:
         checkpointer: Checkpointer | None = None,
         logger: CsvLogger | None = None,
         run_dir: Path | None = None,
+        start_epoch: int = 0,
     ) -> None:
         self.cfg = cfg
         self.model = model.to(device)
@@ -175,6 +176,7 @@ class Trainer:
         )
         self.checkpointer = checkpointer if checkpointer is not None else ModelStateCheckpointer(None)
         self.best_val_loss = float("inf")
+        self._start_epoch = start_epoch
 
     # ----------------------------------------------------------------- construction helpers
 
@@ -274,9 +276,8 @@ class Trainer:
         """Run the full training schedule (OLD main epoch loop, :373-627), returning per-epoch results."""
         results: list[EpochResult] = []
         try:
-            for epoch in range(self.cfg.train.num_epochs):
+            for epoch in range(self._start_epoch, self.cfg.train.num_epochs):
                 train_loss = self._run_epoch(epoch)
-                self.checkpointer.save_last(self, epoch)         # OLD train.py:509 (pre-validation)
                 val_loss, metrics = self.validate()
                 self.scheduler.step(val_loss)                    # OLD train.py:598
                 self._log_epoch(epoch, train_loss, val_loss, metrics)
@@ -284,6 +285,10 @@ class Trainer:
                     self.best_val_loss = val_loss
                     self.checkpointer.save_best(self, epoch, val_loss)
                 results.append(EpochResult(epoch, train_loss, val_loss, metrics))
+                # save_last after full epoch (train + validate + scheduler.step) so that
+                # resume with _start_epoch = epoch + 1 is correct; OLD train.py:509 wrote
+                # model-only weights pre-validation (fine for warm-start, wrong for full resume)
+                self.checkpointer.save_last(self, epoch)
                 self.early_stopping(val_loss)                    # OLD train.py:622-627
                 if self.early_stopping.early_stop:
                     break
@@ -311,13 +316,23 @@ class Trainer:
         self.logger.log(row)
 
 
-def build_trainer(cfg: RootCfg, chunks: ChunkProvider, *, device: torch.device | None = None,
-                  tag: str = "") -> Trainer:
+def build_trainer(
+    cfg: RootCfg,
+    chunks: ChunkProvider,
+    *,
+    device: torch.device | None = None,
+    tag: str = "",
+    resume_from: str | Path | None = None,
+) -> Trainer:
     """Wire a runnable :class:`Trainer`: device + perf flags, ``build_model`` (2.4), run-dir + CSV logger.
 
     ``chunks`` is the (4.2) provider — passed in so callers stay in control of the data source; the model
     type comes from ``cfg.eval.model_type`` (the shared selector). Once 4.2 lands, the call is simply
     ``build_trainer(cfg, ChunkPrefetcher.from_config(cfg))``.
+
+    Pass ``resume_from`` to warm-resume from a :class:`~pedpredict.training.callbacks.CheckpointManager`
+    checkpoint. All training state (model, optimizer, scaler, scheduler, best_val_loss, epoch) is
+    restored; training continues from ``saved_epoch + 1``.
     """
     device = device if device is not None else get_device()
     enable_perf_flags(device)
@@ -325,12 +340,29 @@ def build_trainer(cfg: RootCfg, chunks: ChunkProvider, *, device: torch.device |
     run_id = make_run_id(cfg.eval.model_type, tag)
     run_dir = create_run_dir(Path(cfg.paths.runs_dir), run_id)
     logger = CsvLogger(run_dir / "train_log.csv", TRAIN_LOG_COLUMNS)
+    ckpt_mgr = CheckpointManager(
+        run_dir / "checkpoints",
+        run_id=run_id,
+        model_type=cfg.eval.model_type,
+    )
     # Share the provider's scan cache (4.2 ChunkPrefetcher) so the global class-weight scan (1.6) and the
     # per-chunk sampler scans reuse ONE cursor pass per chunk. A non-prefetcher provider yields None.
-    return Trainer(
+    trainer = Trainer(
         cfg, model, device, chunks,
         scan_cache=getattr(chunks, "scan_cache", None),
-        checkpointer=ModelStateCheckpointer(run_dir / "checkpoints"),
+        checkpointer=ckpt_mgr,
         logger=logger,
         run_dir=run_dir,
     )
+    if resume_from is not None:
+        payload = CheckpointManager.load(
+            resume_from,
+            trainer.model,
+            trainer.optimizer,
+            trainer.scaler,
+            trainer.scheduler,
+            device=device,
+        )
+        trainer.best_val_loss = payload.best_val_loss
+        trainer._start_epoch = payload.epoch + 1
+    return trainer

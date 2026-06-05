@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pedpredict.training.callbacks import EarlyStopping
+from pedpredict.training.callbacks import CheckpointManager, CheckpointPayload, EarlyStopping
 from pedpredict.training.chunk_loader import (
     ChunkLoaderIterator,
     ChunkPrefetcher,
@@ -29,6 +29,8 @@ __all__ = [
     "METRIC_COLUMNS",
     "TRAIN_LOG_COLUMNS",
     "Checkpointer",
+    "CheckpointManager",
+    "CheckpointPayload",
     "ChunkLoaderIterator",
     "ChunkPrefetcher",
     "ChunkProvider",
