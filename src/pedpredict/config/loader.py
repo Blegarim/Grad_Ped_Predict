@@ -22,7 +22,17 @@ from pathlib import Path
 import yaml
 
 from ..models.geometry import feature_map_size, is_global
-from .schema import AugmentCfg, BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
+from .schema import (
+    AugmentCfg,
+    BalanceCfg,
+    DataCfg,
+    EvalCfg,
+    ModelCfg,
+    PathsCfg,
+    RootCfg,
+    ScheduleCfg,
+    TrainCfg,
+)
 
 __all__ = [
     "ConfigError",
@@ -44,6 +54,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
     "eval": (EvalCfg, "eval.yaml"),
     "balance": (BalanceCfg, "balance.yaml"),
     "augment": (AugmentCfg, "augment.yaml"),
+    "schedule": (ScheduleCfg, "schedule.yaml"),
 }
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
@@ -111,6 +122,13 @@ def _coerce(declared: object, value: object) -> object:
         return float(value)
     if declared is str:
         return str(value)
+    # Nested frozen dataclass (e.g. PhaseCfg inside tuple[PhaseCfg, ...])
+    if isinstance(declared, type) and dataclasses.is_dataclass(declared):
+        if isinstance(value, declared):
+            return value
+        if isinstance(value, dict):
+            return _build_section(declared, value)
+        raise ConfigError(f"Expected a mapping for {declared.__name__}; got {value!r}")
     return value
 
 
@@ -328,6 +346,21 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(f"augment.motion_noise_std must be >= 0; got {a.motion_noise_std}")
     if a.erase_n_frames < 0:
         raise ConfigError(f"augment.erase_n_frames must be >= 0; got {a.erase_n_frames}")
+
+    # phase schedule (Prompt 4.4)
+    for i, phase in enumerate(root.schedule.phases):
+        if not phase.name:
+            raise ConfigError(f"schedule.phases[{i}].name must be non-empty")
+        if not phase.data_source:
+            raise ConfigError(f"schedule.phases[{i}].data_source must be non-empty")
+        if phase.lr <= 0.0:
+            raise ConfigError(f"schedule.phases[{i}].lr must be > 0; got {phase.lr}")
+        if phase.max_epochs <= 0:
+            raise ConfigError(f"schedule.phases[{i}].max_epochs must be > 0; got {phase.max_epochs}")
+        if phase.early_stop_patience <= 0:
+            raise ConfigError(
+                f"schedule.phases[{i}].early_stop_patience must be > 0; got {phase.early_stop_patience}"
+            )
 
 
 # --------------------------------------------------------------------------- public load / dump

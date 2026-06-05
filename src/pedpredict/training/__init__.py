@@ -1,4 +1,4 @@
-"""Training: trainer, chunk_loader, callbacks, metrics (P4)."""
+"""Training: trainer, chunk_loader, callbacks, metrics, schedule (P4)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from pedpredict.training.metrics import (
     MetricResult,
     TaskMetrics,
 )
+from pedpredict.training.schedule import PhaseResult, freeze_backbone, run_phase_schedule, unfreeze_all
 from pedpredict.training.trainer import (
     TRAIN_LOG_COLUMNS,
     Checkpointer,
@@ -39,9 +40,13 @@ __all__ = [
     "MetricAccumulator",
     "MetricResult",
     "ModelStateCheckpointer",
+    "PhaseResult",
     "TaskMetrics",
     "Trainer",
     "build_trainer",
+    "freeze_backbone",
     "gather_lmdb_chunks",
+    "run_phase_schedule",
+    "unfreeze_all",
     "warm_lmdb_chunk",
 ]

@@ -37,7 +37,7 @@ import torch
 from torch import nn
 from torch.nn.utils import clip_grad_norm_
 
-from pedpredict.config.schema import RootCfg
+from pedpredict.config.schema import PhaseCfg, RootCfg
 from pedpredict.data.sampler import LabelScanCache, class_weights_ce
 from pedpredict.losses.multitask import MultiTaskLoss, build_multitask_loss
 from pedpredict.models.registry import build_model, forward_model
@@ -272,11 +272,51 @@ class Trainer:
 
     # ----------------------------------------------------------------- epoch loop
 
-    def fit(self) -> list[EpochResult]:
-        """Run the full training schedule (OLD main epoch loop, :373-627), returning per-epoch results."""
+    def reset_for_phase(self, phase: PhaseCfg, new_chunks: ChunkProvider) -> None:
+        """Apply an in-place phase transition (called by ``run_phase_schedule`` between phases).
+
+        Installs ``new_chunks`` (the old provider was already closed by the previous ``fit()``'s
+        ``finally`` block), optionally freezes the backbone, then rebuilds the optimizer /
+        scheduler / EarlyStopping / GradScaler with phase-specific settings and resets
+        ``best_val_loss`` to ``+inf`` (per-phase tracking — see MIGRATION.md D4).
+
+        Freeze logic: ``requires_grad=False`` for every param whose name does NOT contain any
+        of ``'classifier'``, ``'crosses_frame_head'``, ``'pool_mlp'`` — exact port of OLD
+        ``train_two_phase.py:freeze_backbone()`` (lines 122-125).  The optimizer is then built
+        over the surviving ``requires_grad=True`` params only, giving classifiers a clean momentum
+        state (Phase 2 momentum must not carry over into the classifier-only Phase 3 step).
+        """
+        self.chunks = new_chunks
+        if phase.freeze_backbone:
+            from pedpredict.training.schedule import freeze_backbone  # deferred: avoids circular import
+            freeze_backbone(self.model)
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        self.optimizer = torch.optim.Adam(
+            params, lr=phase.lr, weight_decay=phase.weight_decay
+        )
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode="min",
+            factor=phase.sched_factor,
+            patience=phase.sched_patience,
+            threshold=phase.sched_threshold,
+            threshold_mode="rel",
+        )
+        self.early_stopping = EarlyStopping(phase.early_stop_patience, phase.early_stop_min_delta)
+        self.scaler = make_grad_scaler(self.use_amp)
+        self.best_val_loss = float("inf")
+        self._start_epoch = 0
+
+    def fit(self, *, max_epochs: int | None = None) -> list[EpochResult]:
+        """Run the full training schedule (OLD main epoch loop, :373-627), returning per-epoch results.
+
+        ``max_epochs`` overrides ``cfg.train.num_epochs`` when set; used by ``run_phase_schedule``
+        to honour the per-phase epoch budget without mutating the config.
+        """
+        n_epochs = max_epochs if max_epochs is not None else self.cfg.train.num_epochs
         results: list[EpochResult] = []
         try:
-            for epoch in range(self._start_epoch, self.cfg.train.num_epochs):
+            for epoch in range(self._start_epoch, n_epochs):
                 train_loss = self._run_epoch(epoch)
                 val_loss, metrics = self.validate()
                 self.scheduler.step(val_loss)                    # OLD train.py:598
