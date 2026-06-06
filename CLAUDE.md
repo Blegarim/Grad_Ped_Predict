@@ -63,6 +63,13 @@ tight crop + motion → MotionEncoder    ───┘
 - **Config + tracking (deliberately minimal)**: `yaml` config files → typed `dataclass` schema →
   `argparse` dotted overrides (e.g. `--train.lr 5e-5`). **No Hydra, no W&B.** Logging stays **CSV**.
   No hardcoded paths in code — everything flows from `configs/paths.yaml`.
+  - **Run-dir convention (4.5)**: one gitignored dir per run under `PathsCfg.runs_dir`
+    (`outputs/runs/{run_id}/`, `run_id = {YYYYMMDD_HHMMSS}_{model_type}[_{tag}]`) holding
+    `resolved_config.yaml` (config snapshot) + `train_log.csv` (per-epoch train+val) +
+    `checkpoints/{best,last}.pth` + `plots/`. Test metrics → `eval_log.csv` (5.1). Cross-run comparison =
+    `outputs/runs/index.csv` (one row/run, `crosses_f1`-led; `rebuild_index` regenerates it). Schemas are
+    composed once: metric columns from `training/metrics.METRIC_COLUMNS`, run/index machinery in
+    `utils/logging.py`. Replaces OLD `training_log/*.csv` sprawl (B11).
 - **Packaging**: `pyproject.toml`, src-layout install (`pip install -e .`), `ruff` lint + `pytest`.
 - **Export/bench**: ONNX (onnxruntime parity check), `fvcore` for FLOPs.
 

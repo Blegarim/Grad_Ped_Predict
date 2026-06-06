@@ -10,7 +10,18 @@ from .loader import (
     parse_overrides,
     validate_config,
 )
-from .schema import AugmentCfg, BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
+from .schema import (
+    AugmentCfg,
+    BalanceCfg,
+    DataCfg,
+    EvalCfg,
+    ModelCfg,
+    PathsCfg,
+    PhaseCfg,
+    RootCfg,
+    ScheduleCfg,
+    TrainCfg,
+)
 
 __all__ = [
     "AugmentCfg",
@@ -20,7 +31,9 @@ __all__ = [
     "EvalCfg",
     "ModelCfg",
     "PathsCfg",
+    "PhaseCfg",
     "RootCfg",
+    "ScheduleCfg",
     "TrainCfg",
     "apply_overrides",
     "build_argparser",

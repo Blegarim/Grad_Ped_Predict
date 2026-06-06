@@ -25,6 +25,7 @@ class PathsCfg:
     pie_root: str = "data"                 # PIE toolkit data_path (cloned into repo); images at pie_root/images/...
     sequences_dir: str = "data/sequences"  # generate_sequences pkl output home (gitignored under data/)
     lmdb_train: tuple[str, ...] = ("preprocessed_train", "preprocessed_train_aug")
+    lmdb_train_balanced: tuple[str, ...] = ("preprocessed_train_balanced",)  # Phase 1 balanced-warmup source
     lmdb_val: str = "preprocessed_val"
     lmdb_test: str = "preprocessed_test"
     log_dir: str = "training_log"          # legacy flat dirs (kept for reading OLD artifacts)
@@ -255,6 +256,76 @@ class AugmentCfg:
 
 
 @dataclass(frozen=True, slots=True)
+class PhaseCfg:
+    """One phase in a training schedule (Prompt 4.4, B1).
+
+    Exactly matches the hardcoded constants from OLD ``train_two_phase.py`` when assembled into
+    ``ScheduleCfg``'s default ``phases`` tuple (see ``_default_phases()`` below).
+    """
+
+    name: str                            # human label used in log filenames ("balanced_warmup", …)
+    data_source: str                     # "balanced" -> lmdb_train_balanced | "augmented" -> lmdb_train
+    lr: float                            # Adam LR for this phase (fresh optimizer, no momentum carry-over)
+    max_epochs: int                      # hard epoch cap; EarlyStopping may end sooner
+    early_stop_patience: int
+    early_stop_min_delta: float = 0.001
+    weight_decay: float = 1e-5           # same OLD constant; flexible for ablation
+    sched_factor: float = 0.5
+    sched_patience: int = 2
+    sched_threshold: float = 1e-4
+    freeze_backbone: bool = False        # True -> Phase 3 "decouple classifiers" (OLD freeze_backbone())
+    reload_best: bool = False            # True -> strict-load prev phase best.pth before starting
+
+
+def _default_phases() -> tuple[PhaseCfg, ...]:
+    """Return the canonical 3-phase tuple matching OLD train_two_phase.py hardcoded values exactly."""
+    return (
+        PhaseCfg(
+            name="balanced_warmup",
+            data_source="balanced",
+            lr=1e-4,
+            max_epochs=10,
+            early_stop_patience=5,
+            freeze_backbone=False,
+            reload_best=False,
+        ),
+        PhaseCfg(
+            name="full_finetune",
+            data_source="augmented",
+            lr=1e-5,
+            max_epochs=20,
+            early_stop_patience=5,
+            freeze_backbone=False,
+            reload_best=True,
+        ),
+        PhaseCfg(
+            name="decouple_classifiers",
+            data_source="augmented",
+            lr=5e-5,
+            max_epochs=5,
+            early_stop_patience=3,
+            freeze_backbone=True,
+            reload_best=True,
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleCfg:
+    """Configurable multi-phase training schedule (Prompt 4.4, B1).
+
+    ``enabled=False`` (default) -> plain ``Trainer.fit()`` single-phase path.
+    ``enabled=True``            -> ``run_phase_schedule()`` in ``training/schedule.py``.
+
+    The default ``phases`` exactly reproduce OLD ``train_two_phase.py`` behavior:
+    balanced-subset warmup -> full fine-tune -> decouple classifiers.
+    """
+
+    enabled: bool = False
+    phases: tuple[PhaseCfg, ...] = field(default_factory=_default_phases)
+
+
+@dataclass(frozen=True, slots=True)
 class RootCfg:
     """Top-level config tree. Built by ``loader.load_config``."""
 
@@ -265,3 +336,4 @@ class RootCfg:
     eval: EvalCfg = field(default_factory=EvalCfg)
     balance: BalanceCfg = field(default_factory=BalanceCfg)
     augment: AugmentCfg = field(default_factory=AugmentCfg)
+    schedule: ScheduleCfg = field(default_factory=ScheduleCfg)
