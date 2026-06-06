@@ -194,8 +194,11 @@ class EvalCfg:
     batch_size: int = 16
     num_workers: int = 4
     model_type: str = "full"
-    bench_context_scale: float = 3.0     # Q3: deliberate benchmark scale (synthetic FLOPs/latency only)
-    bench_img_size: int = 128
+    # Efficiency benchmark methodology (Prompt 5.2). Input SHAPES come from DataCfg (the eager ViT is
+    # bound to read_context_height, so benchmarking uses the real inference resolution, not a synthetic
+    # scale). These fields are only the timing knobs.
+    bench_batch_size: int = 1            # benchmark batch (OLD compute_flops/inference_latency used 1)
+    bench_warmup: int = 10               # latency warmup iterations (OLD inference_latency warmup loop)
     latency_trials: int = 50
     threshold_sweep_lo: float = 0.10
     threshold_sweep_hi: float = 0.90
