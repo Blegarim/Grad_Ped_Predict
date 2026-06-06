@@ -28,7 +28,7 @@ from torch import nn
 from pedpredict.config.schema import RootCfg, ScheduleCfg
 from pedpredict.training.callbacks import CheckpointManager
 from pedpredict.training.trainer import TRAIN_LOG_COLUMNS, EpochResult, Trainer
-from pedpredict.utils.logging import CsvLogger
+from pedpredict.utils.logging import CsvLogger, RunDir, append_index_row, build_index_row
 
 if TYPE_CHECKING:
     from pedpredict.training.trainer import ChunkProvider
@@ -111,6 +111,7 @@ def run_phase_schedule(
     """
     results: list[PhaseResult] = []
     best_ckpt: Path | None = None
+    trainer.write_index_on_fit = False  # one aggregated index row for the whole schedule, written below
 
     for i, phase in enumerate(schedule.phases):
         # ---------------------------------------------------------------- 1. reload best ckpt
@@ -154,4 +155,35 @@ def run_phase_schedule(
         best_ckpt = phase_best  # next phase reloads from this
         results.append(PhaseResult(phase.name, epoch_results, phase_best))
 
+    _write_schedule_index(cfg, results, run_dir)
     return results
+
+
+def _write_schedule_index(
+    cfg: RootCfg, results: list[PhaseResult], run_dir: Path | None
+) -> None:
+    """Append ONE cross-run index row for the whole schedule (the final phase = the deliverable model).
+
+    Headline = the final phase's best epoch (its ``best.pth`` is what downstream eval loads);
+    ``epochs_run`` = total epochs across all phases. No-op without a run dir / epochs.
+    """
+    if run_dir is None or not results:
+        return
+    final = results[-1]
+    if not final.epoch_results:
+        return
+    best = min(final.epoch_results, key=lambda r: r.val_loss)
+    total_epochs = sum(len(pr.epoch_results) for pr in results)
+    run = RunDir(run_id=run_dir.name, path=run_dir)
+    row = build_index_row(
+        run,
+        model_type=cfg.eval.model_type,
+        tag="schedule",
+        kind="schedule",
+        epochs_run=total_epochs,
+        best_epoch=best.epoch + 1,
+        best_val_loss=best.val_loss,
+        headline=best.metrics.as_flat_dict(),
+        best_ckpt=final.best_ckpt,
+    )
+    append_index_row(Path(cfg.paths.runs_dir), row)

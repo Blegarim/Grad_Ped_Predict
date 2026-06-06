@@ -43,7 +43,7 @@ For each module you port:
 | 4.2 | `training/chunk_loader.py`, `data/lmdb_warm.py` (+ 6 `TrainCfg` knobs) | `train.py:367-498`, `train_utils.py:80-98` | n/a (infra; behavioral) | B9 | ✅ / ⚠️ | All OLD queue/process bookkeeping encapsulated behind `ChunkPrefetcher` (`ChunkProvider`) + `ChunkLoaderIterator` (`start/__next__/close/__enter__/__exit__`); warm worker = EXACT `mp_async_load` port. Crash-safe: full pass / early break / exception / real-timeout all return `active_children` to baseline (proven w/ REAL spawn). ⚠️ flagged: warm moved to torch-free `data/lmdb_warm.py` so `spawn` children don't import torch; next-chunk warm spawned *before* yielding the current loader (vs OLD after `train_one_chunk`) — both behavior-neutral (warm = unobservable OS-cache side effect). `mp.get_context("spawn")` pinned; opt-in `chunk_warm_mem_timeout` caps the legacy infinite RAM wait. Shared `LabelScanCache` threaded via `build_trainer` (one scan/chunk across sampler+loss levers). 17 tests green (42s). See Training decisions (4.2). |
 | 4.3 | `training/callbacks.py` (`CheckpointManager`) | `train.py:509-634` (save/load), `train_utils.py:23-37` (ES) | n/a (infra) | B2 (load), B11, B1 | ✅ / ⚠️ | Full-state checkpoint (model+optimizer+scheduler+scaler+epoch+best_val_loss); strict=True load (B2 resolved). ⚠️ flagged: `weights_only=False` required for our own full-state payloads (optimizer dicts contain Python objects). `CheckpointManager(None)` is a no-op (tests without disk I/O). `ModelStateCheckpointer` retained as interim. 7 checkpointer tests green. |
 | 4.4 | `training/schedule.py`, `config/schema.py` (`PhaseCfg`/`ScheduleCfg`), `configs/schedule.yaml`, `scripts/train.py` | `train_two_phase.py` (305-line god-script) | n/a (orchestration) | B1 | ✅ / ⚠️ | `train_two_phase.py` eliminated. 3-phase schedule expressed as `ScheduleCfg.phases: tuple[PhaseCfg, ...]` in `schedule.yaml`; `run_phase_schedule()` orchestrates via `Trainer.reset_for_phase()` + `Trainer.fit(max_epochs)`. `freeze_backbone()` exact port of OLD lines 122-125. ⚠️ flagged (D1–D4 in MIGRATION decisions below): scheduler on val_loss (not train); EarlyStopping on val_loss (not 1-macro_f1); MultiTaskLoss not FocalLoss; per-phase best_val_loss reset (Phase N+1 always loads Phase N best.pth). `configs/schedule.yaml` defaults reproduce OLD LR/epoch/patience constants exactly. `PhaseCfg`/`ScheduleCfg` added to `schema.py`+`loader.py` (nested-dataclass `_coerce` path added). `lmdb_train_balanced` added to `PathsCfg`. `scripts/train.py` dispatches to single-phase or schedule. 40 schedule tests green. |
-| 4.5 | `utils/logging.py` CSV conventions | `train.py`/`test.py` CSV writers | n/a | B11, B1 | — | run-dir + index.csv |
+| 4.5 | `utils/logging.py` (run-dir + index), `training/trainer.py`, `training/schedule.py` | `train.py:261-275,600-618` / `test.py:336-350` CSV writers | n/a (infra) | B11, B1 | ✅ | Run-dir conventions + cross-run `index.csv` on the 0.3 `CsvLogger` primitives. One gitignored `outputs/runs/{run_id}/` per run (resolved_config snapshot + `train_log.csv` + `checkpoints/` + `plots/`); `TRAIN_LOG_COLUMNS` finalized (adds `lr`,`epoch_time_s`; val auc/p/r already from 3.2). `init_run` snapshots config (OLD never did). `index.csv` one row/run (single-phase via `Trainer.fit`; one aggregated row/schedule via `run_phase_schedule`), `crosses_f1`-led per the SKILL; `rebuild_index` recovery tool. 13 logging tests green (full suite 274 passed, 1 skipped). See Logging decisions (4.5). |
 | 5.1 | `eval/evaluate.py`, `scripts/evaluate.py` | `test.py` | | B1, B10 | — | |
 | 5.2 | `eval/benchmark.py` | `Vision_Transformer.py` fvcore use | n/a | — | — | params/FLOPs/latency/FPS/VRAM |
 | 5.3 | `eval/inference.py` | `main.py`, `extract_frames.py`, `pedestrian_detection.py` | | — | — | reuse Phase-1 preprocessing |
@@ -730,6 +730,51 @@ The crash-safe chunk prefetch loader (B9), fulfilling the 4.1 `ChunkProvider` se
 - **`schedule.yaml` defaults reproduce OLD constants exactly:** Phase 1 (lr=1e-4, 10 epochs, patience=5), Phase 2 (lr=1e-5, 20 epochs, patience=5), Phase 3 (lr=5e-5, 5 epochs, patience=3, freeze_backbone=True). `test_default_schedule_matches_old_constants` guards this.
 - **Nested dataclass coercion added to `_coerce`.** `PhaseCfg` inside `tuple[PhaseCfg, ...]` in the YAML requires `_coerce` to recurse into dataclass fields. Added `if isinstance(declared, type) and dataclasses.is_dataclass(declared)` branch calling `_build_section(declared, value)` — forward-compatible with any future nested config.
 - **`schedule.enabled` is a simple dotted override:** `--set schedule.enabled=true` activates the schedule from the CLI without editing YAML.
+
+### Logging decisions (Prompt 4.5)
+
+CSV logging conventions + run-dir layout + cross-run index, layered on the 0.3 `CsvLogger` primitives.
+Replaces OLD `training_log/training_log_%m%d_%H%M.csv` sprawl + `model_suffix` checkpoint naming (B11)
+and the inline `csv.writer` blocks in `train.py`/`test.py` (B1). Open questions resolved per the 4.5
+plan (user-approved):
+
+- **OQ1 — one CSV for train+val.** `train_log.csv` carries one row per epoch with BOTH `train_loss` and
+  `val_loss` + the val metrics (OLD `train.py` already interleaved them into one file). There is no
+  separate "val CSV"; the schematic's "val/test CSV" = the test-set `eval_log.csv`, owned by 5.1.
+- **OQ2 — eval CSV shape = WIDE, deferred to 5.1.** The test log reuses the SAME flat `METRIC_COLUMNS`
+  schema (one row per evaluation) so train/eval/index stay consistent and `index.csv` is a trivial copy.
+  4.5 ships `RunDir.eval_logger(fieldnames)` + the `EVAL_LOG_FILENAME` constant; `EVAL_LOG_COLUMNS`
+  (context + `METRIC_COLUMNS` + `opt_*` threshold sweep + efficiency) is composed by 5.1 alongside its
+  context columns — a deliberate divergence from the OLD SKILL's *tidy* (1-row-per-task) `eval_results.csv`,
+  flagged for the 8.2 SKILL sync.
+- **OQ3 — config snapshot = `resolved_config.yaml`** (existing `config.loader.dump_config`), not the OLD
+  SKILL's `config_snapshot.json`. Single dump impl; `init_run` calls it so every run is reproducible
+  (OLD training never snapshotted config). Flagged for 8.2 SKILL sync.
+- **OQ4 — `lr` + `epoch_time_s` enrichment.** `TRAIN_LOG_COLUMNS` gains both (logging-only; the Trainer
+  reads `optimizer.param_groups[0]['lr']` *before* `scheduler.step` and times each epoch). Matches the OLD
+  SKILL's `train_log.csv` schema; no math change.
+- **OQ5 — `index.csv` = flushed small appends + `rebuild_index` recovery.** One row per finished run via
+  `append_index_row` (header-once `CsvLogger`); `rebuild_index(runs_root)` rescans every run dir's
+  `train_log.csv` + config snapshot to regenerate the table (handles crashed/parallel/interleaved runs).
+- **OQ6 — `git_sha` column** captured via `git rev-parse --short HEAD` (empty string outside a work tree).
+- **OQ7 — eval run-dir** reuses the evaluated checkpoint's run-dir when resolvable, else a fresh
+  `{ts}_{model_type}_eval` dir (`init_run(..., kind="eval")` folds `kind` into the id). 5.1 wires this.
+- **OQ8 — task names `crosses`/`looks`/`actions`** (rebuild contract), not the SKILL's
+  `crossing`/`looking`/`action`. `index.csv` headline columns lead with `crosses_f1` (primary metric) per
+  the SKILL's "What Better Means" rule. Rename flagged for the 8.2 SKILL/baseline-results sync.
+
+Implementation seams:
+- **`utils/logging.py` stays `training`-import-free.** A top-level `from training.metrics import
+  METRIC_COLUMNS` there would cycle (`utils.logging` → `training/__init__` → `trainer` → `utils.logging`).
+  So the metric-derived `TRAIN_LOG_COLUMNS` is composed in `trainer.py` (training layer, where the metric
+  names live); `utils.logging` owns only the generic machinery + the plain-string `INDEX_COLUMNS` +
+  `build_index_row` (which takes a flat metric dict, no metric import). A schema-sync test
+  (`test_train_log_columns_compose_metric_columns`) prevents drift.
+- **One index row per RUN, not per fit().** `Trainer.fit` writes the row at its end
+  (`write_index_on_fit=True`); `run_phase_schedule` sets `write_index_on_fit=False` and writes ONE
+  aggregated row for the whole schedule (final phase = the deliverable model; `epochs_run` = total).
+- **Run-dir is the checkpoints pointer.** `CheckpointManager` (4.3) already writes
+  `<run_dir>/checkpoints/{best,last}.pth`; `build_index_row` records `best.pth`'s path in the index.
 
 ### Config decisions (Prompt 0.2)
 

@@ -9,7 +9,22 @@ from __future__ import annotations
 
 from .amp import autocast_ctx, make_grad_scaler, resolve_amp, to_float_logits
 from .device import enable_perf_flags, get_device
-from .logging import CsvLogger, create_run_dir, get_csv_logger, make_run_id
+from .logging import (
+    INDEX_COLUMNS,
+    CsvLogger,
+    RunDir,
+    append_index_row,
+    build_index_row,
+    create_run_dir,
+    get_csv_logger,
+    git_sha,
+    init_run,
+    make_run_id,
+    read_index,
+    rebuild_index,
+    round_row,
+    snapshot_config,
+)
 from .memory import free_cuda, wait_for_memory
 from .seed import set_seed
 
@@ -27,4 +42,14 @@ __all__ = [
     "create_run_dir",
     "CsvLogger",
     "get_csv_logger",
+    "RunDir",
+    "init_run",
+    "snapshot_config",
+    "round_row",
+    "git_sha",
+    "INDEX_COLUMNS",
+    "build_index_row",
+    "append_index_row",
+    "read_index",
+    "rebuild_index",
 ]
