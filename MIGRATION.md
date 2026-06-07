@@ -47,7 +47,7 @@ For each module you port:
 | 5.1 | `eval/evaluate.py`, `scripts/evaluate.py` | `test.py` | reuses `metrics_cases.pt` + `ensemble.pt` (no new OLD capture) | B1, B10, B8, B11, B4, B2 | ✅ / ⚠️ | Thin orchestrator (build→iterate→accumulate→compute→write); adds NO math. **B1**: `evaluate()` sklearn block + threshold sweep deleted → shared `MetricAccumulator` (3.2) is the only metric path; FLOPs/latency relocated to 5.2; ad-hoc CSV → `RunDir.eval_logger`/`index.csv` (4.5). **B10**: `get_model`/`model_forward(str)` → `build_model`/`forward_model` (2.4), `model_type` intrinsic. **B8**: lone upcast in `MetricAccumulator.update`; only the documented `temporal_weights.float().cpu()` collection. **B11**: artifacts under run-dir (`eval_log.csv` WIDE `EVAL_LOG_COLUMNS`, `plots/{predictions,temporal_weights}.npz`), `index.csv` row (`kind="eval"`) replaces `shutil.copy2` model-suffix files. **B4**: crosses scored on `crosses_frame` only (inherited from 3.2); `crosses_pooled`/`temporal_weights` never scored (`test_crosses_scored_on_frame_not_pooled`). **B2**: `load_eval_weights` strict-loads rebuilt ckpts, no relpos fix-up. ⚠️ flagged (OQ resolutions): predictions saved as **NPZ** not CSV (viz 6.2-friendly; OLD wide CSV reproducible from it); `temporal_weights` **full-model-only** (None for ablations); **single aggregate row** per eval (OLD per-chunk rows dropped); efficiency columns present-but-blank until 5.2 (OQ2); run-dir reuses ckpt's `outputs/runs/{id}` else fresh `..._eval` (OQ7). OLD `find_optimal_thresholds`→`MetricAccumulator.optimal_threshold_metrics` (already ported, 3.2); OLD `compute_flops`/`inference_latency`→5.2; OLD `_init_global_rel_pos_from_ckpt`→dead (B2)/Prompt 9. One justified 3.2 edit: `_task_arrays`→public `task_arrays` (eval reads preds from the single store). 12 eval tests green. |
 | 5.2 | `eval/benchmark.py`, `config/schema.py` (`EvalCfg`), `configs/eval.yaml` | `test.py` `compute_flops`/`inference_latency`, `Vision_Transformer.__main__` fvcore | n/a (wall-clock metrics) | B1 | ✅ / ⚠️ | Consolidated `params`/`flops_per_frame`/`latency_ms_per_frame`/`fps`/`peak_vram_mb` per model_type via the typed registry (`build_model` + `MODEL_INPUT_SIGNATURE` for the per-type input tuple). `benchmark_model` (one type) + `run_benchmark` (CSV, `BENCHMARK_COLUMNS`) + `measure_efficiency` (the 5.1 `--benchmark` hook; keys == `evaluate._EFFICIENCY_COLUMNS`). Latency = `bench_warmup` warmup + `latency_trials` timed iters, CUDA-synced (OLD formula: `fps=1/avg_seq`, `ms_per_frame=avg_seq/T*1000`). fvcore is an OPTIONAL runtime dep → `flops_per_frame=nan` if absent (params/latency still report). ⚠️ flagged: benchmark runs at the **real inference resolution** from `DataCfg` (tight `img_*`, context `read_context_*`, `T=max_seq_len`), NOT OLD's synthetic 384-px context — the rebuilt eager ViT is bound to `read_context_height` (B2), and OLD's 384 bench was inconsistent with its own 224 inference. The now-meaningless `EvalCfg.bench_img_size`/`bench_context_scale` were replaced by `bench_batch_size`/`bench_warmup` (methodology-from-config per spec). 6 benchmark tests green. |
 | 5.3 | `eval/inference.py` | `main.py`, `extract_frames.py`, `pedestrian_detection.py` | | — | — | reuse Phase-1 preprocessing |
-| 6.1 | `viz/plots.py`, `scripts/visualize.py` | `scripts/plot_results.py` | n/a | — | — | consume new CSV schema |
+| 6.1 | `viz/plots.py`, `scripts/visualize.py` | `scripts/plot_results.py` | n/a (artifact-driven; structural tests) | B11 | ✅ / ⚠️ | All 4 figure families ported, re-pointed at the NEW run-dir artifacts: train curves ← `train_log.csv` (`TRAIN_LOG_COLUMNS`, snake_case rename of OLD TitleCase); PR/threshold ← `predictions.npz` (5.1, was CSV); ablation bars ← per-model `eval_log.csv` rows; temporal ← `temporal_weights.npz` (unchanged). Each figure is a PURE `data→Figure` fn (no I/O); `save_figure`/`generate_*` own paths via the typed `RunDir` (no hardcoded `plots/` — **B11**). ⚠️ flagged: OLD fragile `_parse_summary_table` header-sniffing **deleted** (typed `EVAL_LOG_COLUMNS` row read directly); OLD accuracy-fallback in `per_head_f1_curves` **dropped** (new schema always emits per-task F1+macro). Decisions: ablation figs → `runs_dir/ablation/`; `load_eval_row` picks LAST row; per-run default = newest run dir. Ablation-AUC needs `eval_log.csv` (index lacks per-task AUC; `--ablation-from-index` resolves via `index.csv`). `TASKS` declared locally (CSV/NPZ-driven layer; no torch-bound loss/metrics import). 13 viz tests (render path verified). See Viz decisions (6.1). |
 | 6.2 | `viz/qualitative.py` | `visualize_comparison.py`, `visualize_gt.py` | n/a | B11 | — | temporal_weights overlays |
 | 7.1 | `export/onnx.py`, `scripts/export_onnx.py` | `onnx/onnx_export.py` | | B2 | — | onnxruntime parity check |
 | 8.1 | `tests/`, CI gate | OLD `test_*.py` ad-hoc scripts | n/a | B12 | — | golden fixtures + ruff/pytest |
@@ -826,6 +826,46 @@ Locked so the training/eval prompts that consume these helpers stay consistent:
   `wait_for_memory(timeout=...)` (default `None` = legacy infinite wait, OLD `train_utils.py:74-77`).
 - **Q2 closure:** `resolve_amp(requested, device)` realises the schema decision — `TrainCfg.use_amp` is the
   request, ANDed with `device.type == 'cuda'` at runtime (OLD `use_amp = device.type == 'cuda'`).
+
+### Viz decisions (Prompt 6.1)
+
+`viz/plots.py` + `scripts/visualize.py` port OLD `scripts/plot_results.py`. A viz layer has no numeric
+golden fixture — "parity" = the 4 figure families still render from the equivalent data. The real work was
+re-pointing every loader at the NEW run-dir artifacts and deleting fragile parsing.
+
+- **Schema re-point (the port's substance):**
+  - *Training curves* read `RunDir.train_log_path` (`train_log.csv`, `TRAIN_LOG_COLUMNS`). OLD TitleCase
+    columns (`Epoch`/`Avg Train Loss`/`Actions F1`/`Macro F1`) → snake_case (`epoch`/`train_loss`/
+    `actions_f1`/`macro_f1`). `load_train_log` replaces OLD `_load_training_log`.
+  - *PR + threshold* read `predictions.npz` (5.1 `save_predictions_npz`: `{task}_true/_prob_0/_prob_1/
+    _pred`), replacing OLD's per-sample predictions **CSV**.
+  - *Ablation bars* read one `eval_log.csv` row per model (`EVAL_LOG_COLUMNS` — has `model_type`,
+    `{task}_f1`, `{task}_auc`). OLD's `_parse_summary_table` header-sniffing (`=== Default Threshold
+    (0.5) ===` / bare `Heads,...`) is **deleted** — columns are read directly with `csv.DictReader`.
+  - *Temporal attention* read `temporal_weights.npz` (5.1 `save_temporal_weights_npz`: `temporal_weights`
+    + `{task}_true`) — structurally unchanged from OLD.
+- **Pure-function design:** every figure is `data-in → matplotlib Figure-out` (no I/O); `save_figure` owns
+  `savefig`+`close`; `generate_run_figures(RunDir)` / `generate_ablation_figures(logs, out_dir)` wire
+  loaders→figures→paths. Families render only when their artifact exists (preserves OLD "only the supplied
+  phases" behavior). **B11**: no hardcoded `plots/` literal — paths flow from the typed `RunDir`/`PathsCfg`.
+- **Dropped unreachable branch (flagged):** OLD `per_head_f1_curves` had an accuracy-fallback when F1
+  columns were absent. The new train log ALWAYS emits per-task F1 + `macro_f1` (3.2 `METRIC_COLUMNS`), so
+  the fallback is unreachable and removed.
+- **Decisions (confirmed):** (1) cross-run ablation figures → `paths.runs_dir/ablation/` (they belong to no
+  single run); (2) `load_eval_row` picks the **last** row (append-only log may hold re-evals); (3) per-run
+  default = **newest** run dir (run ids are timestamp-first → name sort = chronological); (4) ablation-AUC
+  must come from `eval_log.csv` (the cross-run `index.csv` carries only per-task F1, no AUC) —
+  `--ablation-from-index` resolves each model's `run_dir/eval_log.csv` from `index.csv`.
+- **`TASKS` declared locally** (not imported from `losses.multitask`): the quantitative layer reads
+  serialized CSV/NPZ columns, never the model, so it needn't pull the torch-bound loss/metrics modules for
+  a 3-string tuple. Mirrors the output contract order `("actions","looks","crosses")`.
+- **Tests** (`tests/test_viz_plots.py`, 13): loaders locked to the REAL writers/column tuples
+  (`TRAIN_LOG_COLUMNS`, `EVAL_LOG_COLUMNS`, `save_predictions_npz`, `save_temporal_weights_npz`) so a 4.5/5.1
+  schema change breaks them loudly; per-figure structural smoke (best-epoch vline, line/bar counts,
+  missing-task axis hidden); driver skip-on-missing + `--only` subset; the requested end-to-end
+  regeneration smoke over a full sample run dir (asserts all 5 per-run PNGs exist and are non-empty).
+  *(Render path verified locally via a torch stub — torch isn't installable in this sandbox; the suite runs
+  under the real env where `eval`/`trainer` import torch.)*
 
 ## Parity Gate (Phase A → cutover)
 
