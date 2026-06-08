@@ -22,7 +22,7 @@ import pytest
 import torch
 from torch import nn
 
-from pedpredict.config.schema import PathsCfg, RootCfg
+from pedpredict.config.schema import RootCfg
 from pedpredict.training.callbacks import (
     CheckpointManager,
     CheckpointPayload,
@@ -109,7 +109,7 @@ def test_earlystopping_parity() -> None:
         (4, 0.8, True),    # already latched; still increments counter, stays latched
     ]
     es = EarlyStopping(patience=3, min_delta=0.0)
-    for loss, (exp_counter, exp_best, exp_stop) in zip(losses, expected):
+    for loss, (exp_counter, exp_best, exp_stop) in zip(losses, expected, strict=True):
         es(loss)
         assert es.counter == exp_counter, f"counter wrong at loss={loss}"
         assert es.best_loss == pytest.approx(exp_best), f"best_loss wrong at loss={loss}"
