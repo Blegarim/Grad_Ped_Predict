@@ -27,6 +27,7 @@ from .schema import (
     BalanceCfg,
     DataCfg,
     EvalCfg,
+    InferenceCfg,
     ModelCfg,
     PathsCfg,
     RootCfg,
@@ -52,6 +53,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
     "model": (ModelCfg, "model.yaml"),
     "train": (TrainCfg, "train.yaml"),
     "eval": (EvalCfg, "eval.yaml"),
+    "infer": (InferenceCfg, "infer.yaml"),
     "balance": (BalanceCfg, "balance.yaml"),
     "augment": (AugmentCfg, "augment.yaml"),
     "schedule": (ScheduleCfg, "schedule.yaml"),
@@ -319,6 +321,21 @@ def validate_config(root: RootCfg) -> None:
             f"require 0 <= threshold_sweep_lo < threshold_sweep_hi <= 1; "
             f"got lo={e.threshold_sweep_lo}, hi={e.threshold_sweep_hi}"
         )
+
+    # video-inference invariants (Prompt 5.3)
+    inf = root.infer
+    if not (0.0 <= inf.detector_conf <= 1.0):
+        raise ConfigError(f"infer.detector_conf must be in [0, 1]; got {inf.detector_conf}")
+    if inf.detector_class_idx < 0:
+        raise ConfigError(f"infer.detector_class_idx must be >= 0; got {inf.detector_class_idx}")
+    if inf.smooth_window < 0:
+        raise ConfigError(f"infer.smooth_window must be >= 0; got {inf.smooth_window}")
+    if inf.window_stride < 1:
+        raise ConfigError(f"infer.window_stride must be >= 1; got {inf.window_stride}")
+    if inf.batch_size <= 0:
+        raise ConfigError(f"infer.batch_size must be a positive integer; got {inf.batch_size}")
+    if inf.default_fps <= 0.0:
+        raise ConfigError(f"infer.default_fps must be > 0; got {inf.default_fps}")
 
     # offline balance invariants (Prompt 1.3)
     if not (0.0 < b.cross_pos_ratio < 1.0):

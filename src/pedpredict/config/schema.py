@@ -206,6 +206,25 @@ class EvalCfg:
 
 
 @dataclass(frozen=True, slots=True)
+class InferenceCfg:
+    """Video-inference knobs (Prompt 5.3) — replaces OLD ``main.py`` top-of-file literals (B1).
+
+    Only the detect/track/window/render knobs live here; the model-input *geometry* (``seq_len``,
+    ``context_scale``, tight/context sizes, ``motion_dim``, ImageNet norm) is reused from
+    :class:`DataCfg` so inference uses the SAME geometry the model trained on (see MIGRATION 5.3).
+    """
+
+    detector_weights: str = "yolo11n.pt"   # OLD main.py 'yolo11n.pt'
+    detector_class_idx: int = 0            # pedestrian class (OLD class_idx=0)
+    detector_conf: float = 0.3             # OLD conf=0.3
+    smooth_window: int = 3                 # OLD smooth_track(window=3)
+    window_stride: int = 1                 # OLD slid every window (stride 1); data pipeline uses 3
+    batch_size: int = 32                   # OLD inference batch_size=32
+    default_fps: float = 30.0              # DirFrameSource fps when frames carry no container fps
+    draw_color_chips: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class BalanceCfg:
     """Offline class-balancing (Prompt 1.3) — the OPT-IN majority-downsample lever, OFF by default.
 
@@ -337,6 +356,7 @@ class RootCfg:
     model: ModelCfg = field(default_factory=ModelCfg)
     train: TrainCfg = field(default_factory=TrainCfg)
     eval: EvalCfg = field(default_factory=EvalCfg)
+    infer: InferenceCfg = field(default_factory=InferenceCfg)
     balance: BalanceCfg = field(default_factory=BalanceCfg)
     augment: AugmentCfg = field(default_factory=AugmentCfg)
     schedule: ScheduleCfg = field(default_factory=ScheduleCfg)

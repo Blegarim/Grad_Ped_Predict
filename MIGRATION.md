@@ -46,7 +46,7 @@ For each module you port:
 | 4.5 | `utils/logging.py` (run-dir + index), `training/trainer.py`, `training/schedule.py` | `train.py:261-275,600-618` / `test.py:336-350` CSV writers | n/a (infra) | B11, B1 | ✅ | Run-dir conventions + cross-run `index.csv` on the 0.3 `CsvLogger` primitives. One gitignored `outputs/runs/{run_id}/` per run (resolved_config snapshot + `train_log.csv` + `checkpoints/` + `plots/`); `TRAIN_LOG_COLUMNS` finalized (adds `lr`,`epoch_time_s`; val auc/p/r already from 3.2). `init_run` snapshots config (OLD never did). `index.csv` one row/run (single-phase via `Trainer.fit`; one aggregated row/schedule via `run_phase_schedule`), `crosses_f1`-led per the SKILL; `rebuild_index` recovery tool. 13 logging tests green (full suite 274 passed, 1 skipped). See Logging decisions (4.5). |
 | 5.1 | `eval/evaluate.py`, `scripts/evaluate.py` | `test.py` | reuses `metrics_cases.pt` + `ensemble.pt` (no new OLD capture) | B1, B10, B8, B11, B4, B2 | ✅ / ⚠️ | Thin orchestrator (build→iterate→accumulate→compute→write); adds NO math. **B1**: `evaluate()` sklearn block + threshold sweep deleted → shared `MetricAccumulator` (3.2) is the only metric path; FLOPs/latency relocated to 5.2; ad-hoc CSV → `RunDir.eval_logger`/`index.csv` (4.5). **B10**: `get_model`/`model_forward(str)` → `build_model`/`forward_model` (2.4), `model_type` intrinsic. **B8**: lone upcast in `MetricAccumulator.update`; only the documented `temporal_weights.float().cpu()` collection. **B11**: artifacts under run-dir (`eval_log.csv` WIDE `EVAL_LOG_COLUMNS`, `plots/{predictions,temporal_weights}.npz`), `index.csv` row (`kind="eval"`) replaces `shutil.copy2` model-suffix files. **B4**: crosses scored on `crosses_frame` only (inherited from 3.2); `crosses_pooled`/`temporal_weights` never scored (`test_crosses_scored_on_frame_not_pooled`). **B2**: `load_eval_weights` strict-loads rebuilt ckpts, no relpos fix-up. ⚠️ flagged (OQ resolutions): predictions saved as **NPZ** not CSV (viz 6.2-friendly; OLD wide CSV reproducible from it); `temporal_weights` **full-model-only** (None for ablations); **single aggregate row** per eval (OLD per-chunk rows dropped); efficiency columns present-but-blank until 5.2 (OQ2); run-dir reuses ckpt's `outputs/runs/{id}` else fresh `..._eval` (OQ7). OLD `find_optimal_thresholds`→`MetricAccumulator.optimal_threshold_metrics` (already ported, 3.2); OLD `compute_flops`/`inference_latency`→5.2; OLD `_init_global_rel_pos_from_ckpt`→dead (B2)/Prompt 9. One justified 3.2 edit: `_task_arrays`→public `task_arrays` (eval reads preds from the single store). 12 eval tests green. |
 | 5.2 | `eval/benchmark.py`, `config/schema.py` (`EvalCfg`), `configs/eval.yaml` | `test.py` `compute_flops`/`inference_latency`, `Vision_Transformer.__main__` fvcore | n/a (wall-clock metrics) | B1 | ✅ / ⚠️ | Consolidated `params`/`flops_per_frame`/`latency_ms_per_frame`/`fps`/`peak_vram_mb` per model_type via the typed registry (`build_model` + `MODEL_INPUT_SIGNATURE` for the per-type input tuple). `benchmark_model` (one type) + `run_benchmark` (CSV, `BENCHMARK_COLUMNS`) + `measure_efficiency` (the 5.1 `--benchmark` hook; keys == `evaluate._EFFICIENCY_COLUMNS`). Latency = `bench_warmup` warmup + `latency_trials` timed iters, CUDA-synced (OLD formula: `fps=1/avg_seq`, `ms_per_frame=avg_seq/T*1000`). fvcore is an OPTIONAL runtime dep → `flops_per_frame=nan` if absent (params/latency still report). ⚠️ flagged: benchmark runs at the **real inference resolution** from `DataCfg` (tight `img_*`, context `read_context_*`, `T=max_seq_len`), NOT OLD's synthetic 384-px context — the rebuilt eager ViT is bound to `read_context_height` (B2), and OLD's 384 bench was inconsistent with its own 224 inference. The now-meaningless `EvalCfg.bench_img_size`/`bench_context_scale` were replaced by `bench_batch_size`/`bench_warmup` (methodology-from-config per spec). 6 benchmark tests green. |
-| 5.3 | `eval/inference.py` | `main.py`, `extract_frames.py`, `pedestrian_detection.py` | | — | — | reuse Phase-1 preprocessing |
+| 5.3 | `eval/inference.py`, `scripts/infer_video.py`, `config/{schema,loader}.py` (`InferenceCfg`), `configs/infer.yaml` | `main.py`, `extract_frames.py`, `scripts/pedestrian_detection.py` | n/a (no E2E oracle; seam-level parity via in-test legacy oracles) | B5, B7, B10, B2, B4, B11 | ✅ / ⚠️ | Thin 5-stage orchestrator (detect→assemble→preprocess→forward→overlay); routes the *math* to its owners. **B5**: `main.py`+`extract_frames.py`+`pedestrian_detection.py` collapse into one `inference.py`+thin CLI; dead 4-dim `extract_sequences_from_track` dropped; `extract_frames.py`→`DirFrameSource`. **B7**: motion via canonical `compute_motion` (8-dim), window len = `cfg.data.seq_len` — no `[...,:8]` slice / `MAX_SEQ_LEN`. **B10**: `get_model`(str)+key-name `if/elif`→`build_model`/`forward_model` (intrinsic `ModelType`) + `crosses_frame`-only read. **B2**: `load_eval_weights` strict-loads (no relpos fix-up). **B4**: crosses from `crosses_frame`; `crosses_pooled`/`temporal_weights` untouched. **B11**: PIE text-map inlined (no PIE runtime dep), caller-specified out path. ⚠️ Three flagged behavior changes (no golden oracle): (a) `context_scale` 2.0→3.0 (matches training); (b) **BGR→RGB** at frame read (OLD fed BGR to an RGB-trained model); (c) **context cropped from the full frame** (OLD's in-memory dataset made a degenerate crop-of-a-crop). Detection→frame aggregation replaces OLD's O(n²) `bboxes==bboxes` match with carried `(track_id, frame_idx)`. YOLO is an optional `[infer]` extra (lazy import; clear error when absent). 13 inference tests green (full suite 317 passed, 1 deselected). See Eval decisions (5.3). |
 | 6.1 | `viz/plots.py`, `scripts/visualize.py` | `scripts/plot_results.py` | n/a (artifact-driven; structural tests) | B11 | ✅ / ⚠️ | All 4 figure families ported, re-pointed at the NEW run-dir artifacts: train curves ← `train_log.csv` (`TRAIN_LOG_COLUMNS`, snake_case rename of OLD TitleCase); PR/threshold ← `predictions.npz` (5.1, was CSV); ablation bars ← per-model `eval_log.csv` rows; temporal ← `temporal_weights.npz` (unchanged). Each figure is a PURE `data→Figure` fn (no I/O); `save_figure`/`generate_*` own paths via the typed `RunDir` (no hardcoded `plots/` — **B11**). ⚠️ flagged: OLD fragile `_parse_summary_table` header-sniffing **deleted** (typed `EVAL_LOG_COLUMNS` row read directly); OLD accuracy-fallback in `per_head_f1_curves` **dropped** (new schema always emits per-task F1+macro). Decisions: ablation figs → `runs_dir/ablation/`; `load_eval_row` picks LAST row; per-run default = newest run dir. Ablation-AUC needs `eval_log.csv` (index lacks per-task AUC; `--ablation-from-index` resolves via `index.csv`). `TASKS` declared locally (CSV/NPZ-driven layer; no torch-bound loss/metrics import). 13 viz tests (render path verified). See Viz decisions (6.1). |
 | 6.2 | `viz/qualitative.py` | `visualize_comparison.py`, `visualize_gt.py` | n/a | B11 | — | temporal_weights overlays |
 | 7.1 | `export/onnx.py`, `scripts/export_onnx.py` | `onnx/onnx_export.py` | | B2 | — | onnxruntime parity check |
@@ -866,6 +866,55 @@ re-pointing every loader at the NEW run-dir artifacts and deleting fragile parsi
   regeneration smoke over a full sample run dir (asserts all 5 per-run PNGs exist and are non-empty).
   *(Render path verified locally via a torch stub — torch isn't installable in this sandbox; the suite runs
   under the real env where `eval`/`trainer` import torch.)*
+
+### Eval decisions (Prompt 5.3)
+
+`eval/inference.py` + `scripts/infer_video.py` port OLD `main.py` (+ `extract_frames.py`,
+`pedestrian_detection.py`). Video inference has **no E2E golden oracle** (non-deterministic YOLO across
+versions + a trained checkpoint + a real video), so parity is asserted at the **reused-math seams**, and
+the three intentional fixes below are documented divergences (no oracle can contradict them).
+
+- **Five separable stages, math delegated.** `detect → assemble → preprocess → forward → overlay`. The
+  preprocessing reuses 1.2 verbatim (`crop_tight`/`crop_context`/`compute_motion`/`build_read_transforms`),
+  build/load/forward reuse 2.4 (`build_model`/`forward_model`) + 5.1 (`load_eval_weights`). `inference.py`
+  adds no model math — only orchestration + the cv2 overlay (cosmetic, ported).
+- **Open questions (§7) — all resolved as the sub-plan proposed:** (1) detection ported in-package,
+  `ultralytics`/`lap` stay the optional `[infer]` extra via a lazy `_load_yolo()` (module imports + tests run
+  without YOLO; clear `[infer]` install error only when `detect_tracks` is invoked); (4) `window_stride=1`
+  default (OLD dense coverage); (5) multi-window/frame conflict = **append all, last drawn wins** (OLD's
+  list-append order); (6) seam-level test strategy accepted.
+- **⚠️ Three flagged behavior changes (intentional fixes, no oracle):**
+  1. **`context_scale` 2.0 → 3.0.** OLD `main.py` built the dataset at 2.0 while the model trained on 3.0
+     (`DataCfg.context_scale`) → OLD fed an out-of-distribution context. The rebuild uses
+     `cfg.data.context_scale`. Guarded by `test_context_scale_uses_data_cfg`.
+  2. **BGR → RGB at frame read.** OLD applied `ToTensor`+`Normalize` to cv2 **BGR** crops (a latent
+     channel-swap vs the RGB-trained model). `FrameSource` converts to RGB once; `detect_tracks` re-derives
+     BGR only for YOLO (which expects cv2 channel order).
+  3. **Context cropped from the FULL frame.** OLD's in-memory `PIESequenceDataset` cropped "context" from the
+     pre-cropped ped image (a degenerate scaled-up crop-of-a-crop). The rebuild crops both tight + context
+     from the full frame at detect time (`crop_from_frame`), matching the data pipeline.
+- **Aggregation rewrite (B-smell, not a band-aid row).** OLD matched windows to frames by re-running
+  `smooth_track` + an O(n²) `bboxes == bboxes` equality scan (`main.py` 162–228). Each `TrackWindow` now
+  carries its detections (hence `frame_idxs`/`bboxes`), so `aggregate_by_frame` is a direct scatter.
+- **`smooth_track` is a faithful but observationally-inert port.** It smooths `cx`/`cy` (stored on the
+  returned detections) but leaves the bbox unchanged — exactly as OLD, where the smoothed centers were never
+  used downstream (motion is computed from the bbox). Kept for fidelity; `test_smooth_track_matches_legacy`
+  pins the center math against a verbatim OLD transcription.
+- **`extract_frames.py` folded into `DirFrameSource`** (B11): a directory of frames is a first-class source
+  (`open_frame_source` dispatches dir→`DirFrameSource`, file→`VideoFrameSource`), so no separate extract step
+  and the manual smoke can run on `qualitative_visualize/`.
+- **Config (additive, new top-level section).** `InferenceCfg` (+ `RootCfg.infer` + `configs/infer.yaml`,
+  registered in `loader._SECTIONS`). Top-level (not `eval.infer`) because overrides cap at `section.field`.
+  Detect/track/window/render knobs only; model-input geometry is reused from `DataCfg`. `validate_config`
+  gains infer invariants (`detector_conf ∈ [0,1]`, `window_stride ≥ 1`, `batch_size > 0`, `default_fps > 0`).
+- **Tests** (`tests/test_inference.py`, 13): smooth + windowing parity vs in-test OLD oracles; in-memory
+  `preprocess_window` == on-disk `process_record` (atol 1e-6 crops / tol 0 motion); motion == canonical
+  `compute_motion`; crosses read from `crosses_frame` (perturbing `crosses_pooled` is inert, B4); aggregate
+  scatter; lazy-import error; an end-to-end run with a **stub detector** + random model over a
+  `DirFrameSource` (writes an mp4); a render smoke (reopen-and-count). No fixture file — pure-Python seams use
+  transcription oracles (repo convention, cf. `_legacy_compute_motion`). **Manual smoke on
+  `qualitative_visualize/` deferred — the dir is gitignored and absent locally; the stub-detector E2E test
+  covers the same `DirFrameSource`→render path on synthetic frames.**
 
 ## Parity Gate (Phase A → cutover)
 

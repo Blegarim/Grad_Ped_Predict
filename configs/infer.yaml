@@ -1,0 +1,11 @@
+# InferenceCfg — video-inference knobs (Prompt 5.3), replaces OLD main.py literals.
+# Model-input geometry (seq_len, context_scale, tight/context sizes, motion_dim, norm) is
+# reused from DataCfg so inference matches the trained distribution.
+detector_weights: yolo11n.pt   # YOLO weights (requires the [infer] extra)
+detector_class_idx: 0          # pedestrian class
+detector_conf: 0.3             # YOLO confidence threshold
+smooth_window: 3               # centered moving-average half-window for track smoothing
+window_stride: 1               # slide a prediction window every frame (OLD dense coverage)
+batch_size: 32                 # window-forward batch size
+default_fps: 30.0              # fps used for a directory-of-frames source (no container fps)
+draw_color_chips: true         # draw the on/off action/look/cross color chips under each bbox
