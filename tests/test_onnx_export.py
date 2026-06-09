@@ -22,11 +22,6 @@ from pathlib import Path
 import pytest
 import torch
 
-# Guard the entire module: skip if onnxruntime is absent.
-ort = pytest.importorskip("onnxruntime", reason="onnxruntime not installed; add [export] extra")
-import onnx  # noqa: E402  (also an [export] dep; present if ort is present)
-import numpy as np  # noqa: E402
-
 from pedpredict.config import RootCfg
 from pedpredict.export.onnx import (
     _make_dummy_inputs,  # internal helper — fine to use in tests
@@ -34,6 +29,11 @@ from pedpredict.export.onnx import (
     export_onnx,
 )
 from pedpredict.models.registry import ModelType, build_model
+
+# Guard the [export] runtime deps: skip the whole module if onnxruntime/onnx are absent.
+# (pedpredict.export.onnx imports onnxruntime lazily, so importing it above needs no guard.)
+ort = pytest.importorskip("onnxruntime", reason="onnxruntime not installed; add [export] extra")
+import onnx  # noqa: E402  (an [export] dep; present iff ort is present)
 
 _ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "ensemble.pt"
 
@@ -52,7 +52,7 @@ def _build_eval(cfg: RootCfg, mt: ModelType) -> torch.nn.Module:
 
 def _ort_run(onnx_path: Path, input_names: tuple[str, ...], dummy: tuple[torch.Tensor, ...]) -> list:
     sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    feed = {name: t.numpy() for name, t in zip(input_names, dummy)}
+    feed = {name: t.numpy() for name, t in zip(input_names, dummy, strict=True)}
     return sess.run(None, feed)
 
 
@@ -157,8 +157,8 @@ def test_onnx_parity_golden_weights(ensemble_golden: dict, tmp_path: Path) -> No
     This validates the complete chain: OLD weights → rebuilt model → ONNX export →
     ORT inference, all agreeing within tolerance.
     """
-    from pedpredict.models.ensemble import EnsembleModel
     from pedpredict.config import ModelCfg
+    from pedpredict.models.ensemble import EnsembleModel
 
     entry = ensemble_golden["full"]
     cfg = RootCfg()

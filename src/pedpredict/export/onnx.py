@@ -348,12 +348,12 @@ def check_onnx_parity(
         torch_outs: tuple[torch.Tensor, ...] = wrapper(*dummy)
 
     sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    feed = {name: t.numpy() for name, t in zip(input_names, dummy)}
+    feed = {name: t.numpy() for name, t in zip(input_names, dummy, strict=True)}
     ort_outs: list[np.ndarray] = sess.run(list(output_keys), feed)
 
     atol, rtol = cfg.export.parity_atol, cfg.export.parity_rtol
     diffs: dict[str, tuple[float, float]] = {}
-    for key, torch_t, ort_arr in zip(output_keys, torch_outs, ort_outs):
+    for key, torch_t, ort_arr in zip(output_keys, torch_outs, ort_outs, strict=True):
         torch_np = torch_t.numpy()
         abs_diff = float(np.abs(torch_np - ort_arr).max())
         rel_diff = float((np.abs(torch_np - ort_arr) / (np.abs(torch_np) + 1e-8)).max())

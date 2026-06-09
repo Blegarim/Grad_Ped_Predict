@@ -172,8 +172,9 @@ def main(argv: list[str] | None = None) -> int:
         sequences = _load_sequences_pkl(args.sequences_pkl)
 
         if qual_mode == "comparison":
-            from pedpredict.viz.qualitative import render_comparison
             import numpy as np
+
+            from pedpredict.viz.qualitative import render_comparison
 
             preds_path = run.plots_dir / "predictions.npz"
             if sequences is not None and preds_path.exists():

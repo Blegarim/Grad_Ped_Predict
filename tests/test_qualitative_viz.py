@@ -20,7 +20,6 @@ import pytest
 from pedpredict.config.schema import DataCfg, RootCfg
 from pedpredict.utils.logging import RunDir, create_run_dir
 from pedpredict.viz.qualitative import (
-    BOX_COLOR,
     LABEL_COLORS,
     MISMATCH_COLOR,
     ComparisonMode,

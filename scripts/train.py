@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 from pedpredict.config import build_argparser, load_config
+from pedpredict.paths import resolve_paths
 from pedpredict.training.chunk_loader import ChunkPrefetcher, gather_lmdb_chunks
 from pedpredict.training.schedule import run_phase_schedule
 from pedpredict.training.trainer import build_trainer
@@ -32,30 +33,36 @@ from pedpredict.utils.device import get_device
 from pedpredict.utils.logging import create_run_dir, make_run_id
 
 
-def _build_chunk_builders(cfg, *, device):
-    """Return a dict mapping data_source names to zero-arg ChunkProvider factories."""
-    from pedpredict.data.sampler import LabelScanCache
+def _build_chunk_builders(cfg, *, device, scan_cache):
+    """Return a dict mapping data_source names to zero-arg ChunkProvider factories.
 
-    scan_cache = LabelScanCache()
+    All factories share one ``LabelScanCache`` (so each chunk is scanned at most once across the
+    loss-weight scan and the per-chunk sampler scans) and resolve LMDB dirs via ``resolve_paths`` so
+    training works from any cwd. ``augmented`` reuses ``ChunkPrefetcher.from_config`` (base + opt-in
+    aug train dirs); ``balanced`` points at the opt-in ``lmdb_train_balanced`` dirs.
+    """
+    resolved = resolve_paths(cfg.paths)
+    val_paths = gather_lmdb_chunks([resolved.lmdb_val])
+    balanced_dirs = [
+        d if d.is_absolute() else resolved.root / d
+        for d in (Path(p) for p in cfg.paths.lmdb_train_balanced)
+    ]
+    balanced_paths = gather_lmdb_chunks(balanced_dirs)
+    pin = device.type == "cuda"
 
-    def _make(train_paths):
-        def _factory():
-            return ChunkPrefetcher(
-                cfg,
-                train_lmdb_paths=train_paths,
-                val_lmdb_paths=list(gather_lmdb_chunks(cfg.paths.lmdb_val)),
-                scan_cache=scan_cache,
-                pin_memory=(device.type == "cuda"),
-            )
-        return _factory
+    def _augmented():
+        return ChunkPrefetcher.from_config(cfg, scan_cache=scan_cache, pin_memory=pin)
 
-    augmented_paths = list(gather_lmdb_chunks(*cfg.paths.lmdb_train))
-    balanced_paths = list(gather_lmdb_chunks(*cfg.paths.lmdb_train_balanced))
+    def _balanced():
+        return ChunkPrefetcher(
+            cfg,
+            train_lmdb_paths=balanced_paths,
+            val_lmdb_paths=val_paths,
+            scan_cache=scan_cache,
+            pin_memory=pin,
+        )
 
-    return {
-        "augmented": _make(augmented_paths),
-        "balanced": _make(balanced_paths),
-    }
+    return {"augmented": _augmented, "balanced": _balanced}
 
 
 def main(argv=None) -> int:
@@ -80,13 +87,14 @@ def main(argv=None) -> int:
 
         # Build loss once from the augmented (full) train set — shared across all phases.
         scan_cache = LabelScanCache()
-        augmented_paths = list(gather_lmdb_chunks(*cfg.paths.lmdb_train))
+        resolved = resolve_paths(cfg.paths)
+        augmented_paths = gather_lmdb_chunks(resolved.lmdb_train)
         counts = scan_cache.aggregate_counts(augmented_paths)
         class_weights = class_weights_ce(counts, device=device)
         loss = build_multitask_loss(cfg.train, class_weights).to(device)
 
         model = build_model(cfg)
-        chunk_builders = _build_chunk_builders(cfg, device=device)
+        chunk_builders = _build_chunk_builders(cfg, device=device, scan_cache=scan_cache)
 
         # The trainer starts with augmented chunks; reset_for_phase will swap them per phase.
         initial_chunks = chunk_builders["augmented"]()
@@ -94,7 +102,8 @@ def main(argv=None) -> int:
             cfg, model, device, initial_chunks,
             loss=loss,
             scan_cache=scan_cache,
-            checkpointer=CheckpointManager(None),  # will be replaced per phase
+            # Placeholder (None dir -> no-op saves); run_phase_schedule replaces it per phase.
+            checkpointer=CheckpointManager(None, run_id=run_id, model_type=cfg.eval.model_type),
             logger=None,                            # will be replaced per phase
             run_dir=run_dir,
         )
@@ -111,13 +120,7 @@ def main(argv=None) -> int:
 
     else:
         # ---------------------------------------------------------------- single-phase
-        augmented_paths = list(gather_lmdb_chunks(*cfg.paths.lmdb_train))
-        chunks = ChunkPrefetcher(
-            cfg,
-            train_lmdb_paths=augmented_paths,
-            val_lmdb_paths=list(gather_lmdb_chunks(cfg.paths.lmdb_val)),
-            pin_memory=(device.type == "cuda"),
-        )
+        chunks = ChunkPrefetcher.from_config(cfg, pin_memory=(device.type == "cuda"))
         trainer = build_trainer(cfg, chunks, device=device)
         results = trainer.fit()
         print(f"Training complete. {len(results)} epoch(s), run dir: {trainer.run_dir}")

@@ -308,7 +308,9 @@ def render_gt_sequences(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     seqs = sequences[:max_sequences]
     if not seqs:
-        warnings.warn(f"render_gt_sequences: empty sequence list; nothing written to {out_path}")
+        warnings.warn(
+            f"render_gt_sequences: empty sequence list; nothing written to {out_path}", stacklevel=2
+        )
         return out_path
 
     h, w      = _probe_frame_size(seqs[0])
@@ -380,7 +382,9 @@ def render_comparison(
     n_pred = len(next(iter(predictions.values()))) if predictions else 0
     seqs   = sequences[:n_pred] if n_pred else sequences
     if not seqs:
-        warnings.warn(f"render_comparison: no sequences to render; nothing written to {out_path}")
+        warnings.warn(
+            f"render_comparison: no sequences to render; nothing written to {out_path}", stacklevel=2
+        )
         return out_path
 
     h, w   = _probe_frame_size(seqs[0])
@@ -454,7 +458,8 @@ def render_attention_overlay(
     seqs = sequences[:n]
     if not seqs:
         warnings.warn(
-            f"render_attention_overlay: no sequences to render; nothing written to {out_path}"
+            f"render_attention_overlay: no sequences to render; nothing written to {out_path}",
+            stacklevel=2,
         )
         return out_path
 
@@ -543,7 +548,8 @@ def generate_qualitative_figures(
         if "comparison" in want:
             warnings.warn(
                 f"generate_qualitative_figures: {predictions_path} not found; "
-                "skipping comparison mode. Run evaluate.py with --save-predictions first."
+                "skipping comparison mode. Run evaluate.py with --save-predictions first.",
+                stacklevel=2,
             )
 
     temporal_weights: np.ndarray | None = None
@@ -555,7 +561,8 @@ def generate_qualitative_figures(
         if "attention" in want:
             warnings.warn(
                 f"generate_qualitative_figures: {tw_path} not found; "
-                "skipping attention mode. Run evaluate.py with --save-temporal-weights first."
+                "skipping attention mode. Run evaluate.py with --save-temporal-weights first.",
+                stacklevel=2,
             )
 
     data_cfg = cfg.data
@@ -583,7 +590,8 @@ def generate_qualitative_figures(
         if not seqs_for_attn:
             warnings.warn(
                 "generate_qualitative_figures: sequences not provided; "
-                "skipping attention overlay."
+                "skipping attention overlay.",
+                stacklevel=2,
             )
         else:
             out = render_attention_overlay(

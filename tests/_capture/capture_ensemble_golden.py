@@ -92,6 +92,7 @@ def main() -> None:
     sys.path.insert(0, str(OLD_ROOT))
     from models.Motion_Encoder import MotionEncoder as OldMotion  # noqa: E402
     from models.Vision_Transformer import ViT_Hierarchical as OldViT  # noqa: E402
+
     from scripts.model_utils import get_model, model_forward  # noqa: E402
 
     cfg = ModelCfg()
