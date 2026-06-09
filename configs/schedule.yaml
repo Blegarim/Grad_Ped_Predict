@@ -1,4 +1,4 @@
-# ScheduleCfg — two-phase training schedule (Prompt 4.4, B1).
+# ScheduleCfg — two-phase training schedule.
 #
 # enabled: false -> plain Trainer.fit() single-phase path (default).
 # enabled: true  -> run_phase_schedule() in training/schedule.py.
@@ -8,7 +8,7 @@
 #   Phase 2: full augmented fine-tune  (lr=1e-5, 20 epochs, patience=5)
 #   Phase 3: decouple classifiers      (lr=5e-5,  5 epochs, patience=3, freeze_backbone=true)
 #
-# Intentional deviations from OLD script (documented in MIGRATION.md):
+# Intentional deviations from OLD script (documented in docs/archive/MIGRATION.md):
 #   D1: scheduler steps on val_loss (not train loss)
 #   D2: early stopping on val_loss  (not 1 - macro_f1)
 #   D3: MultiTaskLoss CE weights    (not FocalLoss)

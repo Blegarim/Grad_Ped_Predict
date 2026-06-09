@@ -1,4 +1,4 @@
-"""Online imbalance lever + the single LMDB metadata scanner (Prompt 1.6).
+"""Online imbalance lever + the single LMDB metadata scanner.
 
 Unifies the **duplicated LMDB scan** in OLD ``train.py:34-123`` (band-aid B3). Two legacy functions
 scanned the same ``_meta`` pickles for overlapping purposes:
@@ -13,7 +13,7 @@ The two inverse-frequency *formulas* legitimately differ (loss: ``t/(2·max(c,1)
 sampler: ``t/(len(counts)·c)`` over observed classes) and are preserved verbatim — :func:`class_weights_ce`
 and :func:`sample_weights` are byte-for-byte equivalents of the legacy bodies.
 
-Imbalance policy (B3 — one policy, not three accidents; see CLAUDE.md / MIGRATION.md):
+Imbalance policy (B3 — one policy, not three accidents; see CLAUDE.md / docs/archive/MIGRATION.md):
 
 * **Lever 1** offline balance (``data/balance.py``) — OPT-IN, OFF by default.
 * **Lever 2** online sampler (this module) — ON by default; per-chunk weights.
@@ -153,7 +153,7 @@ class LabelScanCache:
         self._store.clear()
 
 
-# --------------------------------------------------------------------------- loss lever (Prompt 3.1)
+# --------------------------------------------------------------------------- loss lever
 
 
 def class_weights_ce(counts: dict[str, TaskCounts], *, device: torch.device | str | None = None

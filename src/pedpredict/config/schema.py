@@ -1,4 +1,4 @@
-"""Typed config schema (Prompt 0.2).
+"""Typed config schema.
 
 Frozen dataclasses that replace OLD ``config.py`` + every hardcoded hyperparameter
 scattered through ``train.py`` / ``test.py`` / ``scripts/train_utils.py``. This module is
@@ -6,7 +6,7 @@ pure data: no I/O, no argparse (that lives in ``loader.py``).
 
 Defaults mirror the *training-effective* values from the OLD repo (``config.py`` and
 ``train.py:280-296``), NOT the drifting ``Vision_Transformer.__main__`` /
-``Motion_Encoder.__main__`` smoke-test kwargs (band-aid B6 — see MIGRATION.md).
+``Motion_Encoder.__main__`` smoke-test kwargs (band-aid B6 — see docs/archive/MIGRATION.md).
 
 ``ModelCfg.vit_kwargs()`` / ``motion_kwargs()`` reproduce the OLD ``vit_args_config()`` /
 ``motion_enc_args_config()`` dicts byte-for-byte; ``tests/test_config.py`` asserts that
@@ -31,7 +31,7 @@ class PathsCfg:
     log_dir: str = "training_log"          # legacy flat dirs (kept for reading OLD artifacts)
     ckpt_dir: str = "best_model_outputs"   # legacy flat dirs
     run_ckpt_dir: str = "model_outputs"    # legacy flat dirs
-    runs_dir: str = "outputs/runs"         # new per-run home: outputs/runs/{run_id}/ (Prompt 0.3, Q-A)
+    runs_dir: str = "outputs/runs"         # new per-run home: outputs/runs/{run_id}/
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +108,7 @@ class ModelCfg:
     frame_pool: str = "logsumexp"       # {"logsumexp", "max", "mean"}
     # B4: crosses_pooled is the pooled-feature crosses head. Legacy ALLOCATED it but never called it
     # (dead param). Here it is LIVE-but-unsupervised (default on): emitted as an auxiliary diagnostic kept
-    # ready to swap in for crosses_frame, never fed to the loss. See MIGRATION.md (2.3) / CLAUDE.md.
+    # ready to swap in for crosses_frame, never fed to the loss. See docs/archive/MIGRATION.md (2.3) / CLAUDE.md.
     emit_crosses_pooled: bool = True
 
     def vit_kwargs(self) -> dict:
@@ -178,7 +178,7 @@ class TrainCfg:
     sched_factor: float = 0.5
     sched_patience: int = 2
     sched_threshold: float = 1e-4
-    # chunk prefetch loader (Prompt 4.2, B9) — OLD train.py:367-498 literals.
+    # chunk prefetch loader — OLD train.py:367-498 literals.
     chunk_preload_depth: int = 3            # OLD min(3, n) warm-ahead window
     chunk_warm_ram_threshold: float = 96.0  # OLD wait_for_memory(threshold=96)
     chunk_warm_mem_interval: float = 1.0    # OLD wait_for_memory(interval=1)
@@ -194,7 +194,7 @@ class EvalCfg:
     batch_size: int = 16
     num_workers: int = 4
     model_type: str = "full"
-    # Efficiency benchmark methodology (Prompt 5.2). Input SHAPES come from DataCfg (the eager ViT is
+    # Efficiency benchmark methodology. Input SHAPES come from DataCfg (the eager ViT is
     # bound to read_context_height, so benchmarking uses the real inference resolution, not a synthetic
     # scale). These fields are only the timing knobs.
     bench_batch_size: int = 1            # benchmark batch (OLD compute_flops/inference_latency used 1)
@@ -207,7 +207,7 @@ class EvalCfg:
 
 @dataclass(frozen=True, slots=True)
 class InferenceCfg:
-    """Video-inference knobs (Prompt 5.3) — replaces OLD ``main.py`` top-of-file literals (B1).
+    """Video-inference knobs — replaces OLD ``main.py`` top-of-file literals (B1).
 
     Only the detect/track/window/render knobs live here; the model-input *geometry* (``seq_len``,
     ``context_scale``, tight/context sizes, ``motion_dim``, ImageNet norm) is reused from
@@ -226,11 +226,11 @@ class InferenceCfg:
 
 @dataclass(frozen=True, slots=True)
 class BalanceCfg:
-    """Offline class-balancing (Prompt 1.3) — the OPT-IN majority-downsample lever, OFF by default.
+    """Offline class-balancing — the OPT-IN majority-downsample lever, OFF by default.
 
     Defaults = the recommended *enabled* behavior (corrected 30/70). The two legacy scripts are
     reproduced by the ``balance.BALANCE_EQUAL`` / ``BALANCE_RATIO_30_70`` presets, not these defaults.
-    See ``data/balance.py`` and the CLAUDE.md / MIGRATION.md imbalance policy.
+    See ``data/balance.py`` and the CLAUDE.md / docs/archive/MIGRATION.md imbalance policy.
     """
 
     enabled: bool = False                  # OFF by default (online sampler + loss weights handle imbalance)
@@ -247,7 +247,7 @@ class BalanceCfg:
 
 @dataclass(frozen=True, slots=True)
 class AugmentCfg:
-    """Offline minority-class augmentation (Prompt 1.4). Defaults = OLD ``SequenceAugmenter`` literals.
+    """Offline minority-class augmentation. Defaults = OLD ``SequenceAugmenter`` literals.
 
     The DEFAULT imbalance lever (policy 1.3): ``enabled=True``. Produces the ``preprocessed_train_aug``
     LMDB (``PathsCfg.lmdb_train[1]``) of minority records + their single-transform augmented copies
@@ -279,7 +279,7 @@ class AugmentCfg:
 
 @dataclass(frozen=True, slots=True)
 class PhaseCfg:
-    """One phase in a training schedule (Prompt 4.4, B1).
+    """One phase in a training schedule.
 
     Exactly matches the hardcoded constants from OLD ``train_two_phase.py`` when assembled into
     ``ScheduleCfg``'s default ``phases`` tuple (see ``_default_phases()`` below).
@@ -334,7 +334,7 @@ def _default_phases() -> tuple[PhaseCfg, ...]:
 
 @dataclass(frozen=True, slots=True)
 class ScheduleCfg:
-    """Configurable multi-phase training schedule (Prompt 4.4, B1).
+    """Configurable multi-phase training schedule.
 
     ``enabled=False`` (default) -> plain ``Trainer.fit()`` single-phase path.
     ``enabled=True``            -> ``run_phase_schedule()`` in ``training/schedule.py``.
@@ -349,7 +349,7 @@ class ScheduleCfg:
 
 @dataclass(frozen=True, slots=True)
 class ExportCfg:
-    """ONNX export knobs (Prompt 7.1) — replaces hardcoded values in OLD ``onnx/onnx_export.py``."""
+    """ONNX export knobs — replaces hardcoded values in OLD ``onnx/onnx_export.py``."""
 
     opset: int = 17                         # ONNX opset version; keep in sync with ort compatibility
     output_dir: str = "outputs/onnx"        # export destination (relative to cwd or absolute)

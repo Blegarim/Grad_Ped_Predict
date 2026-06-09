@@ -1,4 +1,4 @@
-"""Evaluation entry point (Prompt 5.1) — thin CLI over ``eval.run_evaluation``.
+"""Evaluation entry point — thin CLI over ``eval.run_evaluation``.
 
 Ports OLD ``test.py``'s ``main()`` argument surface (``--model_type`` -> ``--set eval.model_type``,
 ``--model_path`` -> ``--checkpoint``, ``--save_predictions`` -> ``--save-predictions``). Efficiency

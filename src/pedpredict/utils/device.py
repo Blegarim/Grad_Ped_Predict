@@ -1,4 +1,4 @@
-"""Device selection and CUDA performance flags (Prompt 0.3).
+"""Device selection and CUDA performance flags.
 
 Port of the device/perf block from OLD ``train.py:244-255``. Behavior-preserving: the exact
 same four backend toggles, only relocated out of the god-script (part of B1). No-op on CPU.

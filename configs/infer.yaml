@@ -1,4 +1,4 @@
-# InferenceCfg — video-inference knobs (Prompt 5.3), replaces OLD main.py literals.
+# InferenceCfg — video-inference knobs, replaces OLD main.py literals.
 # Model-input geometry (seq_len, context_scale, tight/context sizes, motion_dim, norm) is
 # reused from DataCfg so inference matches the trained distribution.
 detector_weights: yolo11n.pt   # YOLO weights (requires the [infer] extra)

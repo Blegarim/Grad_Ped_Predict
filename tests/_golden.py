@@ -1,15 +1,19 @@
-"""Golden-fixture registry + loader (Prompt 8.1, B12).
+"""Golden-fixture registry + loader.
 
-Single source of truth for the behavior-preserving safety net: every ported module that has a
-captured legacy reference is registered here, mapping its fixture file to the ``_capture/`` script
-that regenerates it and a one-line note on what it guards.
+Single source of truth for the golden **characterization** fixtures: every module with a captured
+numeric reference is registered here, mapping its fixture file to the ``_capture/`` script that
+regenerates it and a one-line note on what it guards. The fixtures pin each module's output numerics;
+a change that moves them is surfaced as a test failure rather than slipping through silently.
 
-``tests/test_golden_outputs.py`` turns this registry into a coverage gate — porting a module without
-a golden guard, leaving an orphan fixture, or shipping a fixture with no regenerator becomes a test
-failure rather than a silent omission (the structural half of B12).
+``tests/test_golden_outputs.py`` turns this registry into a coverage gate — leaving an orphan fixture,
+shipping a fixture with no regenerator, or registering one no test references becomes a failure.
 
-Existing per-module tests keep their own ``torch.load`` calls (co-located parity assertions are the
-better pattern); ``load_golden`` is offered for new tests and is used by the meta-test itself.
+The ``_capture/`` regenerators were originally written against the legacy reference repo, which now
+lives only in the ``legacy-archive`` git tag. To re-capture a fixture, ``git checkout legacy-archive``
+first; on ``main`` the committed fixtures are the source of truth.
+
+Existing per-module tests keep their own ``torch.load`` calls (co-located assertions are the better
+pattern); ``load_golden`` is offered for new tests and is used by the meta-test itself.
 """
 
 from __future__ import annotations

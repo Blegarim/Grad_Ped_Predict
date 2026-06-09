@@ -1,5 +1,4 @@
-"""Offline-balance sequence pickles (Prompt 1.3 CLI; replaces OLD balance_sequences /
-split_balance_sequences_all ``__main__``).
+"""Offline-balance sequence pickles.
 
 Thin wrapper: load config -> for each split, balance ``<sequences_dir>/sequences_<split>.pkl`` ->
 write ``<sequences_dir>/sequences_<split>_balanced.pkl``. All balance params flow from

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a trained model to ONNX and verify onnxruntime parity (Prompt 7.1).
+"""Export a trained model to ONNX and verify onnxruntime parity.
 
 Port of OLD ``onnx/onnx_export.py`` as a thin config-driven CLI.  All export
 knobs live in ``ExportCfg`` (configs/export.yaml); the model type is read from

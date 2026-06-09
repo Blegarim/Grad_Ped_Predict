@@ -1,4 +1,4 @@
-"""LMDB page-cache warm worker (Prompt 4.2, B9) — deliberately torch-free.
+"""LMDB page-cache warm worker — deliberately torch-free.
 
 Isolated from ``training/chunk_loader.py`` for one reason: it is the target of a ``spawn``ed process.
 Under ``spawn`` (the Windows/macOS default) the child re-imports the module that defines the target

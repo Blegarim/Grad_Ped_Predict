@@ -1,4 +1,4 @@
-"""Video inference entry point (Prompt 5.3) — thin CLI over ``eval.inference.run_video_inference``.
+"""Video inference entry point — thin CLI over ``eval.inference.run_video_inference``.
 
 Mirrors ``scripts/evaluate.py`` (reuses ``--config-dir`` / ``--set`` dotted overrides). The source may be
 a video file OR a directory of frames (folds OLD ``extract_frames.py`` into ``DirFrameSource``).

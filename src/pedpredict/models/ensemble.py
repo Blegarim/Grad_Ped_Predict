@@ -1,4 +1,4 @@
-"""EnsembleModel — the full multimodal model (Prompt 2.4).
+"""EnsembleModel — the full multimodal model.
 
 Port of OLD ``models/Unified_Module.EnsembleModel``. Behavior-preserving: numerically equivalent to the
 legacy module for identical weights+input in eval mode (the two ``LayerNorm`` fusions + the
@@ -13,7 +13,7 @@ Wiring (verbatim, LayerNorm-before-fusion preserved)::
 The output is the ``cross_attention`` logits dict (keys per the Prompt 2.3 contract:
 ``actions``, ``looks``, ``crosses_frame``, ``temporal_weights`` + the live-but-unsupervised
 ``crosses_pooled``). ``return_feats=True`` additionally returns ``(image_feats, motion_feats)`` — the
-path the qualitative-viz code (Prompt 6.2) consumes.
+path the qualitative-viz code consumes.
 
 Attribute names mirror the legacy module verbatim (``motion_enc``, ``vit``, ``cross_attention``,
 ``image_norm``, ``motion_norm``) so an OLD full-model ``state_dict`` loads ``strict=True``.
@@ -78,7 +78,7 @@ class EnsembleModel(nn.Module):
         """``images_tight/images_context [B, T, 3, H, W]``, ``motions [B, T, motion_dim]`` -> logits dict.
 
         With ``return_feats=True`` also returns ``(image_feats, motion_feats)`` (both ``[B, T, d_model]``),
-        the post-LayerNorm fusion features used by the qualitative-viz path (Prompt 6.2).
+        the post-LayerNorm fusion features used by the qualitative-viz path.
         """
         # --- Vision Transformer branch (LayerNorm before fusion) ---
         image_feats = self.vit(images_context)  # [B, T, D]

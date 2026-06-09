@@ -15,7 +15,7 @@ early_stop_min_delta: 0.001
 sched_factor: 0.5
 sched_patience: 2
 sched_threshold: 1.0e-4
-# chunk prefetch loader (Prompt 4.2, B9) — OLD train.py:367-498 literals.
+# chunk prefetch loader — OLD train.py:367-498 literals.
 chunk_preload_depth: 3
 chunk_warm_ram_threshold: 96.0
 chunk_warm_mem_interval: 1.0

@@ -1,4 +1,4 @@
-"""Runtime LMDB chunk dataset (Prompt 1.5).
+"""Runtime LMDB chunk dataset.
 
 Ports OLD ``scripts/lmdb_dataset.py::LMDBChunkDataset`` — the read side of the LMDB contract written
 by ``lmdb_writer`` (1.2). One instance wraps one ``*.lmdb`` chunk; the chunk loader (4.2) opens one

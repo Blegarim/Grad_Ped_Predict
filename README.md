@@ -7,16 +7,13 @@ video frames the model jointly predicts three binary tasks for each pedestrian:
 - **looks** — looking toward traffic or not
 - **crosses** — will cross the road soon
 
-This repository is a **ground-up, behavior-preserving rebuild** of an undergraduate thesis project: the
-same model math and outputs, restructured into clean, tested, config-driven modules. See
-[REBUILD_SCHEMATIC.md](REBUILD_SCHEMATIC.md) for the master plan and [CLAUDE.md](CLAUDE.md) for the full
-architecture, conventions, and the band-aid inventory it resolves.
+The codebase is clean, tested, and config-driven: typed dataclass configs, a single shared metric path,
+golden characterization tests, and a ruff + pytest gate. See [CLAUDE.md](CLAUDE.md) for the full
+architecture, the output-dict contract, and the imbalance policy.
 
 > **About this README.** It is a stable, whole-repo overview — the problem, the architecture, the layout,
-> and how to set things up and run them. It is deliberately **not** a progress tracker: the live,
-> module-by-module porting status (golden fixtures, resolved band-aids, parity results) is kept in
-> [MIGRATION.md](MIGRATION.md). Update this file only when the architecture, layout, or setup genuinely
-> change — not on every ported module.
+> and how to set things up and run them. Update it only when the architecture, layout, or setup genuinely
+> change.
 
 ## Architecture
 
@@ -54,11 +51,8 @@ src/pedpredict/        # installable package (pip install -e .)
   export/   onnx.py
 scripts/    # thin one-job CLIs (make_sequences, build_lmdb, train, evaluate, ...)
 configs/    paths.yaml data.yaml model.yaml train.yaml eval.yaml
-tests/      # unit + golden-parity tests; fixtures/golden/ holds captured legacy outputs
+tests/      # unit + golden characterization tests; fixtures/golden/ pins module numerics
 ```
-
-The package is filled in module-by-module per the schematic; [MIGRATION.md](MIGRATION.md) is the source of
-truth for what has landed so far.
 
 ## Configuration
 
@@ -118,5 +112,5 @@ ruff check .
 pytest -m "not slow"
 ```
 
-Both must pass — this is the lint + test safety net that protects the rebuild. `slow` tests need the PIE
-dataset or heavy IO and are excluded from CI.
+Both must pass — the lint + test safety net for the codebase. `slow` tests need the PIE dataset or heavy
+IO and are excluded from CI.

@@ -1,4 +1,4 @@
-"""Config loader: yaml -> dataclass -> argparse-override merge -> validate -> dump (Prompt 0.2).
+"""Config loader: yaml -> dataclass -> argparse-override merge -> validate -> dump.
 
 Pipeline (precedence: yaml defaults < file load < CLI overrides; ``validate`` runs last):
 
@@ -222,7 +222,7 @@ def validate_config(root: RootCfg) -> None:
             f"motion_hidden_dim={m.motion_hidden_dim} not divisible by motion_num_heads={m.motion_num_heads}"
         )
 
-    # CrossAttentionModule (Prompt 2.3): MultiheadAttention requires d_model divisible by num_heads.
+    # CrossAttentionModule: MultiheadAttention requires d_model divisible by num_heads.
     if m.cross_attn_num_heads <= 0 or m.d_model % m.cross_attn_num_heads != 0:
         raise ConfigError(
             f"model.d_model={m.d_model} not divisible by model.cross_attn_num_heads={m.cross_attn_num_heads}"
@@ -252,7 +252,7 @@ def validate_config(root: RootCfg) -> None:
         if value <= 0:
             raise ConfigError(f"{name} must be a positive integer; got {value}")
 
-    # writer geometry/encode invariants (Prompt 1.2)
+    # writer geometry/encode invariants
     if d.context_scale <= 0.0:
         raise ConfigError(f"data.context_scale must be > 0; got {d.context_scale}")
     if not (1 <= d.jpeg_quality <= 100):
@@ -265,7 +265,7 @@ def validate_config(root: RootCfg) -> None:
             f"got {d.read_context_height}x{d.read_context_width}"
         )
 
-    # ViT window tiling (Prompt 2.1): the context-crop resolution must tile every stage's window so the
+    # ViT window tiling: the context-crop resolution must tile every stage's window so the
     # eager relative-position tables (B2) are buildable. The ViT is built from a scalar img_size, so the
     # context crop must be square; global windows (None) always tile (window == feature map).
     if d.read_context_height != d.read_context_width:
@@ -283,11 +283,11 @@ def validate_config(root: RootCfg) -> None:
                 f"(img_size={d.read_context_height})"
             )
 
-    # training-loop invariants (Prompt 4.1)
+    # training-loop invariants
     if t.grad_clip_max_norm <= 0.0:
         raise ConfigError(f"train.grad_clip_max_norm must be > 0; got {t.grad_clip_max_norm}")
 
-    # chunk prefetch loader invariants (Prompt 4.2)
+    # chunk prefetch loader invariants
     if t.chunk_preload_depth < 1:
         raise ConfigError(f"train.chunk_preload_depth must be >= 1; got {t.chunk_preload_depth}")
     if not (0.0 < t.chunk_warm_ram_threshold <= 100.0):
@@ -307,7 +307,7 @@ def validate_config(root: RootCfg) -> None:
             f"train.dataloader_prefetch_factor must be >= 1; got {t.dataloader_prefetch_factor}"
         )
 
-    # online sampler invariants (Prompt 1.6)
+    # online sampler invariants
     if t.sampler_min_weight <= 0.0:
         raise ConfigError(f"train.sampler_min_weight must be > 0; got {t.sampler_min_weight}")
     if set(t.sampler_powers) != _TASK_KEYS:
@@ -324,7 +324,7 @@ def validate_config(root: RootCfg) -> None:
             f"got lo={e.threshold_sweep_lo}, hi={e.threshold_sweep_hi}"
         )
 
-    # video-inference invariants (Prompt 5.3)
+    # video-inference invariants
     inf = root.infer
     if not (0.0 <= inf.detector_conf <= 1.0):
         raise ConfigError(f"infer.detector_conf must be in [0, 1]; got {inf.detector_conf}")
@@ -339,7 +339,7 @@ def validate_config(root: RootCfg) -> None:
     if inf.default_fps <= 0.0:
         raise ConfigError(f"infer.default_fps must be > 0; got {inf.default_fps}")
 
-    # offline balance invariants (Prompt 1.3)
+    # offline balance invariants
     if not (0.0 < b.cross_pos_ratio < 1.0):
         raise ConfigError(f"balance.cross_pos_ratio must be in (0, 1); got {b.cross_pos_ratio}")
     for name, rate in {"target_action_rate": b.target_action_rate, "target_look_rate": b.target_look_rate}.items():
@@ -350,7 +350,7 @@ def validate_config(root: RootCfg) -> None:
     if b.on_infeasible not in {"raise", "empty"}:
         raise ConfigError(f"balance.on_infeasible must be 'raise' or 'empty'; got {b.on_infeasible!r}")
 
-    # offline augmentation invariants (Prompt 1.4)
+    # offline augmentation invariants
     for name, prob in {"p_flip": a.p_flip, "p_color": a.p_color, "p_noise": a.p_noise, "p_erase": a.p_erase}.items():
         if not (0.0 <= prob <= 1.0):
             raise ConfigError(f"augment.{name} must be in [0, 1]; got {prob}")
@@ -366,7 +366,7 @@ def validate_config(root: RootCfg) -> None:
     if a.erase_n_frames < 0:
         raise ConfigError(f"augment.erase_n_frames must be >= 0; got {a.erase_n_frames}")
 
-    # ONNX export invariants (Prompt 7.1)
+    # ONNX export invariants
     ex = root.export
     if ex.opset < 1:
         raise ConfigError(f"export.opset must be >= 1; got {ex.opset}")
@@ -379,7 +379,7 @@ def validate_config(root: RootCfg) -> None:
     if ex.parity_seq_len < 1:
         raise ConfigError(f"export.parity_seq_len must be >= 1; got {ex.parity_seq_len}")
 
-    # phase schedule (Prompt 4.4)
+    # phase schedule
     for i, phase in enumerate(root.schedule.phases):
         if not phase.name:
             raise ConfigError(f"schedule.phases[{i}].name must be non-empty")

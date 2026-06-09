@@ -1,4 +1,4 @@
-"""Typed config: yaml -> dataclass schema -> argparse-override loader (Prompt 0.2)."""
+"""Typed config: yaml -> dataclass schema -> argparse-override loader."""
 
 from .loader import (
     ConfigError,

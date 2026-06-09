@@ -1,4 +1,4 @@
-"""Cross-cutting helpers: seed, device, amp, memory, logging (Prompt 0.3).
+"""Cross-cutting helpers: seed, device, amp, memory, logging.
 
 Re-exports the flat helper API so callers write ``from pedpredict.utils import set_seed``
 rather than reaching into submodules. Path resolution lives one level up in

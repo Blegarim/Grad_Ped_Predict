@@ -1,4 +1,4 @@
-"""Offline minority-class augmentation (Prompt 1.4), porting OLD ``scripts/augment_sequences.py``.
+"""Offline minority-class augmentation, porting OLD ``scripts/augment_sequences.py``.
 
 ⚠️ The OLD ``SequenceAugmenter`` indexed ``seq['images_tight'] / 'images_context' / 'motions'`` —
 pre-cropped *tensor* sequences. But the real pipeline pkl is **path-based** (``{images, bboxes,
@@ -50,7 +50,7 @@ __all__ = [
 ]
 
 #: Motion channel negated by a horizontal flip — ``dx`` in ``compute_motion``'s
-#: ``(cx, cy, dx, dy, w, h, dw, dh)``. LOCKED (MIGRATION.md 1.2/1.4); a mismatch silently corrupts data.
+#: ``(cx, cy, dx, dy, w, h, dw, dh)``. LOCKED (docs/archive/MIGRATION.md 1.2/1.4); a mismatch silently corrupts data.
 _FLIP_NEGATE_IDX: int = 2
 
 

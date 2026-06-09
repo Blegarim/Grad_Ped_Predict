@@ -1,4 +1,4 @@
-"""Typed model factory + forward adapter (Prompt 2.4) — replaces OLD ``scripts/model_utils.py`` (B10).
+"""Typed model factory + forward adapter — replaces OLD ``scripts/model_utils.py`` (B10).
 
 OLD ``model_utils.get_model(model_type: str, ...)`` / ``model_forward(model, model_type: str, ...)``
 dispatched on a raw string (a typo was a silent bug, and the ``model_type`` was threaded separately from

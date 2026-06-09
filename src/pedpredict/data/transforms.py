@@ -1,4 +1,4 @@
-"""Crop geometry + motion features + normalization (Prompt 1.2).
+"""Crop geometry + motion features + normalization.
 
 Owns the per-frame *math* of the LMDB pipeline, ported from OLD
 ``scripts/PIE_sequence_Dataset_1.py::PIESequenceDataset._process_sequence``. The companion
@@ -7,7 +7,7 @@ Owns the per-frame *math* of the LMDB pipeline, ported from OLD
 
 Behavior is preserved exactly vs the legacy ``_process_sequence`` (verified by
 ``tests/test_transforms.py`` against ``tests/fixtures/golden/lmdb_process_record.pt``), with two
-deliberate, contract-aligned changes flagged in MIGRATION.md:
+deliberate, contract-aligned changes flagged in docs/archive/MIGRATION.md:
 
 * **TurboJPEG dropped** — frames are decoded with PIL only (:func:`load_rgb`). The legacy hardcoded
   ``C:\\libjpeg-turbo64`` DLL path is removed (a path/B5 smell); decode output is otherwise identical.
@@ -197,7 +197,7 @@ def process_record(
 
     Replaces OLD ``PIESequenceDataset._process_sequence``. Transforms default to
     :func:`build_write_transforms` (config-driven); callers may inject augmentation transforms
-    (Prompt 1.4) without changing the geometry/motion math.
+    without changing the geometry/motion math.
     """
     if transform_tight is None or transform_context is None:
         bt, bc = build_write_transforms(cfg)

@@ -1,10 +1,10 @@
-"""Training callbacks (Prompt 4.1 lands ``EarlyStopping``; Prompt 4.3 adds checkpointing).
+"""Training callbacks.
 
 ``EarlyStopping`` is a verbatim port of OLD ``scripts/train_utils.py:23-37`` — same min-delta /
 patience semantics, only typed and snake_cased. The Trainer (4.1) drives it with the per-epoch
 validation loss exactly as OLD ``main`` did (train.py:622-627).
 
-``CheckpointPayload`` and ``CheckpointManager`` (Prompt 4.3) supersede the interim
+``CheckpointPayload`` and ``CheckpointManager`` supersede the interim
 ``ModelStateCheckpointer``. The manager saves the FULL training state — model, optimizer, scaler,
 scheduler, epoch, best_val_loss — enabling true warm resume.
 
@@ -97,7 +97,7 @@ class CheckpointPayload(NamedTuple):
 
 
 class CheckpointManager:
-    """Full-state checkpointer (Prompt 4.3). Implements the ``Checkpointer`` Protocol.
+    """Full-state checkpointer. Implements the ``Checkpointer`` Protocol.
 
     Supersedes ``ModelStateCheckpointer``. Saves the complete training state — model, optimizer,
     scaler, scheduler, epoch, best_val_loss — enabling true warm resume without re-running any

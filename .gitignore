@@ -1,4 +1,4 @@
-# --- Datasets & large binaries (from OLD .gitignore) ---
+# --- Datasets & large binaries ---
 # Anchored to repo root so they don't also ignore the src/pedpredict/data/ package.
 /PIE/
 /data/
@@ -31,23 +31,17 @@ htmlcov/
 *.lmdb
 *.mdb
 *.onnx
-# ...but golden test fixtures (small, versioned parity snapshots) MUST be tracked.
+# ...but golden test fixtures (small, versioned characterization snapshots) MUST be tracked.
 !tests/fixtures/golden/*.pt
 !tests/fixtures/golden/*.pkl
-# ...and the OLD-repo golden reference samples (subsampled sequences) live in OLD/golden/.
-!OLD/golden/*.pkl
 
 # --- Generated LMDB datasets (writer output; content already covered by *.lmdb/*.mdb) ---
 /preprocessed_*/
 
-# --- Run artifacts the OLD repo wrongly committed (B11) ---
-training_log/
-model_outputs/
-best_model_outputs/
+# --- Run artifacts (per-run output dirs, logs, generated figures) ---
 runs/
 outputs/
 plots/*.png
-qualitative_visualize/
 *.xlsx
 *.log
 

@@ -1,4 +1,4 @@
-"""Path resolution (Prompt 0.3).
+"""Path resolution.
 
 Single home for turning the *relative* strings in :class:`~pedpredict.config.schema.PathsCfg`
 into absolute :class:`pathlib.Path` objects rooted at the project root. No module elsewhere

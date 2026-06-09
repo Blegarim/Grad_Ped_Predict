@@ -1,4 +1,4 @@
-"""Efficiency benchmarking (Prompt 5.2): params, FLOPs, latency, FPS, peak VRAM per model_type.
+"""Efficiency benchmarking: params, FLOPs, latency, FPS, peak VRAM per model_type.
 
 Consolidates the OLD efficiency code that lived inline in ``test.py`` (``compute_flops`` /
 ``inference_latency``) and the ``Vision_Transformer.__main__`` fvcore snippet — there was no shared

@@ -1,4 +1,4 @@
-"""PIE -> fixed-length sequence windows (Prompt 1.1).
+"""PIE -> fixed-length sequence windows.
 
 Ports OLD ``scripts/generate_sequences.py``. The legacy script fused three concerns into one
 function with hardcoded literals and a ``__main__`` that dumped three pickles. Here they split so

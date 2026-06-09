@@ -1,4 +1,4 @@
-"""Training entry point (Prompt 4.4, B1).
+"""Training entry point.
 
 Dispatches to either:
   * Single-phase: ``Trainer.fit()``              — ``schedule.enabled = false`` (default)

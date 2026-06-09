@@ -10,7 +10,7 @@ Band-aids resolved:
     B6/B7 – SEQ_LEN/FUTURE_OFFSET/TOL literals → DataCfg.seq_len / .future_offset / .tol.
     B4 – crosses read from crosses_frame only; the OLD fallback to the 'crosses' key is dropped.
 
-Intentional behavior changes vs OLD (documented in MIGRATION.md):
+Intentional behavior changes vs OLD (documented in docs/archive/MIGRATION.md):
     context_scale 2.0 in OLD visualize_comparison.py vs DataCfg 3.0 – irrelevant here because
         render_comparison consumes pre-computed predictions (does not re-extract crops).
     process_custom_video (YOLO live-inference path) dropped – belongs to eval/inference.py (5.3).

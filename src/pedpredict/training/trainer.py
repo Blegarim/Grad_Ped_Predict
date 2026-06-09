@@ -1,4 +1,4 @@
-"""Clean training loop (Prompt 4.1) — replaces the OLD ``train.py`` god-script (B1).
+"""Clean training loop — replaces the OLD ``train.py`` god-script (B1).
 
 Decomposes OLD ``train.py:125-175`` (``train_one_chunk``) + ``:177-234`` (``validate_one_epoch``) +
 ``:236-632`` (``main``'s epoch loop) into a dependency-injected :class:`Trainer` whose math is delegated
@@ -301,7 +301,7 @@ class Trainer:
         Installs ``new_chunks`` (the old provider was already closed by the previous ``fit()``'s
         ``finally`` block), optionally freezes the backbone, then rebuilds the optimizer /
         scheduler / EarlyStopping / GradScaler with phase-specific settings and resets
-        ``best_val_loss`` to ``+inf`` (per-phase tracking — see MIGRATION.md D4).
+        ``best_val_loss`` to ``+inf`` (per-phase tracking — see docs/archive/MIGRATION.md D4).
 
         Freeze logic: ``requires_grad=False`` for every param whose name does NOT contain any
         of ``'classifier'``, ``'crosses_frame_head'``, ``'pool_mlp'`` — exact port of OLD

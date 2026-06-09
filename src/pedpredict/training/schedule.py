@@ -1,4 +1,4 @@
-"""Multi-phase training schedule (Prompt 4.4, B1).
+"""Multi-phase training schedule.
 
 Replaces OLD ``train_two_phase.py`` god-script.  The three phases (balanced-subset warmup ->
 full augmented fine-tune -> decouple classifiers) are now expressed as a list of ``PhaseCfg``
@@ -6,7 +6,7 @@ objects in ``schedule.yaml`` / ``ScheduleCfg``.  ``run_phase_schedule`` orchestr
 calling ``Trainer.reset_for_phase`` + ``Trainer.fit`` in a loop, with checkpoint reload and
 backbone freezing handled between phases.
 
-Intentional deviations from OLD script (documented in MIGRATION.md):
+Intentional deviations from OLD script (documented in docs/archive/MIGRATION.md):
   D1  Scheduler steps on val_loss (OLD: train loss)   — more principled, matches main Trainer.
   D2  EarlyStopping on val_loss   (OLD: 1-macro_f1)  — consistent with single-phase path.
   D3  MultiTaskLoss CE weights    (OLD: FocalLoss)    — inherits from Trainer (3.1).

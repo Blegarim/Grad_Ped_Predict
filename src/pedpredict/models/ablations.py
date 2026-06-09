@@ -1,4 +1,4 @@
-"""Ablation models (Prompt 2.5) — port of OLD ``models/AblationModels.py``.
+"""Ablation models — port of OLD ``models/AblationModels.py``.
 
 ``MotionOnlyModel`` (motion branch only), ``VisualOnlyModel`` (ViT branch only) and
 ``VanillaConcatModel`` (concat-then-fuse instead of cross-attention). Behavior-preserving: numerically
@@ -21,7 +21,7 @@ Resolved band-aids:
   with ``emit_crosses_pooled``). Param layout is unchanged, so OLD ablation checkpoints still load
   ``strict=True``. Flagged ADDITION over the 3-key legacy output (the auxiliary is never routed to loss).
 * **B6 (config drift).** ``from_config(ModelCfg)`` is the single wiring source; ``__main__`` is a smoke test.
-* **B10 (stringly dispatch).** Selection/forward routing live in ``registry.py`` (Prompt 2.4); these classes
+* **B10 (stringly dispatch).** Selection/forward routing live in ``registry.py``; these classes
   expose the uniform ``from_config(cfg, img_size)`` + the per-type ``forward`` signatures it dispatches to.
 
 Intentional, behavior-neutral change:

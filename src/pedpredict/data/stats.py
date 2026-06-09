@@ -1,4 +1,4 @@
-"""Dataset label statistics / drift check (Prompt 1.7; ports OLD ``label_count.py``).
+"""Dataset label statistics / drift check.
 
 The data layer's verification tool: aggregate per-split positive-class rates and diff them against the
 documented canonical table so drift fails loudly (CI-friendly). It adds **no new scanner** — it reuses the
@@ -11,7 +11,7 @@ classes (the imbalance lever, policy 1.3/1.4), so it is excluded by default and 
 when opted in. Because the base-train LMDB is a deterministic 1:1 image of ``sequences_train.pkl`` (writer
 applies no filter), these counts reproduce the 1.1 fixture exactly — drift is EXACT integer equality.
 
-Changes vs OLD ``label_count.py`` (flagged, see MIGRATION.md): per-chunk rows -> per-split aggregate; the
+Changes vs OLD ``label_count.py`` (flagged, see docs/archive/MIGRATION.md): per-chunk rows -> per-split aggregate; the
 ``crosses[irrelevant]`` (-1) column is dropped (crosses are clamped to {0,1} at 1.1); the legacy ``label_counts``
 Counter helper is deleted in favour of the 1.6 scanner.
 """

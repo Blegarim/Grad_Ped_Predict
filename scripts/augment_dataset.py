@@ -1,5 +1,4 @@
-"""Build the offline minority-class augmentation LMDB (Prompt 1.4 CLI; replaces OLD
-``scripts/augment_sequences.py`` + the augment half of ``preprocess_data_lmdb.py``).
+"""Build the offline minority-class augmentation LMDB.
 
 Thin wrapper: load config -> read ``<sequences_dir>/sequences_train.pkl`` -> oversample minority
 records into single-transform copies -> write ``preprocessed_train_aug`` (``paths.lmdb_train[1]``).

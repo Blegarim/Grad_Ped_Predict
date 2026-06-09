@@ -1,4 +1,4 @@
-"""Unified multitask loss + the loss-side imbalance lever (Prompt 3.1).
+"""Unified multitask loss + the loss-side imbalance lever.
 
 Consolidates the loss logic smeared through OLD ``train.py`` into ONE ``nn.Module``:
 
@@ -12,7 +12,7 @@ Resolves **B3** (the loss lever of the imbalance policy), **part of B1** (extrac
 635-line god-script), part of **B4** (the supervised crosses routing made an explicit contract), and part
 of **B8** (the scattered ``logits.float()`` casts → one ``to_float_logits`` call).
 
-Imbalance policy (single source of truth — CLAUDE.md / MIGRATION.md):
+Imbalance policy (single source of truth — CLAUDE.md / docs/archive/MIGRATION.md):
 
 * **Lever 1** offline balance (``data/balance.py``) — OPT-IN, OFF by default.
 * **Lever 2** online sampler (``data/sampler.py``) — ON by default.
@@ -133,7 +133,7 @@ def build_multitask_loss(
     """Wire a :class:`MultiTaskLoss` from ``TrainCfg.loss_weight`` + precomputed class weights.
 
     ``class_weights`` is produced ONCE by the Trainer via
-    ``class_weights_ce(LabelScanCache.aggregate_counts(train_lmdbs), device=...)`` (Prompt 1.6) — this
+    ``class_weights_ce(LabelScanCache.aggregate_counts(train_lmdbs), device=...)`` — this
     factory does not scan. Move the loss to the model device with ``loss.to(device)`` after building.
     """
     return MultiTaskLoss(class_weights, cfg.loss_weight, reduction=reduction)

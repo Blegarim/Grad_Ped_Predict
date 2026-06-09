@@ -1,4 +1,4 @@
-"""ONNX export + onnxruntime parity check (Prompt 7.1).
+"""ONNX export + onnxruntime parity check.
 
 Port of OLD ``onnx/onnx_export.py``. Changes over legacy:
 
@@ -283,7 +283,7 @@ def export_onnx(
     ``cfg.export`` (opset, output_dir, include_temporal_weights).
 
     B2 note: no dummy-forward is needed before calling this function.
-    ``ViT_Hierarchical`` (Prompt 2.1) creates ALL parameters at ``__init__``, so
+    ``ViT_Hierarchical`` creates ALL parameters at ``__init__``, so
     ``torch.onnx.export`` traces deterministically on the first call — the OLD
     ``lazy relative_position_bias init → param created mid-trace`` path no longer exists.
 

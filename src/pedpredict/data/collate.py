@@ -1,4 +1,4 @@
-"""Batch collation for the runtime LMDB dataset (Prompt 1.5).
+"""Batch collation for the runtime LMDB dataset.
 
 Ports OLD ``scripts/train_utils.py::collate_fn``. Stacks the per-sequence dicts from
 :class:`~pedpredict.data.lmdb_dataset.LMDBChunkDataset` into the model's input tuple

@@ -1,4 +1,4 @@
-"""Memory-pressure helpers (Prompt 0.3, part of B1/B9).
+"""Memory-pressure helpers.
 
 Extracts two idioms repeated through the OLD god-script:
   - RAM-pressure polling before spawning a prefetch process (``scripts/train_utils.py:74-77``)

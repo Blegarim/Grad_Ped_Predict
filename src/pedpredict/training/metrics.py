@@ -1,4 +1,4 @@
-"""Single metric implementation shared by training-validation and test/eval (Prompt 3.2).
+"""Single metric implementation shared by training-validation and test/eval.
 
 Consolidates the metric code duplicated across the OLD repo (band-aid **B1**):
 
@@ -11,7 +11,7 @@ Consolidates the metric code duplicated across the OLD repo (band-aid **B1**):
 
 The two paths computed the same five metrics with only cosmetic differences. The unified
 :class:`MetricAccumulator` makes each divergence a deliberate canonical choice (see ``capture`` script and
-MIGRATION.md "Metrics decisions (3.2)"):
+docs/archive/MIGRATION.md "Metrics decisions (3.2)"):
 
 * preds via ``argmax(logits)`` (== ``argmax(softmax)``; cheaper);
 * ``zero_division=0`` everywhere (adopts ``train``'s explicit form; silences ``test``'s warning;

@@ -1,4 +1,4 @@
-"""Video / frame-sequence inference (Prompt 5.3) — ports OLD ``main.py``.
+"""Video / frame-sequence inference — ports OLD ``main.py``.
 
 Reuses the Phase-1 preprocessing math (``crop_tight`` / ``crop_context`` / ``compute_motion`` /
 ``build_read_transforms``, 1.2) instead of re-running ``PIESequenceDataset`` on in-memory crops

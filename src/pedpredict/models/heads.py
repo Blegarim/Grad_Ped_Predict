@@ -1,8 +1,8 @@
-"""Task heads + temporal-pooling helpers (Prompt 2.3).
+"""Task heads + temporal-pooling helpers.
 
 Factored out of OLD ``models/Cross_Attention_Module.py`` (and the copy-pasted equivalents in
 ``models/AblationModels.py``) so the output contract is testable in isolation and shared by the full
-model + every ablation (Prompt 2.5) without duplication.
+model + every ablation without duplication.
 
 Design constraint — **state_dict key parity**. These are *builder functions* returning bare
 ``nn.Sequential`` / ``nn.ModuleDict`` / ``nn.Linear``, assigned to the OLD attribute names
@@ -95,9 +95,9 @@ def emit_task_logits(
     emit_crosses_pooled: bool,
     emit_temporal_weights: bool,
 ) -> dict[str, torch.Tensor]:
-    """Shared output-contract head block (Prompt 2.5): pooled heads + B4 gate + frame reduce.
+    """Shared output-contract head block: pooled heads + B4 gate + frame reduce.
 
-    The identical tail of ``CrossAttentionModule`` (Prompt 2.3) and all three ablations (Prompt 2.5),
+    The identical tail of ``CrossAttentionModule`` and all three ablations,
     factored here so the output contract lives in ONE place. ``feats [B, T, D]`` are the post-fusion /
     post-encoder features to pool and classify.
 

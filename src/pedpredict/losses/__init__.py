@@ -1,4 +1,4 @@
-"""Multitask loss with unified imbalance policy (Prompt 3.1)."""
+"""Multitask loss with unified imbalance policy."""
 
 from __future__ import annotations
 

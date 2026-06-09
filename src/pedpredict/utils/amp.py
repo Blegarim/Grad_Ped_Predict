@@ -1,4 +1,4 @@
-"""Automatic mixed precision: one context + one dtype helper (Prompt 0.3, band-aid B8).
+"""Automatic mixed precision: one context + one dtype helper.
 
 Consolidates the AMP machinery scattered through the OLD repo:
   - ``torch.amp.autocast('cuda', enabled=use_amp)``  (train.py:141,204; test.py:45)

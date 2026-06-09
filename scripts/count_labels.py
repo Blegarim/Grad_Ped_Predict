@@ -1,4 +1,4 @@
-"""Per-split label statistics + drift gate (Prompt 1.7 CLI; replaces OLD ``label_count.py``).
+"""Per-split label statistics + drift gate.
 
 Thin wrapper: load config -> resolve paths -> scan the base split LMDBs (1.6 scanner) -> print the
 canonical table -> write ``<log_dir>/label_count.csv`` -> diff against the documented stat table and

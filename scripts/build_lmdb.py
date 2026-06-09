@@ -1,4 +1,4 @@
-"""Build per-split LMDB chunk datasets from sequence pickles (Prompt 1.2 CLI).
+"""Build per-split LMDB chunk datasets from sequence pickles.
 
 Thin wrapper: load config -> resolve paths -> read ``<sequences_dir>/sequences_<split>.pkl`` ->
 ``write_dataset_chunks`` into the split's configured LMDB dir. All geometry/encode params flow from

@@ -1,4 +1,4 @@
-"""Quantitative thesis figures (Prompt 6.1) — ports OLD ``scripts/plot_results.py``.
+"""Quantitative thesis figures — ports OLD ``scripts/plot_results.py``.
 
 The same four figure families as the OLD script — (1) training curves, (2) PR + threshold sweep,
 (3) ablation bars, (4) temporal attention — re-pointed at the NEW run-dir artifacts:
@@ -6,7 +6,7 @@ The same four figure families as the OLD script — (1) training curves, (2) PR 
 * **train curves** read ``RunDir.train_log_path`` (``train_log.csv`` / ``TRAIN_LOG_COLUMNS``, 4.5) — the
   OLD TitleCase columns (``Epoch`` / ``Avg Train Loss`` / ``Actions F1`` …) are now snake_case
   (``epoch`` / ``train_loss`` / ``actions_f1`` …). The new schema always emits per-task F1 + ``macro_f1``,
-  so OLD's accuracy-fallback branch is dropped (unreachable, documented in MIGRATION.md 6.1).
+  so OLD's accuracy-fallback branch is dropped (unreachable, documented in docs/archive/MIGRATION.md 6.1).
 * **PR / threshold** read ``predictions.npz`` (``{task}_true/_prob_1`` …) written by
   ``eval.save_predictions_npz`` (5.1) — replaces OLD's per-sample predictions CSV.
 * **ablation bars** read one ``eval_log.csv`` row per model (``EVAL_LOG_COLUMNS`` — has ``model_type``,
@@ -182,7 +182,7 @@ def figure_per_head_f1_curves(
     """Per-task validation F1 (+ macro-F1) over epochs (OLD ``plot_per_head_f1_curves``).
 
     The new train log always carries ``{task}_f1`` + ``macro_f1`` (3.2 ``METRIC_COLUMNS``), so OLD's
-    accuracy-fallback branch is intentionally dropped (MIGRATION.md 6.1).
+    accuracy-fallback branch is intentionally dropped (docs/archive/MIGRATION.md 6.1).
     """
     epochs = train_log["epoch"]
     fig, ax = plt.subplots(figsize=(7, 4))

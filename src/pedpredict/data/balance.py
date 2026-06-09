@@ -1,4 +1,4 @@
-"""Offline class-balancing of sequence pkls (Prompt 1.3) — the OPT-IN majority-downsample lever.
+"""Offline class-balancing of sequence pkls — the OPT-IN majority-downsample lever.
 
 Consolidates OLD ``scripts/balance_sequences.py`` (equal 50/50 preset) and
 ``scripts/split_balance_sequences_all.py`` (configurable-ratio preset, default 30/70) into one
@@ -11,14 +11,14 @@ Imbalance policy (B3): this lever is **OFF by default** (``BalanceCfg.enabled=Fa
 runtime policy is the online ``WeightedRandomSampler`` (1.6) + inverse-freq loss class weights (3.1),
 both already ON in ``TrainCfg``, layered on offline *augmentation* (1.4). Offline balance is the
 opt-in *alternative* to augmentation for ablation; when enabled, relax the online levers so the
-three do not silently triple-stack. See ``MIGRATION.md`` "Imbalance policy".
+three do not silently triple-stack. See ``docs/archive/MIGRATION.md`` "Imbalance policy".
 
 Parity (Phase A): the two legacy behaviors are reproduced exactly by the ``BALANCE_EQUAL`` /
 ``BALANCE_RATIO_30_70`` presets (golden fixture ``tests/fixtures/golden/balance_cases.json``).
 Determinism is stdlib ``random.Random(seed)`` with the legacy group/pick/shuffle call order — the
 parity contract; numpy would diverge.
 
-⚠️ Behavior change (flagged, justified in MIGRATION.md): the default ``solve_cross0_counts`` ships the
+⚠️ Behavior change (flagged, justified in docs/archive/MIGRATION.md): the default ``solve_cross0_counts`` ships the
 **corrected** count constraint. OLD ``split_balance_sequences_all.solve_exact`` had a sign-flipped
 ``x00`` bound (``n0 - a - l`` instead of ``a + l - n0``) that could silently miscount in the 30/70
 regime; it is reachable only via ``legacy_x00_sign_bug=True`` (parity-test surface), dropped in Phase B.

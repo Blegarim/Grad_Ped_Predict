@@ -1,4 +1,4 @@
-"""Test-set evaluation (Prompt 5.1) — ports OLD ``test.py`` (``evaluate()`` + ``main()`` metric path).
+"""Test-set evaluation — ports OLD ``test.py`` (``evaluate()`` + ``main()`` metric path).
 
 A thin orchestrator: *build model -> iterate chunks -> accumulate -> compute -> write artifacts*. The
 *math* is delegated to already-golden components, so this module adds none of its own:

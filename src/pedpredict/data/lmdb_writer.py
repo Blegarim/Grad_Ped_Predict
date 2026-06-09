@@ -1,4 +1,4 @@
-"""Chunked LMDB serialization of processed sequences (Prompt 1.2).
+"""Chunked LMDB serialization of processed sequences.
 
 Ports OLD ``scripts/preprocess_data_lmdb.py::save_dataset_in_chunks_lmdb`` — but ONLY the
 serialization/chunking concern. All crop/motion math lives in :mod:`pedpredict.data.transforms`
@@ -16,7 +16,7 @@ key (utf-8)           value                       decodes to
 ``f"{j}_meta"``        ``pickle`` dict             ``{motions[T,8], actions, looks, crosses}``
 ====================  ==========================  ===========================================
 
-Deliberate change vs legacy (flagged in MIGRATION.md): the OLD meta was "everything not
+Deliberate change vs legacy (flagged in docs/archive/MIGRATION.md): the OLD meta was "everything not
 ``images*``", which silently also stored ``bboxes``. The frozen contract drops it — motions already
 encode bbox geometry and 1.5 never reads ``meta['bboxes']``. JPEG bytes + motions + labels are
 byte/numerically identical to legacy.

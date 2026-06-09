@@ -1,4 +1,4 @@
-"""Hierarchical windowed-attention ViT on context crops (Prompt 2.1).
+"""Hierarchical windowed-attention ViT on context crops.
 
 Port of OLD ``models/Vision_Transformer.py``. Behavior-preserving (numerically equivalent to the
 legacy module for identical weights+input, eval mode) except for the explicitly-resolved band-aids:

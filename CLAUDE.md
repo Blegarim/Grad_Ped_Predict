@@ -5,15 +5,12 @@ Guidance for Claude Code when working in this repository.
 `Grad_Ped_Predict` (graduate research) is a multimodal **pedestrian behavior prediction** project on the
 **PIE dataset**: from a short sequence of dashcam frames it jointly predicts three binary tasks per
 pedestrian — **actions** (walking/standing), **looks** (looking at traffic or not), **crosses** (will cross
-soon). It began as a behavior-preserving rebuild of an undergraduate thesis; that rebuild has landed
-**P0–P8** (foundation → data → models → loss/metrics → training → eval → viz → export → tests/CI) and
-**P9 cutover is pending**.
+soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 
-The rebuild scaffolding — the legacy reference repo, the phase rules, and the band-aid inventory — is
-quarantined in [Rebuild Context](#rebuild-context-phase-a--retire-at-cutover) at the end of this file and
-will be retired at cutover (P9). Everything above that section describes the project as it now stands. For
-the live module-by-module porting ledger (golden fixtures, parity results) see [MIGRATION.md](MIGRATION.md);
-for the original rebuild plan see [REBUILD_SCHEMATIC.md](REBUILD_SCHEMATIC.md).
+> The project began as a behavior-preserving rebuild of an undergraduate thesis. That history — the legacy
+> reference repo, the phase plan, and the resolved band-aid inventory — is archived under
+> [`docs/archive/`](docs/archive/) and in the `legacy-archive` git tag; it is no longer load-bearing.
+> A future architecture-redesign phase is scoped in [docs/PHASE_B_BACKLOG.md](docs/PHASE_B_BACKLOG.md).
 
 ## Problem & Architecture
 
@@ -41,7 +38,7 @@ tight crop + motion → MotionEncoder    ───┘
   **live-but-unsupervised** auxiliary head (`ModelCfg.emit_crosses_pooled=True` by default) — emitted and
   kept ready to swap in for `crosses_frame`, but **never routed to loss/metrics**; set
   `emit_crosses_pooled=false` to drop it (gating never perturbs the 4 supervised keys). `temporal_weights`
-  is `[B, T]` softmax from the pooling MLP (full model only). (Resolves band-aid B4 — see Rebuild Context.)
+  is `[B, T]` softmax from the pooling MLP (full model only).
 
 ## Tech Stack
 
@@ -189,50 +186,9 @@ When you change… update (in the same change):
 | Change | Update |
 |---|---|
 | Sequence-gen params / PIE annotations | Dataset Statistics table + re-run `count_labels.py` (gate) + `test_stats` fixture |
-| Output-dict keys / head wiring | Architecture output-keys note + `heads.py`/`ensemble.py` docstrings + B4 (Rebuild Context) |
+| Output-dict keys / head wiring | Architecture output-keys note + `heads.py`/`ensemble.py` docstrings |
 | Imbalance levers (balance / sampler / loss weights) | Imbalance Policy section — all three levers together |
 | `d_model` / module dims | Architecture table (CLAUDE.md + README) — never one module alone |
 | Add / move / remove a `src/` module or `scripts/` CLI | Repository Layout + Commands (CLAUDE.md) + README layout |
 | Config schema field / default | `configs/*.yaml` + schema docstrings; Config note if the CLI surface changes |
-| New extra / dependency | README Install extras + MIGRATION.md dependency notes |
-| Resolve / alter a band-aid | Band-Aids table (Rebuild Context) + MIGRATION.md row |
-
----
-
-## Rebuild Context (Phase A — retire at cutover)
-
-> **This section is rebuild scaffolding, not standalone project documentation.** It records how the repo
-> was rebuilt from the legacy thesis and the legacy smells ("band-aids") that the rebuild resolved. It stays
-> load-bearing until the **P9 cutover** (parity gate + legacy retirement), after which it — along with the
-> archived [REBUILD_SCHEMATIC.md](REBUILD_SCHEMATIC.md) and [MIGRATION.md](MIGRATION.md) — is removed.
-
-**Legacy reference.** The old undergrad repo is read-only reference at `OLD/Undergrad_thesis_project`
-(vendored so remote sandboxes have it; the golden artifact reference — subsampled sequence fixtures — lives
-in `OLD/golden/`). Code was ported piece-by-piece into the layout above.
-
-**Two-phase plan.**
-- **Phase A (essentially complete, P0–P8): behavior-preserving restructure.** Same model math, same outputs,
-  cleaner code. Every ported module is numerically equivalent (within float tolerance) to the legacy module
-  for the same inputs and weights — *unless* a listed band-aid intentionally changes behavior, which is
-  called out and justified. A **golden-output fixture** was captured from the OLD repo *before* porting each
-  module (the behavior-preserving safety net; see [MIGRATION.md](MIGRATION.md) and `tests/_golden.py`).
-- **Phase B (deferred): architecture redesign.** ViT backbone swap, fusion rethink, single unified crosses
-  head, online augmentation, standard DataLoader sharding. Out of scope until Phase A parity is locked at P9.
-
-**Band-Aids resolved (legacy → rebuild):**
-
-| # | Legacy smell | Resolution in rebuild |
-|---|---|---|
-| B1 | 635-line `train.py` god-script, hardcoded hyperparams | Split into `trainer`/`chunk_loader`/`callbacks`/`metrics`; all params from config |
-| B2 | Lazy ViT `relative_position_bias` → dummy-forward hack before optimizer build | Create ALL params at `__init__` → enables `strict=True` load, clean ONNX export |
-| B3 | Three overlapping imbalance mechanisms | Single documented imbalance policy (above) |
-| B4 | Dead `crosses_pooled` head (computed, never supervised) | Keep `crosses_frame` supervised; `crosses_pooled` made live-but-unsupervised + gated — no silent dead compute |
-| B5 | Fragmented 6+ data scripts | Canonical `data/` modules + thin `scripts/` CLIs |
-| B6 | Config drift (`config.py` vs model `__main__`) | One typed config; `__main__` becomes a smoke test using `ModelCfg` |
-| B7 | Magic constants in collate (`MAX_SEQ_LEN=20`, `motions[...,:8]`) | Move to `DataCfg`; writer emits exactly 8 dims so the slice disappears |
-| B8 | Scattered AMP `.float()` casts | Single amp context + `to_float_logits` helper in `utils/amp.py` |
-| B9 | Hand-rolled mp prefetch (`mp.Queue`, RAM polling, manual joins) | Encapsulated `ChunkPrefetcher` (start/next/close/`__exit__`), crash-safe |
-| B10 | Stringly-typed model dispatch | Typed `registry.py` (`ModelType` enum/Literal + `build_model`/`forward_model`) |
-| B11 | `venv/`, ~30 CSVs, root one-offs committed | `.gitignore`s artifacts; one-offs ported/folded-into-tests/dropped |
-| B12 | No real tests / CI | Layered `tests/` + golden fixtures + ruff/pytest CI gate |
-| B13 | Confusing `WindowTransformerBlock` MLP residual | Clean residual without changing math |
+| New extra / dependency | README Install extras |

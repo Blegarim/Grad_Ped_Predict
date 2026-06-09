@@ -1,4 +1,4 @@
-"""Crash-safe chunk prefetch loader (Prompt 4.2) — resolves B9.
+"""Crash-safe chunk prefetch loader — resolves B9.
 
 Replaces the hand-rolled multiprocessing prefetch scattered through OLD ``train.py:367-498`` (the
 ``mp.Queue(maxsize=3)`` + ``processes``/``results`` bookkeeping, the preload window of 3, the

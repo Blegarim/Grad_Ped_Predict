@@ -1,4 +1,4 @@
-"""Temporal motion + tight-crop encoder (Prompt 2.2).
+"""Temporal motion + tight-crop encoder.
 
 Port of OLD ``models/Motion_Encoder.MotionEncoder``. Behavior-preserving (numerically equivalent to the
 legacy module for identical weights+input, eval mode) -- the math, op order, and the in-forward motion
@@ -14,7 +14,7 @@ The learned ``pos_encoding`` has a fixed capacity (``max_positions``); the legac
 slice silently corrupts into an opaque broadcast error for ``T > capacity``. A guard surfaces a clear
 error instead -- numerically neutral for every valid ``T`` (runtime ``T = seq_len = 20 <= 200``).
 
-Unlike the ViT (Prompt 2.1), this module is **resolution-agnostic**: ``img_encoder`` ends in an adaptive
+Unlike the ViT, this module is **resolution-agnostic**: ``img_encoder`` ends in an adaptive
 average pool, so no input resolution is baked into any parameter and there is no B2-style lazy-param trap.
 """
 

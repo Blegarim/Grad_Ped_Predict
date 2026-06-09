@@ -1,4 +1,4 @@
-"""Deterministic seeding (Prompt 0.3).
+"""Deterministic seeding.
 
 Net-new: the OLD repo had no global seed (only a local ``torch.manual_seed`` in
 ``scripts/augment_sequences.py:80``). This adds one entry point that seeds ``random``,

@@ -1,4 +1,4 @@
-"""Cross-attention fusion + per-task heads (Prompt 2.3).
+"""Cross-attention fusion + per-task heads.
 
 Port of OLD ``models/Cross_Attention_Module.CrossAttentionModule``. Behavior-preserving for every key
 the legacy module actually emitted (``actions``, ``looks``, ``crosses_frame``, ``temporal_weights``):
@@ -21,7 +21,7 @@ Other intentional change:
 
 * **``key_padding_mask`` removed.** The legacy ``forward`` accepted it but ``EnsembleModel`` /
   ``model_forward`` always called the module with two positional args (it was permanently ``None``), and
-  the data layer emits fixed-length ``seq_len=20`` windows with no padding (Prompt 1.5). Dropping the
+  the data layer emits fixed-length ``seq_len=20`` windows with no padding. Dropping the
   unused parameter is behavior-neutral and removes a dead knob.
 
 The task heads + pooling/reduction helpers live in ``heads.py`` (shared with the ablations, Prompt 2.5).

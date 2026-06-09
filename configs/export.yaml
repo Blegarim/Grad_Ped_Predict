@@ -1,4 +1,4 @@
-# ExportCfg — ONNX export knobs (Prompt 7.1).
+# ExportCfg — ONNX export knobs.
 # Defaults mirror ExportCfg in config/schema.py.
 opset: 17
 output_dir: outputs/onnx

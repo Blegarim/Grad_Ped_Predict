@@ -1,4 +1,4 @@
-"""Generate PIE sequence-window pickles (Prompt 1.1 CLI; replaces OLD generate_sequences.__main__).
+"""Generate PIE sequence-window pickles.
 
 Thin wrapper: load config -> build a PIE instance rooted at ``configs/paths.yaml`` ``pie_root`` ->
 window each split -> pickle to ``<sequences_dir>/sequences_<split>.pkl``. All window/source params
