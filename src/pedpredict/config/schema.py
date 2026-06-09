@@ -25,6 +25,7 @@ class PathsCfg:
     pie_root: str = "data"                 # PIE toolkit data_path (cloned into repo); images at pie_root/images/...
     sequences_dir: str = "data/sequences"  # generate_sequences pkl output home (gitignored under data/)
     lmdb_train: tuple[str, ...] = ("preprocessed_train", "preprocessed_train_aug")
+    lmdb_train_balanced: tuple[str, ...] = ("preprocessed_train_balanced",)  # Phase 1 balanced-warmup source
     lmdb_val: str = "preprocessed_val"
     lmdb_test: str = "preprocessed_test"
     log_dir: str = "training_log"          # legacy flat dirs (kept for reading OLD artifacts)
@@ -193,12 +194,34 @@ class EvalCfg:
     batch_size: int = 16
     num_workers: int = 4
     model_type: str = "full"
-    bench_context_scale: float = 3.0     # Q3: deliberate benchmark scale (synthetic FLOPs/latency only)
-    bench_img_size: int = 128
+    # Efficiency benchmark methodology (Prompt 5.2). Input SHAPES come from DataCfg (the eager ViT is
+    # bound to read_context_height, so benchmarking uses the real inference resolution, not a synthetic
+    # scale). These fields are only the timing knobs.
+    bench_batch_size: int = 1            # benchmark batch (OLD compute_flops/inference_latency used 1)
+    bench_warmup: int = 10               # latency warmup iterations (OLD inference_latency warmup loop)
     latency_trials: int = 50
     threshold_sweep_lo: float = 0.10
     threshold_sweep_hi: float = 0.90
     threshold_sweep_step: float = 0.05
+
+
+@dataclass(frozen=True, slots=True)
+class InferenceCfg:
+    """Video-inference knobs (Prompt 5.3) — replaces OLD ``main.py`` top-of-file literals (B1).
+
+    Only the detect/track/window/render knobs live here; the model-input *geometry* (``seq_len``,
+    ``context_scale``, tight/context sizes, ``motion_dim``, ImageNet norm) is reused from
+    :class:`DataCfg` so inference uses the SAME geometry the model trained on (see MIGRATION 5.3).
+    """
+
+    detector_weights: str = "yolo11n.pt"   # OLD main.py 'yolo11n.pt'
+    detector_class_idx: int = 0            # pedestrian class (OLD class_idx=0)
+    detector_conf: float = 0.3             # OLD conf=0.3
+    smooth_window: int = 3                 # OLD smooth_track(window=3)
+    window_stride: int = 1                 # OLD slid every window (stride 1); data pipeline uses 3
+    batch_size: int = 32                   # OLD inference batch_size=32
+    default_fps: float = 30.0              # DirFrameSource fps when frames carry no container fps
+    draw_color_chips: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +278,76 @@ class AugmentCfg:
 
 
 @dataclass(frozen=True, slots=True)
+class PhaseCfg:
+    """One phase in a training schedule (Prompt 4.4, B1).
+
+    Exactly matches the hardcoded constants from OLD ``train_two_phase.py`` when assembled into
+    ``ScheduleCfg``'s default ``phases`` tuple (see ``_default_phases()`` below).
+    """
+
+    name: str                            # human label used in log filenames ("balanced_warmup", …)
+    data_source: str                     # "balanced" -> lmdb_train_balanced | "augmented" -> lmdb_train
+    lr: float                            # Adam LR for this phase (fresh optimizer, no momentum carry-over)
+    max_epochs: int                      # hard epoch cap; EarlyStopping may end sooner
+    early_stop_patience: int
+    early_stop_min_delta: float = 0.001
+    weight_decay: float = 1e-5           # same OLD constant; flexible for ablation
+    sched_factor: float = 0.5
+    sched_patience: int = 2
+    sched_threshold: float = 1e-4
+    freeze_backbone: bool = False        # True -> Phase 3 "decouple classifiers" (OLD freeze_backbone())
+    reload_best: bool = False            # True -> strict-load prev phase best.pth before starting
+
+
+def _default_phases() -> tuple[PhaseCfg, ...]:
+    """Return the canonical 3-phase tuple matching OLD train_two_phase.py hardcoded values exactly."""
+    return (
+        PhaseCfg(
+            name="balanced_warmup",
+            data_source="balanced",
+            lr=1e-4,
+            max_epochs=10,
+            early_stop_patience=5,
+            freeze_backbone=False,
+            reload_best=False,
+        ),
+        PhaseCfg(
+            name="full_finetune",
+            data_source="augmented",
+            lr=1e-5,
+            max_epochs=20,
+            early_stop_patience=5,
+            freeze_backbone=False,
+            reload_best=True,
+        ),
+        PhaseCfg(
+            name="decouple_classifiers",
+            data_source="augmented",
+            lr=5e-5,
+            max_epochs=5,
+            early_stop_patience=3,
+            freeze_backbone=True,
+            reload_best=True,
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleCfg:
+    """Configurable multi-phase training schedule (Prompt 4.4, B1).
+
+    ``enabled=False`` (default) -> plain ``Trainer.fit()`` single-phase path.
+    ``enabled=True``            -> ``run_phase_schedule()`` in ``training/schedule.py``.
+
+    The default ``phases`` exactly reproduce OLD ``train_two_phase.py`` behavior:
+    balanced-subset warmup -> full fine-tune -> decouple classifiers.
+    """
+
+    enabled: bool = False
+    phases: tuple[PhaseCfg, ...] = field(default_factory=_default_phases)
+
+
+@dataclass(frozen=True, slots=True)
 class RootCfg:
     """Top-level config tree. Built by ``loader.load_config``."""
 
@@ -263,5 +356,7 @@ class RootCfg:
     model: ModelCfg = field(default_factory=ModelCfg)
     train: TrainCfg = field(default_factory=TrainCfg)
     eval: EvalCfg = field(default_factory=EvalCfg)
+    infer: InferenceCfg = field(default_factory=InferenceCfg)
     balance: BalanceCfg = field(default_factory=BalanceCfg)
     augment: AugmentCfg = field(default_factory=AugmentCfg)
+    schedule: ScheduleCfg = field(default_factory=ScheduleCfg)

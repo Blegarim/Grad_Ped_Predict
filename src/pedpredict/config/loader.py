@@ -22,7 +22,18 @@ from pathlib import Path
 import yaml
 
 from ..models.geometry import feature_map_size, is_global
-from .schema import AugmentCfg, BalanceCfg, DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
+from .schema import (
+    AugmentCfg,
+    BalanceCfg,
+    DataCfg,
+    EvalCfg,
+    InferenceCfg,
+    ModelCfg,
+    PathsCfg,
+    RootCfg,
+    ScheduleCfg,
+    TrainCfg,
+)
 
 __all__ = [
     "ConfigError",
@@ -42,8 +53,10 @@ _SECTIONS: dict[str, tuple[type, str]] = {
     "model": (ModelCfg, "model.yaml"),
     "train": (TrainCfg, "train.yaml"),
     "eval": (EvalCfg, "eval.yaml"),
+    "infer": (InferenceCfg, "infer.yaml"),
     "balance": (BalanceCfg, "balance.yaml"),
     "augment": (AugmentCfg, "augment.yaml"),
+    "schedule": (ScheduleCfg, "schedule.yaml"),
 }
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
@@ -111,6 +124,13 @@ def _coerce(declared: object, value: object) -> object:
         return float(value)
     if declared is str:
         return str(value)
+    # Nested frozen dataclass (e.g. PhaseCfg inside tuple[PhaseCfg, ...])
+    if isinstance(declared, type) and dataclasses.is_dataclass(declared):
+        if isinstance(value, declared):
+            return value
+        if isinstance(value, dict):
+            return _build_section(declared, value)
+        raise ConfigError(f"Expected a mapping for {declared.__name__}; got {value!r}")
     return value
 
 
@@ -302,6 +322,21 @@ def validate_config(root: RootCfg) -> None:
             f"got lo={e.threshold_sweep_lo}, hi={e.threshold_sweep_hi}"
         )
 
+    # video-inference invariants (Prompt 5.3)
+    inf = root.infer
+    if not (0.0 <= inf.detector_conf <= 1.0):
+        raise ConfigError(f"infer.detector_conf must be in [0, 1]; got {inf.detector_conf}")
+    if inf.detector_class_idx < 0:
+        raise ConfigError(f"infer.detector_class_idx must be >= 0; got {inf.detector_class_idx}")
+    if inf.smooth_window < 0:
+        raise ConfigError(f"infer.smooth_window must be >= 0; got {inf.smooth_window}")
+    if inf.window_stride < 1:
+        raise ConfigError(f"infer.window_stride must be >= 1; got {inf.window_stride}")
+    if inf.batch_size <= 0:
+        raise ConfigError(f"infer.batch_size must be a positive integer; got {inf.batch_size}")
+    if inf.default_fps <= 0.0:
+        raise ConfigError(f"infer.default_fps must be > 0; got {inf.default_fps}")
+
     # offline balance invariants (Prompt 1.3)
     if not (0.0 < b.cross_pos_ratio < 1.0):
         raise ConfigError(f"balance.cross_pos_ratio must be in (0, 1); got {b.cross_pos_ratio}")
@@ -328,6 +363,21 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(f"augment.motion_noise_std must be >= 0; got {a.motion_noise_std}")
     if a.erase_n_frames < 0:
         raise ConfigError(f"augment.erase_n_frames must be >= 0; got {a.erase_n_frames}")
+
+    # phase schedule (Prompt 4.4)
+    for i, phase in enumerate(root.schedule.phases):
+        if not phase.name:
+            raise ConfigError(f"schedule.phases[{i}].name must be non-empty")
+        if not phase.data_source:
+            raise ConfigError(f"schedule.phases[{i}].data_source must be non-empty")
+        if phase.lr <= 0.0:
+            raise ConfigError(f"schedule.phases[{i}].lr must be > 0; got {phase.lr}")
+        if phase.max_epochs <= 0:
+            raise ConfigError(f"schedule.phases[{i}].max_epochs must be > 0; got {phase.max_epochs}")
+        if phase.early_stop_patience <= 0:
+            raise ConfigError(
+                f"schedule.phases[{i}].early_stop_patience must be > 0; got {phase.early_stop_patience}"
+            )
 
 
 # --------------------------------------------------------------------------- public load / dump

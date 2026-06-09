@@ -155,8 +155,12 @@ class MetricAccumulator:
             return 0
         return sum(t.shape[0] for t in self._targets[self._tasks[0]])
 
-    def _task_arrays(self, task: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Concatenate accumulated batches for ``task`` -> ``(y_true, y_pred, y_prob)`` numpy arrays."""
+    def task_arrays(self, task: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Concatenate accumulated batches for ``task`` -> ``(y_true, y_pred, y_prob)`` numpy arrays.
+
+        Public so eval (5.1) can build its per-sample predictions NPZ from the SAME canonical store the
+        metrics are computed over — no second accumulation, no divergence (B1).
+        """
         probs = torch.cat(self._probs[task], dim=0)
         targets = torch.cat(self._targets[task], dim=0)
         y_pred = torch.argmax(probs, dim=1)  # == argmax(logits); softmax is monotonic
@@ -170,7 +174,7 @@ class MetricAccumulator:
         total_correct = 0
         total_samples = 0
         for task in self._tasks:
-            y_true, y_pred, y_prob = self._task_arrays(task)
+            y_true, y_pred, y_prob = self.task_arrays(task)
             avg = "binary" if y_prob.shape[1] == 2 else "macro"
             per_task[task] = TaskMetrics(
                 accuracy=float(accuracy_score(y_true, y_pred)),
@@ -200,7 +204,7 @@ class MetricAccumulator:
         out: dict[str, float] = {}
         accs: list[float] = []
         for task in self._tasks:
-            y_true, _, y_prob = self._task_arrays(task)
+            y_true, _, y_prob = self.task_arrays(task)
             if y_prob.shape[1] != 2 or len(set(y_true.tolist())) < 2:
                 thr = 0.5
             else:

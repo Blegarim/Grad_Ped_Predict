@@ -2,8 +2,8 @@
 batch_size: 16
 num_workers: 4
 model_type: full
-bench_context_scale: 3.0     # deliberate synthetic-benchmark scale (FLOPs/latency only)
-bench_img_size: 128
+bench_batch_size: 1          # efficiency-benchmark batch (shapes come from DataCfg / real inference)
+bench_warmup: 10             # latency warmup iterations before timing
 latency_trials: 50
 threshold_sweep_lo: 0.10
 threshold_sweep_hi: 0.90

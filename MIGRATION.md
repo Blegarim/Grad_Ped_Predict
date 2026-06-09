@@ -41,14 +41,14 @@ For each module you port:
 | 3.2 | `training/metrics.py` | `train.py:186-234,580-595`, `test.py:74-100,463-470` | `tests/fixtures/golden/metrics_cases.pt` | B1, part B8 | ✅ / ⚠️ | `MetricAccumulator` reproduces BOTH OLD metric paths EXACTLY (atol=1e-6) — they are numerically identical, so one golden covers both (`main` + `degenerate` scenarios). Single impl shared by train-val (4.1) + test (5.1); `crosses→crosses_frame` routing reuses `losses.TASK_OUTPUT_KEY` (B4). ⚠️ flagged: AUC now computed on the val path too (OLD `validate` logged none — free enrichment); `zero_division=0` adopted everywhere (silences OLD test's warning, value-identical). Loss/temporal-weights/threshold-sweep kept OUT of the core (eval-only `optimal_threshold_metrics`). 13 metric tests green (full suite 205 passed, 1 skipped). See Metrics decisions (3.2). |
 | 4.1 | `training/trainer.py`, `training/callbacks.py` (+ `TrainCfg.grad_clip_max_norm`) | `train.py:140-164,204-228,236-632`, `train_utils.py:23-37` | `tests/fixtures/golden/trainer_step.pt` | B1, B2 (consumer), B8 | ✅ | Step parity EXACT vs transcribed legacy `train_one_chunk` (per-batch loss + post-step `state_dict`, atol=1e-6) + `validate_one_epoch` (val_loss + per-task acc); seed-synced dropout. **B2: optimizer covers ALL params with NO dummy forward** (proven) + strict-load round-trip no-forward. B8: no `.float()` casts (loss/metrics own the upcast). `EarlyStopping` ported verbatim. Trainer is DI: `ChunkProvider`(4.2)/`Checkpointer`(4.3)/`CsvLogger`(4.5) are seams. 7 trainer tests green (full suite 212 passed, 1 skipped). See Training decisions (4.1). |
 | 4.2 | `training/chunk_loader.py`, `data/lmdb_warm.py` (+ 6 `TrainCfg` knobs) | `train.py:367-498`, `train_utils.py:80-98` | n/a (infra; behavioral) | B9 | ✅ / ⚠️ | All OLD queue/process bookkeeping encapsulated behind `ChunkPrefetcher` (`ChunkProvider`) + `ChunkLoaderIterator` (`start/__next__/close/__enter__/__exit__`); warm worker = EXACT `mp_async_load` port. Crash-safe: full pass / early break / exception / real-timeout all return `active_children` to baseline (proven w/ REAL spawn). ⚠️ flagged: warm moved to torch-free `data/lmdb_warm.py` so `spawn` children don't import torch; next-chunk warm spawned *before* yielding the current loader (vs OLD after `train_one_chunk`) — both behavior-neutral (warm = unobservable OS-cache side effect). `mp.get_context("spawn")` pinned; opt-in `chunk_warm_mem_timeout` caps the legacy infinite RAM wait. Shared `LabelScanCache` threaded via `build_trainer` (one scan/chunk across sampler+loss levers). 17 tests green (42s). See Training decisions (4.2). |
-| 4.3 | `training/callbacks.py` | `train.py` ckpt/early-stop/sched | | B2 (load), B11, B1 | — | full-state resume, strict=True |
-| 4.4 | two-phase schedule on Trainer | `train_two_phase.py` | | B1 | — | phases as config, not god-script |
-| 4.5 | `utils/logging.py` CSV conventions | `train.py`/`test.py` CSV writers | n/a | B11, B1 | — | run-dir + index.csv |
-| 5.1 | `eval/evaluate.py`, `scripts/evaluate.py` | `test.py` | | B1, B10 | — | |
-| 5.2 | `eval/benchmark.py` | `Vision_Transformer.py` fvcore use | n/a | — | — | params/FLOPs/latency/FPS/VRAM |
-| 5.3 | `eval/inference.py` | `main.py`, `extract_frames.py`, `pedestrian_detection.py` | | — | — | reuse Phase-1 preprocessing |
-| 6.1 | `viz/plots.py`, `scripts/visualize.py` | `scripts/plot_results.py` | n/a | — | — | consume new CSV schema |
-| 6.2 | `viz/qualitative.py` | `visualize_comparison.py`, `visualize_gt.py` | n/a | B11 | — | temporal_weights overlays |
+| 4.3 | `training/callbacks.py` (`CheckpointManager`) | `train.py:509-634` (save/load), `train_utils.py:23-37` (ES) | n/a (infra) | B2 (load), B11, B1 | ✅ / ⚠️ | Full-state checkpoint (model+optimizer+scheduler+scaler+epoch+best_val_loss); strict=True load (B2 resolved). ⚠️ flagged: `weights_only=False` required for our own full-state payloads (optimizer dicts contain Python objects). `CheckpointManager(None)` is a no-op (tests without disk I/O). `ModelStateCheckpointer` retained as interim. 7 checkpointer tests green. |
+| 4.4 | `training/schedule.py`, `config/schema.py` (`PhaseCfg`/`ScheduleCfg`), `configs/schedule.yaml`, `scripts/train.py` | `train_two_phase.py` (305-line god-script) | n/a (orchestration) | B1 | ✅ / ⚠️ | `train_two_phase.py` eliminated. 3-phase schedule expressed as `ScheduleCfg.phases: tuple[PhaseCfg, ...]` in `schedule.yaml`; `run_phase_schedule()` orchestrates via `Trainer.reset_for_phase()` + `Trainer.fit(max_epochs)`. `freeze_backbone()` exact port of OLD lines 122-125. ⚠️ flagged (D1–D4 in MIGRATION decisions below): scheduler on val_loss (not train); EarlyStopping on val_loss (not 1-macro_f1); MultiTaskLoss not FocalLoss; per-phase best_val_loss reset (Phase N+1 always loads Phase N best.pth). `configs/schedule.yaml` defaults reproduce OLD LR/epoch/patience constants exactly. `PhaseCfg`/`ScheduleCfg` added to `schema.py`+`loader.py` (nested-dataclass `_coerce` path added). `lmdb_train_balanced` added to `PathsCfg`. `scripts/train.py` dispatches to single-phase or schedule. 40 schedule tests green. |
+| 4.5 | `utils/logging.py` (run-dir + index), `training/trainer.py`, `training/schedule.py` | `train.py:261-275,600-618` / `test.py:336-350` CSV writers | n/a (infra) | B11, B1 | ✅ | Run-dir conventions + cross-run `index.csv` on the 0.3 `CsvLogger` primitives. One gitignored `outputs/runs/{run_id}/` per run (resolved_config snapshot + `train_log.csv` + `checkpoints/` + `plots/`); `TRAIN_LOG_COLUMNS` finalized (adds `lr`,`epoch_time_s`; val auc/p/r already from 3.2). `init_run` snapshots config (OLD never did). `index.csv` one row/run (single-phase via `Trainer.fit`; one aggregated row/schedule via `run_phase_schedule`), `crosses_f1`-led per the SKILL; `rebuild_index` recovery tool. 13 logging tests green (full suite 274 passed, 1 skipped). See Logging decisions (4.5). |
+| 5.1 | `eval/evaluate.py`, `scripts/evaluate.py` | `test.py` | reuses `metrics_cases.pt` + `ensemble.pt` (no new OLD capture) | B1, B10, B8, B11, B4, B2 | ✅ / ⚠️ | Thin orchestrator (build→iterate→accumulate→compute→write); adds NO math. **B1**: `evaluate()` sklearn block + threshold sweep deleted → shared `MetricAccumulator` (3.2) is the only metric path; FLOPs/latency relocated to 5.2; ad-hoc CSV → `RunDir.eval_logger`/`index.csv` (4.5). **B10**: `get_model`/`model_forward(str)` → `build_model`/`forward_model` (2.4), `model_type` intrinsic. **B8**: lone upcast in `MetricAccumulator.update`; only the documented `temporal_weights.float().cpu()` collection. **B11**: artifacts under run-dir (`eval_log.csv` WIDE `EVAL_LOG_COLUMNS`, `plots/{predictions,temporal_weights}.npz`), `index.csv` row (`kind="eval"`) replaces `shutil.copy2` model-suffix files. **B4**: crosses scored on `crosses_frame` only (inherited from 3.2); `crosses_pooled`/`temporal_weights` never scored (`test_crosses_scored_on_frame_not_pooled`). **B2**: `load_eval_weights` strict-loads rebuilt ckpts, no relpos fix-up. ⚠️ flagged (OQ resolutions): predictions saved as **NPZ** not CSV (viz 6.2-friendly; OLD wide CSV reproducible from it); `temporal_weights` **full-model-only** (None for ablations); **single aggregate row** per eval (OLD per-chunk rows dropped); efficiency columns present-but-blank until 5.2 (OQ2); run-dir reuses ckpt's `outputs/runs/{id}` else fresh `..._eval` (OQ7). OLD `find_optimal_thresholds`→`MetricAccumulator.optimal_threshold_metrics` (already ported, 3.2); OLD `compute_flops`/`inference_latency`→5.2; OLD `_init_global_rel_pos_from_ckpt`→dead (B2)/Prompt 9. One justified 3.2 edit: `_task_arrays`→public `task_arrays` (eval reads preds from the single store). 12 eval tests green. |
+| 5.2 | `eval/benchmark.py`, `config/schema.py` (`EvalCfg`), `configs/eval.yaml` | `test.py` `compute_flops`/`inference_latency`, `Vision_Transformer.__main__` fvcore | n/a (wall-clock metrics) | B1 | ✅ / ⚠️ | Consolidated `params`/`flops_per_frame`/`latency_ms_per_frame`/`fps`/`peak_vram_mb` per model_type via the typed registry (`build_model` + `MODEL_INPUT_SIGNATURE` for the per-type input tuple). `benchmark_model` (one type) + `run_benchmark` (CSV, `BENCHMARK_COLUMNS`) + `measure_efficiency` (the 5.1 `--benchmark` hook; keys == `evaluate._EFFICIENCY_COLUMNS`). Latency = `bench_warmup` warmup + `latency_trials` timed iters, CUDA-synced (OLD formula: `fps=1/avg_seq`, `ms_per_frame=avg_seq/T*1000`). fvcore is an OPTIONAL runtime dep → `flops_per_frame=nan` if absent (params/latency still report). ⚠️ flagged: benchmark runs at the **real inference resolution** from `DataCfg` (tight `img_*`, context `read_context_*`, `T=max_seq_len`), NOT OLD's synthetic 384-px context — the rebuilt eager ViT is bound to `read_context_height` (B2), and OLD's 384 bench was inconsistent with its own 224 inference. The now-meaningless `EvalCfg.bench_img_size`/`bench_context_scale` were replaced by `bench_batch_size`/`bench_warmup` (methodology-from-config per spec). 6 benchmark tests green. |
+| 5.3 | `eval/inference.py`, `scripts/infer_video.py`, `config/{schema,loader}.py` (`InferenceCfg`), `configs/infer.yaml` | `main.py`, `extract_frames.py`, `scripts/pedestrian_detection.py` | n/a (no E2E oracle; seam-level parity via in-test legacy oracles) | B5, B7, B10, B2, B4, B11 | ✅ / ⚠️ | Thin 5-stage orchestrator (detect→assemble→preprocess→forward→overlay); routes the *math* to its owners. **B5**: `main.py`+`extract_frames.py`+`pedestrian_detection.py` collapse into one `inference.py`+thin CLI; dead 4-dim `extract_sequences_from_track` dropped; `extract_frames.py`→`DirFrameSource`. **B7**: motion via canonical `compute_motion` (8-dim), window len = `cfg.data.seq_len` — no `[...,:8]` slice / `MAX_SEQ_LEN`. **B10**: `get_model`(str)+key-name `if/elif`→`build_model`/`forward_model` (intrinsic `ModelType`) + `crosses_frame`-only read. **B2**: `load_eval_weights` strict-loads (no relpos fix-up). **B4**: crosses from `crosses_frame`; `crosses_pooled`/`temporal_weights` untouched. **B11**: PIE text-map inlined (no PIE runtime dep), caller-specified out path. ⚠️ Three flagged behavior changes (no golden oracle): (a) `context_scale` 2.0→3.0 (matches training); (b) **BGR→RGB** at frame read (OLD fed BGR to an RGB-trained model); (c) **context cropped from the full frame** (OLD's in-memory dataset made a degenerate crop-of-a-crop). Detection→frame aggregation replaces OLD's O(n²) `bboxes==bboxes` match with carried `(track_id, frame_idx)`. YOLO is an optional `[infer]` extra (lazy import; clear error when absent). 13 inference tests green (full suite 317 passed, 1 deselected). See Eval decisions (5.3). |
+| 6.1 | `viz/plots.py`, `scripts/visualize.py` | `scripts/plot_results.py` | n/a (artifact-driven; structural tests) | B11 | ✅ / ⚠️ | All 4 figure families ported, re-pointed at the NEW run-dir artifacts: train curves ← `train_log.csv` (`TRAIN_LOG_COLUMNS`, snake_case rename of OLD TitleCase); PR/threshold ← `predictions.npz` (5.1, was CSV); ablation bars ← per-model `eval_log.csv` rows; temporal ← `temporal_weights.npz` (unchanged). Each figure is a PURE `data→Figure` fn (no I/O); `save_figure`/`generate_*` own paths via the typed `RunDir` (no hardcoded `plots/` — **B11**). ⚠️ flagged: OLD fragile `_parse_summary_table` header-sniffing **deleted** (typed `EVAL_LOG_COLUMNS` row read directly); OLD accuracy-fallback in `per_head_f1_curves` **dropped** (new schema always emits per-task F1+macro). Decisions: ablation figs → `runs_dir/ablation/`; `load_eval_row` picks LAST row; per-run default = newest run dir. Ablation-AUC needs `eval_log.csv` (index lacks per-task AUC; `--ablation-from-index` resolves via `index.csv`). `TASKS` declared locally (CSV/NPZ-driven layer; no torch-bound loss/metrics import). 13 viz tests (render path verified). See Viz decisions (6.1). |
+| 6.2 | `viz/qualitative.py`, `scripts/visualize.py` (`--qualitative`) | `visualize_comparison.py`, `visualize_gt.py` | n/a (MP4 output; pixel-diff not portable) | B11, B6/B7, B4 | ✅ / ⚠️ | Ports OLD `draw_labels`/`draw_comparison`/`visualize_from_pickle`/`process_pie_dataset` into three render functions (`render_gt_sequences`, `render_comparison`, `render_attention_overlay`) + `generate_qualitative_figures` orchestrator. Adds new `draw_temporal_bar` primitive (no OLD equivalent). `scripts/visualize.py` extended with `--qualitative {gt,comparison,attention,all}` + `--sequences-pkl` + `--comparison-mode` + `--max-sequences`. ⚠️ flagged: `context_scale=2.0` in OLD `process_pie_dataset` irrelevant (module consumes pre-computed predictions, not re-extracted crops; effective scale stays `DataCfg.context_scale=3.0`); `process_custom_video` (YOLO path) dropped (belongs to 5.3 `inference.py`); `generate_and_visualize` on-the-fly PIE generation dropped (callers pass pre-built sequences); `visualize_blank_with_labels` demo dropped; `crosses` fallback key dropped (B4 — always `crosses_frame`). Sequence alignment note: `temporal_weights.npz[i]` ↔ `sequences[i]` by index (same split/chunk order as eval run — caller responsibility). 25 qualitative tests; all logic verified via integration check. See Viz decisions (6.2). |
 | 7.1 | `export/onnx.py`, `scripts/export_onnx.py` | `onnx/onnx_export.py` | | B2 | — | onnxruntime parity check |
 | 8.1 | `tests/`, CI gate | OLD `test_*.py` ad-hoc scripts | n/a | B12 | — | golden fixtures + ruff/pytest |
 | 8.2 | `CLAUDE.md`, `README.md`, docstrings | OLD `CLAUDE.md`, `README.md`, `GUIDELINE.md` | n/a | — | — | keep stat table in sync |
@@ -708,6 +708,74 @@ The crash-safe chunk prefetch loader (B9), fulfilling the 4.1 `ChunkProvider` se
   standard worker sharding — changes shuffle granularity (global vs per-chunk) and the sampler contract, so
   out of scope for behavior-preserving Phase A.
 
+### Training decisions (Prompts 4.3 + 4.4)
+
+**4.3 CheckpointManager** (full-state checkpoint/resume, B2 load side, B11):
+
+- **Payload = full training state.** `{epoch, model_state_dict, optimizer_state_dict, scheduler_state_dict, scaler_state_dict, best_val_loss}`. A crashed run can resume at the exact epoch + optimizer momentum, unlike the OLD `torch.save(model.state_dict(), ...)` (model-only).
+- **`strict=True` default (B2 resolved).** OLD `train.py:319-328` used `strict=False` with a print for missing/unexpected keys — a symptom of lazy ViT `relative_position_bias` (B2). Now that all ViT params are eager (`__init__` allocates them), strict load is safe and the default. `strict=False` is an explicit opt-in for OLD model-only checkpoints.
+- **`weights_only=False` for full-state payload.** Our own checkpoints contain optimizer state dicts (Python dicts with tensor lists), which `weights_only=True` may reject. The payload is written and read by our own code; `weights_only=False` is safe and documented.
+- **`CheckpointManager(None)` is a no-op.** Makes all saves no-ops and `best_path`/`last_path` return `None`; constructible in tests without disk I/O. This replaces `ModelStateCheckpointer(None)` for new callers; the interim `ModelStateCheckpointer` is retained for backwards compat.
+
+**4.4 Two-phase training schedule (B1)**:
+
+- **`train_two_phase.py` eliminated.** 305 lines of god-script → `PhaseCfg`/`ScheduleCfg` in `schema.py` + `run_phase_schedule()` in `schedule.py` + `Trainer.reset_for_phase()` + thin `scripts/train.py` CLI. Single dispatch point: `schedule.enabled=true` triggers multi-phase; `false` (default) falls through to plain `Trainer.fit()`.
+- **Per-phase optimizer rebuild (fresh Adam, no momentum carry-over).** Phase 3's classifiers must not inherit Phase 2's full-model Adam momentum — the parameter groups change (backbone frozen), so carryover momentum is stale and would corrupt the initial classifier updates. `reset_for_phase` always builds a new `Adam` over `requires_grad=True` params after the backbone freeze.
+- **`freeze_backbone` = exact port of OLD lines 122-125.** Filter: `requires_grad=False` for every param whose name does not contain `'classifier'`, `'crosses_frame_head'`, or `'pool_mlp'`. Verified against the new `EnsembleModel` name partition (confirmed: `cross_attention.classifier.*` / `cross_attention.crosses_frame_head.*` / `cross_attention.pool_mlp.*` are the trainable set; everything else frozen).
+- **Intentional deviations from OLD script (NONE change model math or output dict; all are orchestration-level):**
+  - **D1 — Scheduler signal: val_loss (not train loss).** OLD `run_phase()` stepped `scheduler.step(avg_loss)` on the per-epoch average train loss. New code steps on `val_loss` (same as the single-phase Trainer). Val loss is the correct generalization signal for plateau detection; train-loss stepping is misleading when the model is in early learning (loss still dropping). The OLD `train.py` (single-phase) already used val_loss — the two-phase script was inconsistent.
+  - **D2 — EarlyStopping signal: val_loss (not 1-macro_f1).** OLD used `early_stopping(1 - macro_f1)`. New uses `val_loss`. Consistent with the single-phase Trainer; avoids a divergent ES convention. F1-based ES can thrash near a plateau when loss is still decreasing.
+  - **D3 — Loss function: MultiTaskLoss CE+inv-freq weights (not FocalLoss).** The OLD two-phase script used `FocalLoss(gamma=2.0, alpha=[...])`. The new schedule reuses the Trainer's `MultiTaskLoss` (3.1). The OLD `train.py` (single-phase) already used CE+class-weights — the two-phase script was inconsistent. Loss is built once from the augmented full train set and shared across all phases (matches OLD single `build_criterion` call).
+  - **D4 — Per-phase best_val_loss reset.** OLD carried `best_macro_f1` monotonically: Phase 2 only saved a new best if it exceeded Phase 1's F1. New resets `best_val_loss=+inf` per phase so each phase has its own best. Phase N+1 always explicitly reloads Phase N's best checkpoint before starting (`reload_best=True`). Decouples phases: Phase 3 always starts from Phase 2's best, regardless of how Phase 2 compared to Phase 1.
+- **`schedule.yaml` defaults reproduce OLD constants exactly:** Phase 1 (lr=1e-4, 10 epochs, patience=5), Phase 2 (lr=1e-5, 20 epochs, patience=5), Phase 3 (lr=5e-5, 5 epochs, patience=3, freeze_backbone=True). `test_default_schedule_matches_old_constants` guards this.
+- **Nested dataclass coercion added to `_coerce`.** `PhaseCfg` inside `tuple[PhaseCfg, ...]` in the YAML requires `_coerce` to recurse into dataclass fields. Added `if isinstance(declared, type) and dataclasses.is_dataclass(declared)` branch calling `_build_section(declared, value)` — forward-compatible with any future nested config.
+- **`schedule.enabled` is a simple dotted override:** `--set schedule.enabled=true` activates the schedule from the CLI without editing YAML.
+
+### Logging decisions (Prompt 4.5)
+
+CSV logging conventions + run-dir layout + cross-run index, layered on the 0.3 `CsvLogger` primitives.
+Replaces OLD `training_log/training_log_%m%d_%H%M.csv` sprawl + `model_suffix` checkpoint naming (B11)
+and the inline `csv.writer` blocks in `train.py`/`test.py` (B1). Open questions resolved per the 4.5
+plan (user-approved):
+
+- **OQ1 — one CSV for train+val.** `train_log.csv` carries one row per epoch with BOTH `train_loss` and
+  `val_loss` + the val metrics (OLD `train.py` already interleaved them into one file). There is no
+  separate "val CSV"; the schematic's "val/test CSV" = the test-set `eval_log.csv`, owned by 5.1.
+- **OQ2 — eval CSV shape = WIDE, deferred to 5.1.** The test log reuses the SAME flat `METRIC_COLUMNS`
+  schema (one row per evaluation) so train/eval/index stay consistent and `index.csv` is a trivial copy.
+  4.5 ships `RunDir.eval_logger(fieldnames)` + the `EVAL_LOG_FILENAME` constant; `EVAL_LOG_COLUMNS`
+  (context + `METRIC_COLUMNS` + `opt_*` threshold sweep + efficiency) is composed by 5.1 alongside its
+  context columns — a deliberate divergence from the OLD SKILL's *tidy* (1-row-per-task) `eval_results.csv`,
+  flagged for the 8.2 SKILL sync.
+- **OQ3 — config snapshot = `resolved_config.yaml`** (existing `config.loader.dump_config`), not the OLD
+  SKILL's `config_snapshot.json`. Single dump impl; `init_run` calls it so every run is reproducible
+  (OLD training never snapshotted config). Flagged for 8.2 SKILL sync.
+- **OQ4 — `lr` + `epoch_time_s` enrichment.** `TRAIN_LOG_COLUMNS` gains both (logging-only; the Trainer
+  reads `optimizer.param_groups[0]['lr']` *before* `scheduler.step` and times each epoch). Matches the OLD
+  SKILL's `train_log.csv` schema; no math change.
+- **OQ5 — `index.csv` = flushed small appends + `rebuild_index` recovery.** One row per finished run via
+  `append_index_row` (header-once `CsvLogger`); `rebuild_index(runs_root)` rescans every run dir's
+  `train_log.csv` + config snapshot to regenerate the table (handles crashed/parallel/interleaved runs).
+- **OQ6 — `git_sha` column** captured via `git rev-parse --short HEAD` (empty string outside a work tree).
+- **OQ7 — eval run-dir** reuses the evaluated checkpoint's run-dir when resolvable, else a fresh
+  `{ts}_{model_type}_eval` dir (`init_run(..., kind="eval")` folds `kind` into the id). 5.1 wires this.
+- **OQ8 — task names `crosses`/`looks`/`actions`** (rebuild contract), not the SKILL's
+  `crossing`/`looking`/`action`. `index.csv` headline columns lead with `crosses_f1` (primary metric) per
+  the SKILL's "What Better Means" rule. Rename flagged for the 8.2 SKILL/baseline-results sync.
+
+Implementation seams:
+- **`utils/logging.py` stays `training`-import-free.** A top-level `from training.metrics import
+  METRIC_COLUMNS` there would cycle (`utils.logging` → `training/__init__` → `trainer` → `utils.logging`).
+  So the metric-derived `TRAIN_LOG_COLUMNS` is composed in `trainer.py` (training layer, where the metric
+  names live); `utils.logging` owns only the generic machinery + the plain-string `INDEX_COLUMNS` +
+  `build_index_row` (which takes a flat metric dict, no metric import). A schema-sync test
+  (`test_train_log_columns_compose_metric_columns`) prevents drift.
+- **One index row per RUN, not per fit().** `Trainer.fit` writes the row at its end
+  (`write_index_on_fit=True`); `run_phase_schedule` sets `write_index_on_fit=False` and writes ONE
+  aggregated row for the whole schedule (final phase = the deliverable model; `epochs_run` = total).
+- **Run-dir is the checkpoints pointer.** `CheckpointManager` (4.3) already writes
+  `<run_dir>/checkpoints/{best,last}.pth`; `build_index_row` records `best.pth`'s path in the index.
+
 ### Config decisions (Prompt 0.2)
 
 Locked so the later prompts that consume config stay consistent:
@@ -758,6 +826,95 @@ Locked so the training/eval prompts that consume these helpers stay consistent:
   `wait_for_memory(timeout=...)` (default `None` = legacy infinite wait, OLD `train_utils.py:74-77`).
 - **Q2 closure:** `resolve_amp(requested, device)` realises the schema decision — `TrainCfg.use_amp` is the
   request, ANDed with `device.type == 'cuda'` at runtime (OLD `use_amp = device.type == 'cuda'`).
+
+### Viz decisions (Prompt 6.1)
+
+`viz/plots.py` + `scripts/visualize.py` port OLD `scripts/plot_results.py`. A viz layer has no numeric
+golden fixture — "parity" = the 4 figure families still render from the equivalent data. The real work was
+re-pointing every loader at the NEW run-dir artifacts and deleting fragile parsing.
+
+- **Schema re-point (the port's substance):**
+  - *Training curves* read `RunDir.train_log_path` (`train_log.csv`, `TRAIN_LOG_COLUMNS`). OLD TitleCase
+    columns (`Epoch`/`Avg Train Loss`/`Actions F1`/`Macro F1`) → snake_case (`epoch`/`train_loss`/
+    `actions_f1`/`macro_f1`). `load_train_log` replaces OLD `_load_training_log`.
+  - *PR + threshold* read `predictions.npz` (5.1 `save_predictions_npz`: `{task}_true/_prob_0/_prob_1/
+    _pred`), replacing OLD's per-sample predictions **CSV**.
+  - *Ablation bars* read one `eval_log.csv` row per model (`EVAL_LOG_COLUMNS` — has `model_type`,
+    `{task}_f1`, `{task}_auc`). OLD's `_parse_summary_table` header-sniffing (`=== Default Threshold
+    (0.5) ===` / bare `Heads,...`) is **deleted** — columns are read directly with `csv.DictReader`.
+  - *Temporal attention* read `temporal_weights.npz` (5.1 `save_temporal_weights_npz`: `temporal_weights`
+    + `{task}_true`) — structurally unchanged from OLD.
+- **Pure-function design:** every figure is `data-in → matplotlib Figure-out` (no I/O); `save_figure` owns
+  `savefig`+`close`; `generate_run_figures(RunDir)` / `generate_ablation_figures(logs, out_dir)` wire
+  loaders→figures→paths. Families render only when their artifact exists (preserves OLD "only the supplied
+  phases" behavior). **B11**: no hardcoded `plots/` literal — paths flow from the typed `RunDir`/`PathsCfg`.
+- **Dropped unreachable branch (flagged):** OLD `per_head_f1_curves` had an accuracy-fallback when F1
+  columns were absent. The new train log ALWAYS emits per-task F1 + `macro_f1` (3.2 `METRIC_COLUMNS`), so
+  the fallback is unreachable and removed.
+- **Decisions (confirmed):** (1) cross-run ablation figures → `paths.runs_dir/ablation/` (they belong to no
+  single run); (2) `load_eval_row` picks the **last** row (append-only log may hold re-evals); (3) per-run
+  default = **newest** run dir (run ids are timestamp-first → name sort = chronological); (4) ablation-AUC
+  must come from `eval_log.csv` (the cross-run `index.csv` carries only per-task F1, no AUC) —
+  `--ablation-from-index` resolves each model's `run_dir/eval_log.csv` from `index.csv`.
+- **`TASKS` declared locally** (not imported from `losses.multitask`): the quantitative layer reads
+  serialized CSV/NPZ columns, never the model, so it needn't pull the torch-bound loss/metrics modules for
+  a 3-string tuple. Mirrors the output contract order `("actions","looks","crosses")`.
+- **Tests** (`tests/test_viz_plots.py`, 13): loaders locked to the REAL writers/column tuples
+  (`TRAIN_LOG_COLUMNS`, `EVAL_LOG_COLUMNS`, `save_predictions_npz`, `save_temporal_weights_npz`) so a 4.5/5.1
+  schema change breaks them loudly; per-figure structural smoke (best-epoch vline, line/bar counts,
+  missing-task axis hidden); driver skip-on-missing + `--only` subset; the requested end-to-end
+  regeneration smoke over a full sample run dir (asserts all 5 per-run PNGs exist and are non-empty).
+  *(Render path verified locally via a torch stub — torch isn't installable in this sandbox; the suite runs
+  under the real env where `eval`/`trainer` import torch.)*
+
+### Eval decisions (Prompt 5.3)
+
+`eval/inference.py` + `scripts/infer_video.py` port OLD `main.py` (+ `extract_frames.py`,
+`pedestrian_detection.py`). Video inference has **no E2E golden oracle** (non-deterministic YOLO across
+versions + a trained checkpoint + a real video), so parity is asserted at the **reused-math seams**, and
+the three intentional fixes below are documented divergences (no oracle can contradict them).
+
+- **Five separable stages, math delegated.** `detect → assemble → preprocess → forward → overlay`. The
+  preprocessing reuses 1.2 verbatim (`crop_tight`/`crop_context`/`compute_motion`/`build_read_transforms`),
+  build/load/forward reuse 2.4 (`build_model`/`forward_model`) + 5.1 (`load_eval_weights`). `inference.py`
+  adds no model math — only orchestration + the cv2 overlay (cosmetic, ported).
+- **Open questions (§7) — all resolved as the sub-plan proposed:** (1) detection ported in-package,
+  `ultralytics`/`lap` stay the optional `[infer]` extra via a lazy `_load_yolo()` (module imports + tests run
+  without YOLO; clear `[infer]` install error only when `detect_tracks` is invoked); (4) `window_stride=1`
+  default (OLD dense coverage); (5) multi-window/frame conflict = **append all, last drawn wins** (OLD's
+  list-append order); (6) seam-level test strategy accepted.
+- **⚠️ Three flagged behavior changes (intentional fixes, no oracle):**
+  1. **`context_scale` 2.0 → 3.0.** OLD `main.py` built the dataset at 2.0 while the model trained on 3.0
+     (`DataCfg.context_scale`) → OLD fed an out-of-distribution context. The rebuild uses
+     `cfg.data.context_scale`. Guarded by `test_context_scale_uses_data_cfg`.
+  2. **BGR → RGB at frame read.** OLD applied `ToTensor`+`Normalize` to cv2 **BGR** crops (a latent
+     channel-swap vs the RGB-trained model). `FrameSource` converts to RGB once; `detect_tracks` re-derives
+     BGR only for YOLO (which expects cv2 channel order).
+  3. **Context cropped from the FULL frame.** OLD's in-memory `PIESequenceDataset` cropped "context" from the
+     pre-cropped ped image (a degenerate scaled-up crop-of-a-crop). The rebuild crops both tight + context
+     from the full frame at detect time (`crop_from_frame`), matching the data pipeline.
+- **Aggregation rewrite (B-smell, not a band-aid row).** OLD matched windows to frames by re-running
+  `smooth_track` + an O(n²) `bboxes == bboxes` equality scan (`main.py` 162–228). Each `TrackWindow` now
+  carries its detections (hence `frame_idxs`/`bboxes`), so `aggregate_by_frame` is a direct scatter.
+- **`smooth_track` is a faithful but observationally-inert port.** It smooths `cx`/`cy` (stored on the
+  returned detections) but leaves the bbox unchanged — exactly as OLD, where the smoothed centers were never
+  used downstream (motion is computed from the bbox). Kept for fidelity; `test_smooth_track_matches_legacy`
+  pins the center math against a verbatim OLD transcription.
+- **`extract_frames.py` folded into `DirFrameSource`** (B11): a directory of frames is a first-class source
+  (`open_frame_source` dispatches dir→`DirFrameSource`, file→`VideoFrameSource`), so no separate extract step
+  and the manual smoke can run on `qualitative_visualize/`.
+- **Config (additive, new top-level section).** `InferenceCfg` (+ `RootCfg.infer` + `configs/infer.yaml`,
+  registered in `loader._SECTIONS`). Top-level (not `eval.infer`) because overrides cap at `section.field`.
+  Detect/track/window/render knobs only; model-input geometry is reused from `DataCfg`. `validate_config`
+  gains infer invariants (`detector_conf ∈ [0,1]`, `window_stride ≥ 1`, `batch_size > 0`, `default_fps > 0`).
+- **Tests** (`tests/test_inference.py`, 13): smooth + windowing parity vs in-test OLD oracles; in-memory
+  `preprocess_window` == on-disk `process_record` (atol 1e-6 crops / tol 0 motion); motion == canonical
+  `compute_motion`; crosses read from `crosses_frame` (perturbing `crosses_pooled` is inert, B4); aggregate
+  scatter; lazy-import error; an end-to-end run with a **stub detector** + random model over a
+  `DirFrameSource` (writes an mp4); a render smoke (reopen-and-count). No fixture file — pure-Python seams use
+  transcription oracles (repo convention, cf. `_legacy_compute_motion`). **Manual smoke on
+  `qualitative_visualize/` deferred — the dir is gitignored and absent locally; the stub-detector E2E test
+  covers the same `DirFrameSource`→render path on synthetic frames.**
 
 ## Parity Gate (Phase A → cutover)
 
