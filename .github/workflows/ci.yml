@@ -15,4 +15,5 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test (gate)
-        run: pytest -m "not slow" --maxfail=1
+        # Soft coverage report (term-missing); no --cov-fail-under floor yet — measure first (8.1 OQ).
+        run: pytest -m "not slow" --maxfail=1 --cov=pedpredict --cov-report=term-missing
