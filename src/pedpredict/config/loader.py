@@ -27,6 +27,7 @@ from .schema import (
     BalanceCfg,
     DataCfg,
     EvalCfg,
+    ExportCfg,
     InferenceCfg,
     ModelCfg,
     PathsCfg,
@@ -57,6 +58,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
     "balance": (BalanceCfg, "balance.yaml"),
     "augment": (AugmentCfg, "augment.yaml"),
     "schedule": (ScheduleCfg, "schedule.yaml"),
+    "export": (ExportCfg, "export.yaml"),
 }
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
@@ -363,6 +365,19 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(f"augment.motion_noise_std must be >= 0; got {a.motion_noise_std}")
     if a.erase_n_frames < 0:
         raise ConfigError(f"augment.erase_n_frames must be >= 0; got {a.erase_n_frames}")
+
+    # ONNX export invariants (Prompt 7.1)
+    ex = root.export
+    if ex.opset < 1:
+        raise ConfigError(f"export.opset must be >= 1; got {ex.opset}")
+    if ex.parity_atol <= 0.0:
+        raise ConfigError(f"export.parity_atol must be > 0; got {ex.parity_atol}")
+    if ex.parity_rtol < 0.0:
+        raise ConfigError(f"export.parity_rtol must be >= 0; got {ex.parity_rtol}")
+    if ex.parity_batch_size < 1:
+        raise ConfigError(f"export.parity_batch_size must be >= 1; got {ex.parity_batch_size}")
+    if ex.parity_seq_len < 1:
+        raise ConfigError(f"export.parity_seq_len must be >= 1; got {ex.parity_seq_len}")
 
     # phase schedule (Prompt 4.4)
     for i, phase in enumerate(root.schedule.phases):
