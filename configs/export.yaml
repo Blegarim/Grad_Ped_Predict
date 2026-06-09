@@ -1,0 +1,9 @@
+# ExportCfg — ONNX export knobs (Prompt 7.1).
+# Defaults mirror ExportCfg in config/schema.py.
+opset: 17
+output_dir: outputs/onnx
+include_temporal_weights: false
+parity_atol: 1.0e-4
+parity_rtol: 1.0e-4
+parity_batch_size: 2
+parity_seq_len: 4

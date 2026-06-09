@@ -348,6 +348,19 @@ class ScheduleCfg:
 
 
 @dataclass(frozen=True, slots=True)
+class ExportCfg:
+    """ONNX export knobs (Prompt 7.1) — replaces hardcoded values in OLD ``onnx/onnx_export.py``."""
+
+    opset: int = 17                         # ONNX opset version; keep in sync with ort compatibility
+    output_dir: str = "outputs/onnx"        # export destination (relative to cwd or absolute)
+    include_temporal_weights: bool = False  # full model only; False = 3-key legacy-compatible graph
+    parity_atol: float = 1e-4              # abs tolerance for onnxruntime parity assertion (CPU fp32 math)
+    parity_rtol: float = 1e-4              # rel tolerance
+    parity_batch_size: int = 2             # dummy batch for parity run (> 1 exercises batch axis)
+    parity_seq_len: int = 4                # dummy T for parity run (short — keeps it fast)
+
+
+@dataclass(frozen=True, slots=True)
 class RootCfg:
     """Top-level config tree. Built by ``loader.load_config``."""
 
@@ -360,3 +373,4 @@ class RootCfg:
     balance: BalanceCfg = field(default_factory=BalanceCfg)
     augment: AugmentCfg = field(default_factory=AugmentCfg)
     schedule: ScheduleCfg = field(default_factory=ScheduleCfg)
+    export: ExportCfg = field(default_factory=ExportCfg)
