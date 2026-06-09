@@ -44,11 +44,11 @@ src/pedpredict/        # installable package (pip install -e .)
   config/   schema.py loader.py    # yaml → dataclass → argparse override merge
   paths.py
   utils/    seed device amp memory logging
-  data/     pie_sequences transforms lmdb_writer lmdb_dataset
+  data/     pie_sequences transforms lmdb_writer lmdb_dataset lmdb_warm
             balance augment collate sampler stats
-  models/   vit motion_encoder cross_attention ensemble ablations heads registry
+  models/   vit geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask.py
-  training/ trainer chunk_loader callbacks metrics
+  training/ trainer chunk_loader callbacks schedule metrics
   eval/     evaluate benchmark inference
   viz/      plots qualitative
   export/   onnx.py
