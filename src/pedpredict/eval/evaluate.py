@@ -32,6 +32,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from pedpredict.config.schema import EvalCfg, RootCfg
 from pedpredict.data.collate import build_collate
@@ -158,8 +159,16 @@ def evaluate_model(
     acc = MetricAccumulator()
     tw_chunks: list[torch.Tensor] = []
     pin = device.type == "cuda"
+    # One bar over all test chunks; ``disable=None`` auto-hides when stderr is not a TTY (pytest).
+    # Chunks stream in lazily, so the total grows per chunk -> a percentage that settles to 100%.
+    pbar = tqdm(desc="evaluate", unit="batch", disable=None, leave=False)
     with torch.inference_mode():
         for loader in loaders:
+            try:
+                pbar.total = (pbar.total or 0) + len(loader)  # type: ignore[arg-type]
+                pbar.refresh()
+            except TypeError:
+                pass
             for batch in loader:
                 images_tight, images_context, motions, labels = _prepare_batch(batch, device, pin)
                 with autocast_ctx(use_amp):
@@ -167,6 +176,8 @@ def evaluate_model(
                 acc.update(outputs, labels)
                 if collect_temporal_weights and outputs.get("temporal_weights") is not None:
                     tw_chunks.append(outputs["temporal_weights"].float().cpu())
+                pbar.update(1)
+    pbar.close()
     predictions = (
         _extract_predictions(acc) if (collect_predictions or collect_temporal_weights) else None
     )

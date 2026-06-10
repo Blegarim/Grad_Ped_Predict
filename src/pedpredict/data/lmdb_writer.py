@@ -33,6 +33,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision.io import encode_jpeg
+from tqdm.auto import tqdm
 
 from pedpredict.config.schema import DataCfg
 from pedpredict.data.pie_sequences import SequenceRecord
@@ -133,7 +134,8 @@ def write_dataset_to_lmdb(
     env = lmdb.open(str(path), map_size=compute_map_size(len(dataset), cfg))  # type: ignore[arg-type]
     try:
         with env.begin(write=True) as txn:
-            for j, sample in enumerate(loader):
+            progress = tqdm(loader, total=len(dataset), desc=path.name, unit="seq")  # type: ignore[arg-type]
+            for j, sample in enumerate(progress):
                 write_sample(txn, j, sample, cfg)
         env.sync()
     finally:

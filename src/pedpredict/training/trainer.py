@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol, runtime_checkable
 import torch
 from torch import nn
 from torch.nn.utils import clip_grad_norm_
+from tqdm.auto import tqdm
 
 from pedpredict.config.schema import PhaseCfg, RootCfg
 from pedpredict.data.sampler import LabelScanCache, class_weights_ce
@@ -74,6 +75,14 @@ __all__ = [
 
 #: The collate tuple (1.5): ``(images_tight, images_context, motions, labels)``.
 Batch = tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]
+
+
+def _loader_len(loader: DataLoader) -> int:
+    """Number of batches in ``loader`` (map-style DataLoader); 0 if it can't report a length."""
+    try:
+        return len(loader)  # type: ignore[arg-type]
+    except TypeError:
+        return 0
 
 #: Final per-epoch train+val CSV schema (4.5): context columns (incl. ``lr`` / ``epoch_time_s``
 #: enrichments over OLD) + the shared :data:`METRIC_COLUMNS` (val metrics). Composed here, in the
@@ -196,6 +205,10 @@ class Trainer:
         self.best_val_loss = float("inf")
         self._start_epoch = start_epoch
         self._best_epoch = -1
+        #: Measured per-epoch batch counts -> exact tqdm totals (percentage/ETA) from the 2nd epoch on.
+        #: ``None`` until the first epoch/validation pass measures them; reset on a phase transition.
+        self._train_batches: int | None = None
+        self._val_batches: int | None = None
         #: Run tag + cross-run index switch (4.5). ``build_trainer`` sets ``run_tag``; the multi-phase
         #: ``run_phase_schedule`` disables ``write_index_on_fit`` and writes one aggregated row itself.
         self.run_tag = ""
@@ -256,14 +269,20 @@ class Trainer:
             self.optimizer.step()
         return total.detach()
 
-    def train_chunk(self, loader: DataLoader) -> tuple[float, int]:
-        """Train over one chunk's loader. Returns ``(loss_sum, n_batches)`` (OLD train_one_chunk)."""
+    def train_chunk(self, loader: DataLoader, *, progress: tqdm | None = None) -> tuple[float, int]:
+        """Train over one chunk's loader. Returns ``(loss_sum, n_batches)`` (OLD train_one_chunk).
+
+        ``progress`` (optional) is the shared per-epoch tqdm bar advanced one tick per batch.
+        """
         self.model.train()
         loss_sum = 0.0
         n_batches = 0
         for batch in loader:
             loss_sum += float(self._step_batch(batch))
             n_batches += 1
+            if progress is not None:
+                progress.update(1)
+                progress.set_postfix(loss=loss_sum / n_batches)
         return loss_sum, n_batches
 
     # ----------------------------------------------------------------- validation
@@ -279,8 +298,13 @@ class Trainer:
         acc = MetricAccumulator()
         loss_sum = 0.0
         n_samples = 0
+        n_batches = 0
+        pbar = tqdm(total=self._val_batches, desc="          [val]", unit="batch", disable=None, leave=False)
         with torch.inference_mode():
             for loader in self.chunks.val_loaders():
+                if self._val_batches is None:                    # first pass: grow the total per chunk
+                    pbar.total = (pbar.total or 0) + _loader_len(loader)
+                    pbar.refresh()
                 for batch in loader:
                     images_tight, images_context, motions, labels = self._move_batch(batch)
                     batch_size = images_tight.size(0)
@@ -289,6 +313,10 @@ class Trainer:
                     loss_sum += float(self.loss(outputs, labels).total) * batch_size
                     acc.update(outputs, labels)
                     n_samples += batch_size
+                    n_batches += 1
+                    pbar.update(1)
+        pbar.close()
+        self._val_batches = n_batches                            # exact total for the next pass
         if n_samples == 0:
             raise RuntimeError("Trainer.validate: no validation samples found.")
         return loss_sum / n_samples, acc.compute()
@@ -330,6 +358,8 @@ class Trainer:
         self.best_val_loss = float("inf")
         self._best_epoch = -1
         self._start_epoch = 0
+        self._train_batches = None       # new provider -> re-measure batch counts for the progress bar
+        self._val_batches = None
 
     def fit(self, *, max_epochs: int | None = None) -> list[EpochResult]:
         """Run the full training schedule (OLD main epoch loop, :373-627), returning per-epoch results.
@@ -342,7 +372,7 @@ class Trainer:
         try:
             for epoch in range(self._start_epoch, n_epochs):
                 t0 = time.perf_counter()
-                train_loss = self._run_epoch(epoch)
+                train_loss = self._run_epoch(epoch, n_epochs)
                 val_loss, metrics = self.validate()
                 lr = self.optimizer.param_groups[0]["lr"]        # lr used during this epoch
                 epoch_time_s = time.perf_counter() - t0
@@ -366,15 +396,28 @@ class Trainer:
             self._append_index_row(results, kind="train")
         return results
 
-    def _run_epoch(self, epoch: int) -> float:
-        """Train over every chunk for one epoch; return the per-batch average train loss."""
+    def _run_epoch(self, epoch: int, n_epochs: int) -> float:
+        """Train over every chunk for one epoch; return the per-batch average train loss.
+
+        One tqdm bar spans the whole epoch (all chunks), advanced per batch by ``train_chunk``;
+        ``disable=None`` auto-hides it when stderr is not a TTY (e.g. under pytest / log redirect).
+        """
         epoch_loss_sum = 0.0
         epoch_n_batches = 0
+        pbar = tqdm(
+            total=self._train_batches, desc=f"epoch {epoch + 1}/{n_epochs} [train]",
+            unit="batch", disable=None, leave=False,
+        )
         for loader in self.chunks.epoch_loaders(epoch):
-            chunk_loss_sum, chunk_n_batches = self.train_chunk(loader)
+            if self._train_batches is None:                      # first epoch: grow the total per chunk
+                pbar.total = (pbar.total or 0) + _loader_len(loader)
+                pbar.refresh()
+            chunk_loss_sum, chunk_n_batches = self.train_chunk(loader, progress=pbar)
             epoch_loss_sum += chunk_loss_sum
             epoch_n_batches += chunk_n_batches
             free_cuda(self.device)                               # OLD per-chunk gc + empty_cache
+        pbar.close()
+        self._train_batches = epoch_n_batches                    # exact total for the next epoch
         return epoch_loss_sum / epoch_n_batches if epoch_n_batches else float("nan")
 
     def _log_epoch(
