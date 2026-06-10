@@ -21,8 +21,26 @@ pytest -m "not slow"
 These don't need the dataset and confirm the install is sound.
 
 2. Acquire the PIE dataset
+ Heads-up — "PIE" is two separate things, don't conflate them:
+   - PIE toolkit (code) = the `PIE/` folder the repo clone already brought in. Its only job is to be importable (`from PIE.utilities.pie_data import PIE`, make_sequences.py:29). Don't put dataset videos in here.
+   - PIE dataset (videos + annotations) = a separate multi-GB download from York University. It goes under `data/` (paths.yaml `pie_root: data`; the pipeline constructs `PIE(data_path='data')`).
+
  Request/download PIE from the official source (York University PIE dataset — videos PIE_clips/ for set01–set06, plus annotations/, annotations_attributes/, annotations_vehicle/).
- Place them under data/ so the layout matches the box above. Split mapping is fixed by PIE: train = set01/02/04, val = set05/06, test = set03 (pie_data.py:90-94).
+ Place them under `data/` so the layout matches the tree below. The annotations bundled in the `PIE/` clone must also live at `data/annotations/` — copy them across (or just download the full annotation set into `data/`). The PIE class reads/writes these subfolders under data_path (pie_data.py:59-64):
+
+```
+Grad_Ped_Predict/
+  PIE/                       # toolkit (code) — already cloned; importable, holds no videos
+  data/                      # ← pie_root: the PIE class's data_path
+    PIE_clips/               # set01..set06/video_####.mp4   (download from YorkU)
+    annotations/             # set01..set06/*_annt.xml
+    annotations_attributes/
+    annotations_vehicle/
+    images/                  # created by step 3 (extract_and_save_images); empty for now
+    sequences/               # created by step 4 (make_sequences.py)
+```
+
+ Split mapping is fixed by PIE: train = set01/02/04, val = set05/06, test = set03 (pie_data.py:90-94).
 
 3. Extract frames from clips (PIE's own tool)
  Run PIE's extract_and_save_images — it reads data/PIE_clips/ and writes data/images/setXX/video_YYYY/00000.png:
