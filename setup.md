@@ -46,7 +46,29 @@ Grad_Ped_Predict/
  Run PIE's extract_and_save_images — it reads data/PIE_clips/ and writes data/images/setXX/video_YYYY/00000.png:
 
 python -c "import sys; sys.path.insert(0,'.'); from PIE.utilities.pie_data import PIE; PIE(data_path='data').extract_and_save_images(extract_frame_type='annotated')"
-Use 'annotated' first (smaller — it's the frames behavior sequences reference). If sequence generation later complains about missing frames, re-run with 'all'.
+Use 'annotated' first (smaller — it's the frames behavior sequences reference). If sequence generation later complains about missing frames, re-run with 'all'. The Python extractor processes whatever set folders exist in data/PIE_clips/ (pie_data.py:229), so it's already per-set if you only stage the sets you're working on.
+
+Incremental extraction (storage-limited PCs)
+ Extracting ALL frames for the whole dataset is ~3 TB; even 'annotated' is hundreds of GB. If the disk can't hold it all at once, process one SPLIT at a time — extract → build its LMDB → delete its frames → next. Granularity is the split, NOT arbitrary sets: build_lmdb crops every frame a split's pkl references, and PIE's split→set mapping is fixed (pie_data.py:90-94):
+
+   - val   = set05 + set06
+   - test  = set03
+   - train = set01 + set02 + set04   ← all three must be present together to build the train LMDB
+
+ So "set01+02 all the way to LMDB then delete" does NOT work — the train LMDB also needs set04. Generate all three sequence pkls up front (step 4 — annotations only, tiny, frame-free), then loop:
+
+ | Round | Extract sets   | Build                                         | Then delete  |
+ |-------|----------------|-----------------------------------------------|--------------|
+ | 1     | set05, set06   | build_lmdb --split val                        | val frames   |
+ | 2     | set03          | build_lmdb --split test                        | test frames  |
+ | 3     | set01,02,04    | build_lmdb --split train  → augment_dataset    | train frames |
+
+ To extract specific sets with PIE's own ffmpeg script (all frames), use the parametrized helper scripts/split_sets.sh (a per-set variant of PIE/annotations/split_clips_to_frames.sh). Run it from inside data/ (relative paths) in Git Bash with ffmpeg on PATH:
+
+   cd /d/Grad_Ped_Predict/data
+   bash ../scripts/split_sets.sh set05 set06
+
+ Prefer the Python 'annotated' extractor above when you only need annotated frames (~10x smaller); use split_sets.sh only if you need all frames.
 
 4. Generate sequence windows (PIE → pkl)
  ```powershell python scripts/make_sequences.py --split all
