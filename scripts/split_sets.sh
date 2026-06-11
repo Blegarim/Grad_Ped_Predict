@@ -33,7 +33,7 @@ do
         fname="${filename%.*}"
         mkdir -p "${FRAMES_DIR}/${set_dir}/${fname}"
         # -y overwrites; ffmpeg writes 00000.png, 00001.png, ... per video
-        ffmpeg -y -i "$video" -start_number 0 -f image2 -qscale 1 \
-            "${FRAMES_DIR}/${set_dir}/${fname}/%05d.png"
+        ffmpeg -y -i "$video" -start_number 0 -f image2 -qscale:v 2 \
+            "${FRAMES_DIR}/${set_dir}/${fname}/%05d.jpg"
     done
 done
