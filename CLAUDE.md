@@ -10,7 +10,9 @@ soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 > The project began as a behavior-preserving rebuild of an undergraduate thesis. That history — the legacy
 > reference repo, the phase plan, and the resolved band-aid inventory — is archived under
 > [`docs/archive/`](docs/archive/) and in the `legacy-archive` git tag; it is no longer load-bearing.
-> A future architecture-redesign phase is scoped in [docs/PHASE_B_BACKLOG.md](docs/PHASE_B_BACKLOG.md).
+> The research phase is driven by the answered hole audit, [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md)
+> (the working setlist — see its Final attack order), under the thesis-level
+> [docs/RESEARCH_PLAN.md](docs/RESEARCH_PLAN.md); docs/PHASE_B_BACKLOG.md is superseded.
 
 ## Problem & Architecture
 
@@ -65,7 +67,7 @@ src/pedpredict/            # installable package (pip install -e .)
   config/   schema.py loader.py     # dataclass schema + yaml→dataclass→--set merge
   paths.py
   utils/    seed.py device.py amp.py memory.py logging.py
-  data/     pie_sequences.py lmdb_writer.py balance.py augment.py lmdb_warm.py
+  data/     pie_sequences.py lmdb_writer.py incremental.py balance.py augment.py lmdb_warm.py
             lmdb_dataset.py transforms.py collate.py sampler.py stats.py
   models/   vit.py geometry.py motion_encoder.py cross_attention.py ensemble.py
             ablations.py heads.py registry.py   # typed model factory
@@ -75,7 +77,7 @@ src/pedpredict/            # installable package (pip install -e .)
   viz/      plots.py qualitative.py
   export/   onnx.py
 scripts/    # thin CLI wrappers, one job each
-  make_sequences.py build_lmdb.py balance_dataset.py augment_dataset.py count_labels.py
+  make_sequences.py build_lmdb.py build_lmdb_incremental.py balance_dataset.py augment_dataset.py count_labels.py
   train.py evaluate.py visualize.py infer_video.py export_onnx.py
 configs/    paths.yaml data.yaml model.yaml train.yaml schedule.yaml
             eval.yaml balance.yaml augment.yaml export.yaml infer.yaml
@@ -93,7 +95,8 @@ pip install -e .[dev]
 
 # Data pipeline (offline → runtime)
 python scripts/make_sequences.py  --split all      # PIE → sequences_<split>.pkl
-python scripts/build_lmdb.py      --split val      # sequences → LMDB chunks
+python scripts/build_lmdb.py      --split val      # sequences → LMDB chunks (needs all of a split's frames)
+python scripts/build_lmdb_incremental.py --split train  # disk-bounded, resumable: extract→crop→delete per video
 python scripts/balance_dataset.py                  # opt-in offline balance (default off)
 python scripts/augment_dataset.py                  # minority-class augmentation
 python scripts/count_labels.py                     # dataset-stats drift gate (nonzero on drift)

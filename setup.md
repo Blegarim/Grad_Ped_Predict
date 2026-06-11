@@ -70,6 +70,23 @@ Incremental extraction (storage-limited PCs)
 
  Prefer the Python 'annotated' extractor above when you only need annotated frames (~10x smaller); use split_sets.sh only if you need all frames.
 
+Resumable per-video build (train, or any disk that can't hold a whole split)
+ The per-split table above still needs ALL of a split's frames staged at once — fine for val/test, but
+ train (set01+02+04) peaks at hundreds of GB and is the usual cause of a mid-build disk-full crash. For
+ train specifically (or any split too big to stage), skip steps 3+5 and use the self-bounding builder:
+
+   python scripts/build_lmdb_incremental.py --split train
+
+ It generates nothing new — it consumes the existing sequences_train.pkl (run step 4 first) and, chunk by
+ chunk, extracts ONLY the frames those records reference (cv2, byte-identical to PIE's extractor), builds
+ the chunk, then deletes the spent video frames. Peak disk = the videos straddling one chunk + the growing
+ LMDB, never the whole split. No ffmpeg or pre-extracted images/ needed — just data/PIE_clips/.
+
+ It is resumable: it auto-detects the completed chunk_NNNNNN.lmdb dirs and continues from the next index, so
+ a crashed build picks up where it stopped. ⚠️ First delete the partial final chunk (the one being written
+ when the disk filled — e.g. chunk_020000.lmdb if you got ~20k in); the builder refuses to resume onto an
+ existing chunk dir. Override resume/cleanup with --start-idx N / --keep-frames.
+
 4. Generate sequence windows (PIE → pkl)
  ```powershell python scripts/make_sequences.py --split all
 

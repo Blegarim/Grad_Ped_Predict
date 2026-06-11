@@ -1,5 +1,11 @@
 # Phase B — Architecture redesign backlog
 
+> **SUPERSEDED (2026-06-11):** the answered [HOLE_AUDIT.md](HOLE_AUDIT.md) is now the working setlist
+> (see its Final attack order). Item mapping: 1 → A1/A2 · 2 → A3/A5 · 4 → A4 · 8 → M1/C4 · 9 → M8
+> (resolved: fix) · 10 → Q7 · 11 → absorbed by WP0 baselines on the v2 dataset. Items **3** (unified
+> crosses head), **5** (online augmentation), and **6** (variable-length sequences) are not audit holes
+> and remain live in [RESEARCH_PLAN.md](RESEARCH_PLAN.md) WP1/WP2. Kept for reference only.
+
 Phase A (the behavior-preserving rebuild) is locked at the **v1.0 clean baseline**. Phase B is the
 architecture-redesign phase: it may deliberately change model math and outputs. Each item below was
 deferred during Phase A and flagged in the (now archived) migration ledger

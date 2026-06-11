@@ -80,7 +80,12 @@ For example, the first two stages:
 ```bash
 python scripts/make_sequences.py --split all     # PIE → data/sequences/sequences_<split>.pkl
 python scripts/build_lmdb.py     --split val     # sequences → preprocessed_<split>/chunk_*.lmdb
+python scripts/build_lmdb_incremental.py --split train  # disk-bounded + resumable build (see setup.md)
 ```
+
+`build_lmdb` needs every frame a split references staged on disk; `build_lmdb_incremental` extracts only
+the frames each chunk uses (cv2, byte-identical to PIE's extractor), builds the chunk, deletes the spent
+frames, and resumes from the last completed chunk — for train or any split too large to stage at once.
 
 Crops are stored un-normalized (JPEG); ImageNet normalization is applied at read time. The 8-dim motion
 feature and the LMDB key/value schema are documented in
