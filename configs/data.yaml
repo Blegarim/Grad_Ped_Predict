@@ -8,8 +8,10 @@ read_context_width: 224
 context_scale: 3.0       # context crop = scale * tight bbox (uniform 3.0; override for ablation)
 jpeg_quality: 90
 chunk_size: 5000
-# LMDB map_size heuristic (compute_map_size); defaults reproduce the OLD preprocess literals
-lmdb_map_size_bytes: null   # null -> heuristic; set an int to force an exact map_size
+# LMDB map_size (compute_map_size). C3: Windows PRE-ALLOCATES the file at map_size, and the legacy
+# heuristic reserved ~3x the real payload (~2-3 GB JPEG per 5000-sample chunk) — explicit 4 GiB
+# keeps ~30%+ headroom. A too-small value fails LOUDLY (lmdb.MapFullError); null -> heuristic.
+lmdb_map_size_bytes: 4294967296
 lmdb_map_size_floor_gib: 4.0
 lmdb_map_size_safety: 1.5
 # offline writer DataLoader parallelism (preprocessing only)

@@ -19,10 +19,17 @@ fixed in 2.1) and any true OLD-weight migration is Prompt 9's ``load_legacy_mode
 Output contract honored (B4, coupled with 2.3/3.1/3.2): ``crosses`` is scored on ``crosses_frame`` only;
 ``crosses_pooled`` is never scored; ``temporal_weights`` is collected for the viz phase (6.2) and is
 structurally full-model-only.
+
+Threshold protocol (M2 — no test-set tuning): an eval pass over **val** sweeps the per-task F1-optimal
+thresholds and stores them in the run dir (``thresholds.json``); the **test** pass loads and applies
+them — those are the reportable ``tuned_*`` columns. The same-split sweep is still logged as
+``oracle_*`` (incl. Q3's ``oracle_macro_acc``) for diagnosis, but is test-set leakage and must never
+be quoted. Run ``evaluate.py --split val`` before ``--split test`` or the ``tuned_*`` columns stay blank.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -55,11 +62,14 @@ from pedpredict.utils.memory import free_cuda
 
 __all__ = [
     "EVAL_LOG_COLUMNS",
+    "THRESHOLDS_FILENAME",
     "EvalArtifacts",
     "EvalReport",
     "evaluate_model",
     "run_evaluation",
     "load_eval_weights",
+    "save_thresholds",
+    "load_thresholds",
     "save_predictions_npz",
     "save_temporal_weights_npz",
 ]
@@ -67,8 +77,11 @@ __all__ = [
 #: Collate tuple (1.5): ``(images_tight, images_context, motions, labels)``.
 Batch = tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]
 
-#: Per-task threshold-sweep columns (eval-only enrichment; ``optimal_threshold_metrics``, 3.2).
-_OPT_SUFFIXES: tuple[str, ...] = ("threshold", "acc", "f1", "precision", "recall")
+#: Per-run store for the val-tuned per-task thresholds (M2; written by a ``--split val`` pass).
+THRESHOLDS_FILENAME = "thresholds.json"
+
+#: Per-task fixed-threshold metric columns (``metrics_at_thresholds``, 3.2).
+_THRESH_SUFFIXES: tuple[str, ...] = ("threshold", "acc", "f1", "precision", "recall")
 #: Efficiency columns — filled by 5.2 ``benchmark`` when run, else blank (OQ2: composed HERE alongside 5.1).
 _EFFICIENCY_COLUMNS: tuple[str, ...] = (
     "params",
@@ -78,12 +91,16 @@ _EFFICIENCY_COLUMNS: tuple[str, ...] = (
     "peak_vram_mb",
 )
 
-#: WIDE eval-log schema (OQ2): context + shared METRIC_COLUMNS (default 0.5) + opt_* sweep + efficiency.
+#: WIDE eval-log schema (OQ2): context + shared METRIC_COLUMNS (default 0.5) + ``tuned_*``
+#: (val-tuned thresholds applied to this split — the REPORTABLE operating point, M2) + ``oracle_*``
+#: (same-split sweep — leakage, log-only) + efficiency.
 EVAL_LOG_COLUMNS: tuple[str, ...] = (
     ("timestamp", "checkpoint", "model_type", "split", "n_samples")
     + METRIC_COLUMNS
-    + tuple(f"opt_{task}_{suffix}" for task in TASKS for suffix in _OPT_SUFFIXES)
-    + ("opt_overall_acc",)
+    + tuple(f"tuned_{task}_{suffix}" for task in TASKS for suffix in _THRESH_SUFFIXES)
+    + ("tuned_macro_acc",)
+    + tuple(f"oracle_{task}_{suffix}" for task in TASKS for suffix in _THRESH_SUFFIXES)
+    + ("oracle_macro_acc",)
     + _EFFICIENCY_COLUMNS
 )
 
@@ -93,7 +110,9 @@ class EvalArtifacts:
     """Pure in-memory result of one evaluation pass (no I/O)."""
 
     metrics: MetricResult                          # MetricAccumulator.compute() — default-0.5-threshold
-    optimal: dict[str, float]                       # optimal_threshold_metrics(EvalCfg) — thresholds + metrics
+    oracle: dict[str, float]                        # SAME-split sweep (M2: leakage; log-only, never report)
+    thresholds: dict[str, float]                    # per-task swept thresholds of THIS split (saved on val)
+    tuned: dict[str, float] | None                  # metrics at loaded val-tuned thresholds (None if absent)
     n_samples: int
     predictions: dict[str, np.ndarray] | None        # populated if EITHER collect flag set (else None)
     temporal_weights: np.ndarray | None              # [N, T] softmax weights — FULL model only (else None)
@@ -147,6 +166,7 @@ def evaluate_model(
     use_amp: bool = False,
     collect_predictions: bool = False,
     collect_temporal_weights: bool = False,
+    tuned_thresholds: dict[str, float] | None = None,
 ) -> EvalArtifacts:
     """Run ``model`` over every loader; return metrics (+ optional per-sample preds / temporal weights).
 
@@ -154,6 +174,9 @@ def evaluate_model(
     concatenation). ``crosses`` is scored on ``crosses_frame`` once (B4). ``temporal_weights`` is collected
     from ``outputs["temporal_weights"]`` only when present (full model). ``predictions`` is populated when
     either collection flag is set (the temporal-weight NPZ needs the per-task ground truth).
+
+    ``tuned_thresholds`` (M2): per-task cutoffs tuned on **val** — when given, ``artifacts.tuned``
+    holds the metrics at those fixed cutoffs on this split (the reportable numbers).
     """
     model.eval()
     acc = MetricAccumulator()
@@ -182,9 +205,12 @@ def evaluate_model(
         _extract_predictions(acc) if (collect_predictions or collect_temporal_weights) else None
     )
     temporal_weights = torch.cat(tw_chunks).numpy() if tw_chunks else None
+    swept = acc.sweep_thresholds(cfg)
     return EvalArtifacts(
         metrics=acc.compute(),
-        optimal=acc.optimal_threshold_metrics(cfg),
+        oracle=acc.metrics_at_thresholds(swept),
+        thresholds=swept,
+        tuned=acc.metrics_at_thresholds(tuned_thresholds) if tuned_thresholds is not None else None,
         n_samples=acc.n_samples,
         predictions=predictions,
         temporal_weights=temporal_weights,
@@ -192,6 +218,23 @@ def evaluate_model(
 
 
 # --------------------------------------------------------------------------- artifact writers
+
+
+def save_thresholds(run_dir: Path, thresholds: dict[str, float], *, tuned_on: str) -> Path:
+    """Persist val-tuned per-task thresholds to ``<run_dir>/thresholds.json`` (M2)."""
+    path = Path(run_dir) / THRESHOLDS_FILENAME
+    payload = {"tuned_on_split": tuned_on, "thresholds": {t: float(v) for t, v in thresholds.items()}}
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def load_thresholds(run_dir: Path) -> dict[str, float] | None:
+    """Read the stored val-tuned thresholds, or ``None`` when no val pass has run for this run dir."""
+    path = Path(run_dir) / THRESHOLDS_FILENAME
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {task: float(thr) for task, thr in payload["thresholds"].items()}
 
 
 def save_predictions_npz(path: Path, predictions: dict[str, np.ndarray]) -> Path:
@@ -290,13 +333,18 @@ def _resolve_run_dir(cfg: RootCfg, checkpoint: str | Path) -> RunDir:
 
 def _build_eval_row(
     artifacts: EvalArtifacts,
+    tuned: dict[str, float] | None,
     *,
     checkpoint: str | Path,
     model_type: str,
     split: str,
     efficiency: dict[str, float] | None,
 ) -> dict[str, object]:
-    """Assemble one ``EVAL_LOG_COLUMNS`` row (context + metrics + threshold sweep + efficiency)."""
+    """Assemble one ``EVAL_LOG_COLUMNS`` row (context + metrics + tuned/oracle thresholds + efficiency).
+
+    ``tuned`` is the val-tuned-threshold metric dict for this split (blank columns when ``None`` —
+    i.e. a test pass before any val pass stored thresholds). ``oracle_*`` is the same-split sweep.
+    """
     row: dict[str, object] = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "checkpoint": str(checkpoint),
@@ -306,9 +354,11 @@ def _build_eval_row(
     }
     row.update(artifacts.metrics.as_flat_dict())
     for task in TASKS:
-        for suffix in _OPT_SUFFIXES:
-            row[f"opt_{task}_{suffix}"] = artifacts.optimal[f"{task}_{suffix}"]
-    row["opt_overall_acc"] = artifacts.optimal["overall_acc"]
+        for suffix in _THRESH_SUFFIXES:
+            row[f"tuned_{task}_{suffix}"] = tuned[f"{task}_{suffix}"] if tuned is not None else ""
+            row[f"oracle_{task}_{suffix}"] = artifacts.oracle[f"{task}_{suffix}"]
+    row["tuned_macro_acc"] = tuned["macro_acc"] if tuned is not None else ""
+    row["oracle_macro_acc"] = artifacts.oracle["macro_acc"]
     eff = efficiency or {}
     for col in _EFFICIENCY_COLUMNS:
         row[col] = eff.get(col, "")
@@ -332,12 +382,24 @@ def run_evaluation(
     the run-dir (reused from the checkpoint, else a fresh ``..._eval`` dir; OQ7). Optionally saves
     ``plots/predictions.npz`` + ``plots/temporal_weights.npz`` for viz (6.2). ``efficiency`` (from 5.2) is
     folded into the CSV row; absent -> blanks.
+
+    Threshold protocol (M2): ``split='val'`` sweeps per-task thresholds on val and STORES them in the
+    run dir; any other split LOADS them and reports ``tuned_*`` at those frozen cutoffs (blank + a loud
+    warning when no val pass has run yet). The same-split sweep is logged as ``oracle_*`` only.
     """
     device = device if device is not None else get_device()
     enable_perf_flags(device)
     model_type = cfg.eval.model_type
     model = build_model(cfg, model_type).to(device)
     load_eval_weights(model, checkpoint, device=device, strict=strict)
+
+    run = _resolve_run_dir(cfg, checkpoint)            # resolved BEFORE eval: the test pass loads thresholds
+    stored_thresholds = load_thresholds(run.path) if split != "val" else None
+    if split != "val" and stored_thresholds is None:
+        print(
+            f"[run_evaluation] WARNING: no {THRESHOLDS_FILENAME} in {run.path} — tuned_* columns will be "
+            "blank. Run `evaluate.py --split val` with this checkpoint first to freeze val-tuned thresholds."
+        )
 
     is_full = ModelType.coerce(model_type) is ModelType.FULL
     artifacts = evaluate_model(
@@ -348,11 +410,19 @@ def run_evaluation(
         use_amp=resolve_amp(cfg.train.use_amp, device),
         collect_predictions=save_predictions,
         collect_temporal_weights=save_temporal_weights and is_full,
+        tuned_thresholds=stored_thresholds,
     )
 
-    run = _resolve_run_dir(cfg, checkpoint)
+    if split == "val":
+        # The val sweep IS the tuning pass: freeze the thresholds for later test passes; on val,
+        # tuned == oracle by construction (both are the val-swept operating point).
+        save_thresholds(run.path, artifacts.thresholds, tuned_on=split)
+        tuned = artifacts.oracle
+    else:
+        tuned = artifacts.tuned
+
     row = _build_eval_row(
-        artifacts, checkpoint=checkpoint, model_type=model_type, split=split, efficiency=efficiency
+        artifacts, tuned, checkpoint=checkpoint, model_type=model_type, split=split, efficiency=efficiency
     )
     with run.eval_logger(EVAL_LOG_COLUMNS) as logger:
         logger.log(round_row(row))

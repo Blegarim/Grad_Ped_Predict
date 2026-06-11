@@ -178,6 +178,43 @@ def test_scheduler_built_min_mode_and_earlystop_trips(golden: dict) -> None:
     assert es.early_stop
 
 
+def test_selection_value_modes(golden: dict) -> None:
+    """M8: the minimized selection scalar is val_loss as-is, or the NEGATED configured F1 metric."""
+    import dataclasses
+
+    from pedpredict.config.schema import TrainCfg
+    from pedpredict.training.metrics import MetricResult, TaskMetrics
+
+    tm = TaskMetrics(accuracy=0.5, f1=0.6, auc=0.5, precision=0.5, recall=0.5)
+    crosses_tm = TaskMetrics(accuracy=0.5, f1=0.2, auc=0.5, precision=0.5, recall=0.5)
+    metrics = MetricResult(
+        per_task={"actions": tm, "looks": tm, "crosses": crosses_tm},
+        macro_f1=0.47, overall_accuracy=0.5,
+    )
+
+    model = _fresh_model(golden)
+    loss = _loss_from_golden(golden)
+    for metric_name, expected in (("macro_f1", -0.47), ("crosses_f1", -0.2), ("val_loss", 1.23)):
+        cfg = dataclasses.replace(RootCfg(), train=dataclasses.replace(TrainCfg(), selection_metric=metric_name))
+        trainer = Trainer(cfg, model, _CPU, _ListChunkProvider([], []), loss=loss)
+        assert trainer.selection_metric == metric_name
+        assert trainer._selection_value(1.23, metrics) == pytest.approx(expected)
+        assert trainer.best_selection == float("inf")
+
+
+def test_uniform_class_weights_when_disabled(golden: dict) -> None:
+    """M1 lever-3 off-switch: use_class_weights=false builds the loss with [1, 1] per task, no scan."""
+    import dataclasses
+
+    from pedpredict.config.schema import TrainCfg
+
+    cfg = dataclasses.replace(RootCfg(), train=dataclasses.replace(TrainCfg(), use_class_weights=False))
+    model = _fresh_model(golden)
+    trainer = Trainer(cfg, model, _CPU, _ListChunkProvider([], []))   # no injected loss -> _build_loss
+    for task in _TASKS:
+        torch.testing.assert_close(trainer.loss.criteria[task].weight, torch.ones(2))
+
+
 # --------------------------------------------------------------------------- end-to-end smoke
 
 

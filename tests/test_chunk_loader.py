@@ -154,19 +154,59 @@ def test_chunk_order_preserved(tmp_path) -> None:
         assert list(it) == paths            # build_loader is identity -> yielded == input order
 
 
-def test_err_status_skips_chunk(tmp_path) -> None:
+def test_err_status_skips_chunk_with_warning(tmp_path) -> None:
     good = _make_chunks(tmp_path, 2)
     bad = str(tmp_path / "missing.lmdb")    # never written -> warm reports 'err'
     paths = [good[0], bad, good[1]]
     with _inline_iter(paths, preload_depth=3) as it:
-        assert list(it) == [good[0], good[1]]
+        with pytest.warns(RuntimeWarning, match="SKIPPING chunk"):   # C1: skips are LOUD now
+            assert list(it) == [good[0], good[1]]
 
 
-def test_timeout_skips_chunk(tmp_path) -> None:
-    """A warmer that never reports is skipped after ``queue_timeout`` — no hang, no yield."""
+def test_timeout_skips_chunk_with_warning(tmp_path) -> None:
+    """A warmer that never reports is skipped after ``queue_timeout`` — no hang, no yield, loud (C1)."""
     paths = _make_chunks(tmp_path, 2)
     with _inline_iter(paths, warm_fn=_skip_warm, queue_timeout=0.3, preload_depth=2) as it:
-        assert list(it) == []
+        with pytest.warns(RuntimeWarning, match="queue_timeout"):
+            assert list(it) == []
+
+
+def test_err_status_raises_under_raise_policy(tmp_path) -> None:
+    """C1: skip_policy='raise' (the validation path) turns a warm error into a hard error."""
+    good = _make_chunks(tmp_path, 1)
+    paths = [good[0], str(tmp_path / "missing.lmdb")]
+    with _inline_iter(paths, preload_depth=2, skip_policy="raise") as it:
+        assert next(it) == good[0]
+        with pytest.raises(RuntimeError, match="SKIPPING chunk"):
+            next(it)
+
+
+def test_timeout_raises_under_raise_policy(tmp_path) -> None:
+    paths = _make_chunks(tmp_path, 1)
+    with _inline_iter(paths, warm_fn=_skip_warm, queue_timeout=0.3, skip_policy="raise") as it:
+        with pytest.raises(RuntimeError, match="queue_timeout"):
+            next(it)
+
+
+def test_val_loaders_use_raise_policy(tmp_path, monkeypatch) -> None:
+    """C1 wiring: ChunkPrefetcher passes skip_policy='raise' for validation, 'warn' for train."""
+    import pedpredict.training.chunk_loader as cl
+
+    seen: list[str] = []
+    real_iter = cl.ChunkLoaderIterator
+
+    def _recorder(paths, build_loader, **kw):
+        seen.append(kw.get("skip_policy"))
+        return real_iter(paths, build_loader, **kw)
+
+    monkeypatch.setattr(cl, "ChunkLoaderIterator", _recorder)
+    paths = _make_chunks(tmp_path, 1)
+    pf = ChunkPrefetcher(RootCfg(), paths, paths, mp_context=_InlineCtx())
+    pf._build_train_loader = lambda p: p
+    pf._build_val_loader = lambda p: p
+    list(pf.epoch_loaders(0))
+    list(pf.val_loaders())
+    assert seen == ["warn", "raise"]
 
 
 def _skip_warm(idx: int, path: str, queue) -> None:  # noqa: ARG001

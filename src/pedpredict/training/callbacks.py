@@ -77,7 +77,8 @@ class CheckpointPayload(NamedTuple):
         last.pth / best.pth
         ├── pedpredict_ckpt_version : int     = 1
         ├── epoch                   : int     0-indexed epoch that completed
-        ├── best_val_loss           : float
+        ├── best_val_loss           : float   val loss AT the selected best epoch
+        ├── best_selection          : float   minimized M8 selection scalar (absent pre-M8 -> best_val_loss)
         ├── run_id                  : str
         ├── model_type              : str
         ├── model_state_dict        : OrderedDict
@@ -94,6 +95,7 @@ class CheckpointPayload(NamedTuple):
     optimizer_state_dict: dict[str, Any]
     scaler_state_dict: dict[str, Any]
     scheduler_state_dict: dict[str, Any]
+    best_selection: float = float("inf")
 
 
 class CheckpointManager:
@@ -207,6 +209,9 @@ class CheckpointManager:
             optimizer_state_dict=ckpt["optimizer_state_dict"],
             scaler_state_dict=ckpt["scaler_state_dict"],
             scheduler_state_dict=ckpt["scheduler_state_dict"],
+            # pre-M8 checkpoints lack the key; best_val_loss is the right value for them (they were
+            # selected on val_loss, whose selection scalar IS the val loss)
+            best_selection=ckpt.get("best_selection", ckpt["best_val_loss"]),
         )
 
     # ------------------------------------------------------------------ Convenience queries
@@ -232,6 +237,7 @@ class CheckpointManager:
             "pedpredict_ckpt_version": _CKPT_VERSION,
             "epoch": epoch,
             "best_val_loss": trainer.best_val_loss,
+            "best_selection": trainer.best_selection,
             "run_id": self.run_id,
             "model_type": self.model_type,
             "model_state_dict": trainer.model.state_dict(),

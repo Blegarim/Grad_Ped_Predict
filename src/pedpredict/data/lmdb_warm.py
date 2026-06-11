@@ -6,7 +6,11 @@ callable; if that module pulled in ``torch`` (as ``chunk_loader`` does, transiti
 every warm process would pay torch's multi-second import before it could read a single key. Keeping the
 worker here — importing only ``lmdb`` + stdlib — lets the warm children start fast.
 
-This is the EXACT port of OLD ``scripts/train_utils.py:80-98`` ``mp_async_load``.
+Q1 fix over the OLD ``mp_async_load`` port: the legacy worker read exactly ONE ``_meta`` key — the whole
+spawn/queue/RAM-gate apparatus pre-loaded a few KB of a multi-GB chunk, so the prefetcher delivered
+~none of its intended benefit on an HDD. The worker now walks the full cursor (keys AND values), which
+faults every used page into the OS cache in B-tree order — for a chunk written in one append pass that
+is a near-sequential read of the real payload (~2-3 GB), exactly what an HDD wants.
 """
 
 from __future__ import annotations
@@ -22,20 +26,18 @@ WarmResult = tuple[int, str, str]
 
 
 def warm_lmdb_chunk(idx: int, path: str, queue: mp.Queue[WarmResult]) -> None:
-    """Warm one LMDB chunk's OS page cache, then return its path — EXACT port of ``mp_async_load``.
+    """Warm one LMDB chunk's OS page cache for real (Q1), then report its path.
 
-    Opens the chunk read-only, reads a single ``_meta`` key to encourage OS file caching, closes, and
-    puts ``(idx, 'ok', path)``; any failure puts ``(idx, 'err', <message>)`` so the parent can skip it.
+    Opens the chunk read-only and iterates the full cursor — py-lmdb materializes each value as
+    ``bytes``, touching every used page — then puts ``(idx, 'ok', path)``; any failure puts
+    ``(idx, 'err', <message>)`` so the parent can skip/raise per its skip policy (C1).
     Must stay module-level (and in a torch-free module): ``spawn``/Windows pickles the target by reference.
     """
     try:
         env = lmdb.open(path, readonly=True, lock=False)
         with env.begin(write=False) as txn:
-            cursor = txn.cursor()
-            for key, _ in cursor:
-                if key.decode().endswith("_meta"):
-                    _ = txn.get(key)
-                    break
+            for _ in txn.cursor():
+                pass
         env.close()
         queue.put((idx, "ok", path))
     except Exception as exc:  # noqa: BLE001 — any failure is reported, never raised in the child

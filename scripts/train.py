@@ -31,6 +31,7 @@ from pedpredict.training.schedule import run_phase_schedule
 from pedpredict.training.trainer import build_trainer
 from pedpredict.utils.device import get_device
 from pedpredict.utils.logging import create_run_dir, make_run_id
+from pedpredict.utils.seed import set_seed
 
 
 def _build_chunk_builders(cfg, *, device, scan_cache):
@@ -69,15 +70,19 @@ def main(argv=None) -> int:
     parser = build_argparser()
     args = parser.parse_args(argv)
     cfg = load_config(args.config_dir, args.overrides)
+    set_seed(cfg.train.seed)        # M7: seed BEFORE model init / sampler / shuffle (snapshot logs it)
 
     device = get_device()
 
     if cfg.schedule.enabled:
         # ---------------------------------------------------------------- multi-phase schedule
-        from pedpredict.data.sampler import LabelScanCache, class_weights_ce
+        import torch
+
+        from pedpredict.data.sampler import TASKS, LabelScanCache, class_weights_ce
         from pedpredict.losses.multitask import build_multitask_loss
         from pedpredict.models.registry import build_model
         from pedpredict.training.callbacks import CheckpointManager
+        from pedpredict.training.distribution import write_distribution_report
         from pedpredict.training.trainer import Trainer
         from pedpredict.utils.device import enable_perf_flags
 
@@ -86,12 +91,18 @@ def main(argv=None) -> int:
         run_dir = create_run_dir(Path(cfg.paths.runs_dir), run_id)
 
         # Build loss once from the augmented (full) train set — shared across all phases.
+        # train.use_class_weights=false (M1 lever-3 off-switch) -> uniform weights, no scan.
         scan_cache = LabelScanCache()
         resolved = resolve_paths(cfg.paths)
         augmented_paths = gather_lmdb_chunks(resolved.lmdb_train)
-        counts = scan_cache.aggregate_counts(augmented_paths)
-        class_weights = class_weights_ce(counts, device=device)
+        if cfg.train.use_class_weights:
+            counts = scan_cache.aggregate_counts(augmented_paths)
+            class_weights = class_weights_ce(counts, device=device)
+        else:
+            class_weights = {task: torch.ones(2, device=device) for task in TASKS}
         loss = build_multitask_loss(cfg.train, class_weights).to(device)
+        # M1 instrument: effective sampler-draw distribution over the augmented train set.
+        write_distribution_report(run_dir, augmented_paths, cfg.train, scan_cache=scan_cache)
 
         model = build_model(cfg)
         chunk_builders = _build_chunk_builders(cfg, device=device, scan_cache=scan_cache)

@@ -1,4 +1,4 @@
-"""Training: trainer, chunk_loader, callbacks, metrics, schedule (P4)."""
+"""Training: trainer, chunk_loader, callbacks, metrics, schedule, distribution (P4)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,11 @@ from pedpredict.training.chunk_loader import (
     ChunkPrefetcher,
     gather_lmdb_chunks,
     warm_lmdb_chunk,
+)
+from pedpredict.training.distribution import (
+    DISTRIBUTION_FILENAME,
+    effective_distribution,
+    write_distribution_report,
 )
 from pedpredict.training.metrics import (
     METRIC_COLUMNS,
@@ -27,6 +32,7 @@ from pedpredict.training.trainer import (
 )
 
 __all__ = [
+    "DISTRIBUTION_FILENAME",
     "METRIC_COLUMNS",
     "TRAIN_LOG_COLUMNS",
     "Checkpointer",
@@ -44,9 +50,11 @@ __all__ = [
     "TaskMetrics",
     "Trainer",
     "build_trainer",
+    "effective_distribution",
     "freeze_backbone",
     "gather_lmdb_chunks",
     "run_phase_schedule",
     "unfreeze_all",
     "warm_lmdb_chunk",
+    "write_distribution_report",
 ]

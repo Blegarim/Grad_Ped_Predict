@@ -13,6 +13,8 @@ import pytest
 
 from pedpredict.data.incremental import (
     BuildStep,
+    assert_resume_safe,
+    count_chunk_records,
     extract_video_frames,
     iter_build_steps,
     next_chunk_start,
@@ -58,6 +60,47 @@ def test_parse_frame_path_rejects_garbage():
 def test_next_chunk_start():
     assert next_chunk_start([], 5000) == 0
     assert next_chunk_start([0, 5000, 10000, 15000], 5000) == 20000
+
+
+# --------------------------------------------------------------------------- C2 resume guard
+
+
+def _write_meta_chunk(path, n: int) -> None:
+    """A chunk LMDB with ``n`` committed ``_meta`` keys (the writer's per-sample completion marker)."""
+    import pickle
+
+    import lmdb
+
+    env = lmdb.open(str(path), map_size=8 * 1024 * 1024)
+    try:
+        with env.begin(write=True) as txn:
+            for i in range(n):
+                txn.put(f"{i}_meta".encode(), pickle.dumps({"actions": 0, "looks": 0, "crosses": 0}))
+    finally:
+        env.close()
+
+
+def test_count_chunk_records(tmp_path):
+    _write_meta_chunk(tmp_path / "chunk_000000.lmdb", n=4)
+    assert count_chunk_records(tmp_path / "chunk_000000.lmdb") == 4
+
+
+def test_resume_safe_passes_on_complete_final_chunk(tmp_path):
+    _write_meta_chunk(tmp_path / "chunk_000000.lmdb", n=4)   # full chunk (chunk_size=4)
+    _write_meta_chunk(tmp_path / "chunk_000004.lmdb", n=2)   # final TAIL chunk: 6 - 4 = 2 expected
+    assert_resume_safe(tmp_path, n_records=6, chunk_size=4)  # must not raise
+
+
+def test_resume_safe_refuses_short_final_chunk(tmp_path):
+    """The crash case: the highest chunk exists but died mid-write — auto-resume must refuse."""
+    _write_meta_chunk(tmp_path / "chunk_000000.lmdb", n=4)
+    _write_meta_chunk(tmp_path / "chunk_000004.lmdb", n=1)   # expected 4 (12 records, chunk_size=4)
+    with pytest.raises(RuntimeError, match="incomplete"):
+        assert_resume_safe(tmp_path, n_records=12, chunk_size=4)
+
+
+def test_resume_safe_noop_without_chunks(tmp_path):
+    assert_resume_safe(tmp_path / "absent", n_records=10, chunk_size=4)  # no dir -> nothing to guard
 
 
 def _video_keys(step: BuildStep) -> list[tuple[str, str]]:

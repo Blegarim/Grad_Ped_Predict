@@ -25,6 +25,9 @@ Behavior preserved vs OLD (B9 is orchestration, not math — no tensor changes):
 
 * preload depth, per-spawn RAM gating, per-epoch reshuffle, and the timeout/err **skip** semantics
   (a skipped chunk shrinks the warm window exactly as the legacy ``continue`` did — no replacement spawn).
+  C1 hardening on top: every skip now emits a loud ``RuntimeWarning`` naming the chunk (the legacy path
+  was fully silent), and **validation** uses ``skip_policy="raise"`` — a partial val set would make
+  ``val_loss``/val metrics silently non-comparable across epochs, so it is a hard error instead.
 * One intentional, behavior-neutral reorder: the next chunk's warm is spawned *before* the current
   loader is yielded (so warming overlaps the current chunk's training), where OLD spawned it after
   ``train_one_chunk``. Warming is an unobservable OS-cache side effect; only its timing moves.
@@ -40,6 +43,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import random
+import warnings
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from queue import Empty
@@ -89,10 +93,14 @@ class ChunkLoaderIterator:
         queue_timeout: float,
         mp_context: mp.context.BaseContext | None = None,
         warm_fn: WarmWorker = warm_lmdb_chunk,
+        skip_policy: str = "warn",
     ) -> None:
+        if skip_policy not in ("warn", "raise"):
+            raise ValueError(f"skip_policy must be 'warn' or 'raise'; got {skip_policy!r}")
         self._paths = list(chunk_paths)
         self._build_loader = build_loader
         self._warm_fn = warm_fn
+        self._skip_policy = skip_policy        # C1: "warn" = legacy skip but LOUD; "raise" = hard error (val)
         self._preload = max(1, min(preload_depth, len(self._paths))) if self._paths else 0
         self._ram_threshold = ram_threshold
         self._mem_interval = mem_interval
@@ -131,8 +139,18 @@ class ChunkLoaderIterator:
                 raise StopIteration
             idx = self._cursor
             self._cursor += 1
-            payload = self._await_chunk(idx)
-            if payload is None:          # timed out or warm error -> skip (OLD :393-399, :406-408)
+            status, payload = self._await_chunk(idx)
+            if status != "ok":           # timed out or warm error (OLD silently `continue`d — C1: loud)
+                reason = (
+                    f"warm worker did not report within queue_timeout={self._queue_timeout}s"
+                    if status == "timeout"
+                    else f"warm worker error: {payload}"
+                )
+                msg = f"[ChunkLoaderIterator] SKIPPING chunk {self._paths[idx]!r} — {reason}"
+                if self._skip_policy == "raise":
+                    self.close()
+                    raise RuntimeError(msg + " (skip_policy='raise': a partial pass is not acceptable)")
+                warnings.warn(msg, RuntimeWarning, stacklevel=2)
                 continue
             self._spawn(idx + self._preload)   # warm the next chunk before training this one
             return self._build_loader(payload)
@@ -178,12 +196,14 @@ class ChunkLoaderIterator:
         proc.start()
         self._procs[idx] = proc
 
-    def _await_chunk(self, idx: int) -> str | None:
-        """Drain the queue until ``idx`` is ready; return its path, or ``None`` to skip it.
+    def _await_chunk(self, idx: int) -> tuple[str, str | None]:
+        """Drain the queue until ``idx`` is ready; return ``(status, payload)``.
 
-        Mirrors OLD train.py:389-408: ``Empty`` (queue timeout) terminates the stuck warmer and skips;
-        a ``'err'`` status skips after joining. A skipped chunk does NOT trigger a replacement spawn —
-        the warm window shrinks exactly as the legacy ``continue`` did.
+        ``("ok", path)`` when warmed; ``("timeout", None)`` when the warmer never reported within
+        ``queue_timeout`` (the stuck process is terminated); ``("err", message)`` when the warm worker
+        reported a failure. The caller (``__next__``) decides skip-vs-raise per ``skip_policy`` (C1).
+        A skipped chunk does NOT trigger a replacement spawn — the warm window shrinks exactly as the
+        legacy ``continue`` did.
         """
         assert self._queue is not None
         try:
@@ -192,10 +212,10 @@ class ChunkLoaderIterator:
                 self._results[got_idx] = (status, payload)
         except Empty:
             self._reap(idx, terminate=True)
-            return None
+            return "timeout", None
         status, payload = self._results.pop(idx)
         self._reap(idx, terminate=False)
-        return payload if status == "ok" else None
+        return ("ok", payload) if status == "ok" else ("err", payload)
 
     def _reap(self, idx: int, *, terminate: bool) -> None:
         """Join (optionally terminate) the warmer for ``idx`` and drop it from the live set."""
@@ -279,16 +299,26 @@ class ChunkPrefetcher:
     # ----------------------------------------------------------------- ChunkProvider surface
 
     def epoch_loaders(self, epoch: int) -> Iterator[DataLoader]:
-        """Yield reshuffled train-chunk loaders for one epoch (OLD :375 per-epoch ``random.shuffle``)."""
+        """Yield reshuffled train-chunk loaders for one epoch (OLD :375 per-epoch ``random.shuffle``).
+
+        Train skips stay skip-tolerant (a slow warm shouldn't kill a long run) but are loudly
+        warned (C1) — watch for ``SKIPPING chunk`` warnings on slow disks.
+        """
         paths = list(self.train_lmdb_paths)
         self._rng.shuffle(paths)
-        with ChunkLoaderIterator(paths, self._build_train_loader, **self._iter_kwargs) as iterator:
+        with ChunkLoaderIterator(
+            paths, self._build_train_loader, skip_policy="warn", **self._iter_kwargs
+        ) as iterator:
             yield from iterator
 
     def val_loaders(self) -> Iterator[DataLoader]:
-        """Yield validation-chunk loaders in stable (sorted) order; no sampler, no shuffle."""
+        """Yield validation-chunk loaders in stable (sorted) order; no sampler, no shuffle.
+
+        C1: a skipped val chunk is a HARD ERROR — ``val_loss`` selects best.pth and stops training,
+        so it must never be computed over a silently varying subset of validation.
+        """
         with ChunkLoaderIterator(
-            self.val_lmdb_paths, self._build_val_loader, **self._iter_kwargs
+            self.val_lmdb_paths, self._build_val_loader, skip_policy="raise", **self._iter_kwargs
         ) as iterator:
             yield from iterator
 
@@ -311,14 +341,20 @@ class ChunkPrefetcher:
         }
 
     def _loader_kwargs(self) -> dict[str, object]:
-        """Common DataLoader kwargs (OLD train.py:414-423)."""
+        """Common DataLoader kwargs (OLD train.py:414-423).
+
+        Q2: ``persistent_workers`` is on (with workers) so a loader's workers survive iterator
+        exhaustion. NOTE the structural limit: loaders are still built per chunk, so workers are
+        respawned per chunk regardless — the real fix is the standard-sharding rework (backlog 7);
+        this only stops same-loader respawns and costs nothing.
+        """
         t = self.cfg.train
         kwargs: dict[str, object] = {
             "batch_size": t.batch_size,
             "num_workers": t.num_workers,
             "collate_fn": self._collate,
             "pin_memory": self._pin,
-            "persistent_workers": False,
+            "persistent_workers": t.num_workers > 0,
         }
         if t.num_workers > 0:
             kwargs["prefetch_factor"] = t.dataloader_prefetch_factor

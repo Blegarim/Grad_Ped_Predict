@@ -45,7 +45,7 @@ src/pedpredict/        # installable package (pip install -e .)
             balance augment collate sampler stats
   models/   vit geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask.py
-  training/ trainer chunk_loader callbacks schedule metrics
+  training/ trainer chunk_loader callbacks schedule metrics distribution
   eval/     evaluate benchmark inference
   viz/      plots qualitative
   export/   onnx.py

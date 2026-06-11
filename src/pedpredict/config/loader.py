@@ -63,6 +63,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
 _FRAME_POOLS = frozenset({"logsumexp", "max", "mean"})  # CrossAttentionModule frame-pool modes (2.3)
+_SELECTION_METRICS = frozenset({"val_loss", "macro_f1", "crosses_f1"})  # M8 best-ckpt/early-stop scalar
 
 
 class ConfigError(ValueError):
@@ -286,6 +287,12 @@ def validate_config(root: RootCfg) -> None:
     # training-loop invariants
     if t.grad_clip_max_norm <= 0.0:
         raise ConfigError(f"train.grad_clip_max_norm must be > 0; got {t.grad_clip_max_norm}")
+    if t.seed < 0:
+        raise ConfigError(f"train.seed must be >= 0; got {t.seed}")
+    if t.selection_metric not in _SELECTION_METRICS:
+        raise ConfigError(
+            f"train.selection_metric must be one of {sorted(_SELECTION_METRICS)}; got {t.selection_metric!r}"
+        )
 
     # chunk prefetch loader invariants
     if t.chunk_preload_depth < 1:
@@ -330,8 +337,6 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(f"infer.detector_conf must be in [0, 1]; got {inf.detector_conf}")
     if inf.detector_class_idx < 0:
         raise ConfigError(f"infer.detector_class_idx must be >= 0; got {inf.detector_class_idx}")
-    if inf.smooth_window < 0:
-        raise ConfigError(f"infer.smooth_window must be >= 0; got {inf.smooth_window}")
     if inf.window_stride < 1:
         raise ConfigError(f"infer.window_stride must be >= 1; got {inf.window_stride}")
     if inf.batch_size <= 0:

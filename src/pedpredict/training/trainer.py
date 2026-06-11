@@ -41,9 +41,10 @@ from tqdm.auto import tqdm
 
 from pedpredict.config.schema import PhaseCfg, RootCfg
 from pedpredict.data.sampler import LabelScanCache, class_weights_ce
-from pedpredict.losses.multitask import MultiTaskLoss, build_multitask_loss
+from pedpredict.losses.multitask import TASKS, MultiTaskLoss, build_multitask_loss
 from pedpredict.models.registry import build_model, forward_model
 from pedpredict.training.callbacks import CheckpointManager, EarlyStopping
+from pedpredict.training.distribution import write_distribution_report
 from pedpredict.training.metrics import METRIC_COLUMNS, MetricAccumulator, MetricResult
 from pedpredict.utils.amp import autocast_ctx, make_grad_scaler, resolve_amp
 from pedpredict.utils.device import enable_perf_flags, get_device
@@ -202,6 +203,11 @@ class Trainer:
             patience=cfg.train.early_stop_patience, min_delta=cfg.train.early_stop_min_delta
         )
         self.checkpointer = checkpointer if checkpointer is not None else ModelStateCheckpointer(None)
+        #: M8 selection: ``selection_metric`` names the scalar that picks best.pth + drives early stop
+        #: (``val_loss`` minimized; F1 metrics maximized via sign flip in :meth:`_selection_value`).
+        #: ``best_val_loss`` remains the val loss AT the selected best epoch (checkpoint/index column).
+        self.selection_metric = cfg.train.selection_metric
+        self.best_selection = float("inf")
         self.best_val_loss = float("inf")
         self._start_epoch = start_epoch
         self._best_epoch = -1
@@ -217,7 +223,14 @@ class Trainer:
     # ----------------------------------------------------------------- construction helpers
 
     def _build_loss(self) -> MultiTaskLoss:
-        """GLOBAL inverse-freq CE weights from ONE scan over the train chunks (1.6) -> loss (3.1)."""
+        """GLOBAL inverse-freq CE weights from ONE scan over the train chunks (1.6) -> loss (3.1).
+
+        ``train.use_class_weights=false`` (M1 lever-3 off-switch) skips the scan and uses uniform
+        class weights — plain CE, so the lever combination is fully expressible from config.
+        """
+        if not self.cfg.train.use_class_weights:
+            uniform = {task: torch.ones(2, device=self.device) for task in TASKS}
+            return build_multitask_loss(self.cfg.train, uniform)
         counts = self.scan_cache.aggregate_counts(self.chunks.train_lmdb_paths)
         class_weights = class_weights_ce(counts, device=self.device)
         return build_multitask_loss(self.cfg.train, class_weights)
@@ -272,27 +285,40 @@ class Trainer:
     def train_chunk(self, loader: DataLoader, *, progress: tqdm | None = None) -> tuple[float, int]:
         """Train over one chunk's loader. Returns ``(loss_sum, n_batches)`` (OLD train_one_chunk).
 
-        ``progress`` (optional) is the shared per-epoch tqdm bar advanced one tick per batch.
+        Q4: the per-batch loss is accumulated ON-DEVICE (float64, so the sum matches the legacy
+        python-float accumulation) and synced to the host ONCE per chunk — the old per-batch
+        ``float(total)`` forced a GPU sync every step. The tqdm loss postfix therefore updates per
+        chunk, not per batch. ``progress`` (optional) is the shared per-epoch bar, ticked per batch.
         """
         self.model.train()
-        loss_sum = 0.0
+        loss_sum_t: torch.Tensor | None = None
         n_batches = 0
         for batch in loader:
-            loss_sum += float(self._step_batch(batch))
+            total = self._step_batch(batch)
+            loss_sum_t = total.double() if loss_sum_t is None else loss_sum_t + total.double()
             n_batches += 1
             if progress is not None:
                 progress.update(1)
-                progress.set_postfix(loss=loss_sum / n_batches)
+        loss_sum = float(loss_sum_t) if loss_sum_t is not None else 0.0
+        if progress is not None and n_batches:
+            progress.set_postfix(loss=loss_sum / n_batches)
         return loss_sum, n_batches
 
     # ----------------------------------------------------------------- validation
+
+    def _selection_value(self, val_loss: float, metrics: MetricResult) -> float:
+        """The minimized scalar for best-ckpt + early stop (M8). F1 metrics are negated (maximized)."""
+        if self.selection_metric == "val_loss":
+            return val_loss
+        return -metrics.as_flat_dict()[self.selection_metric]
 
     def validate(self) -> tuple[float, MetricResult]:
         """Validate over all val chunks. Returns ``(val_loss, metrics)`` (OLD validate_one_epoch + :574-596).
 
         ``val_loss`` is the per-sample mean weighted loss (OLD accumulation: ``Σ total·B / ΣB``) — the
-        scalar that drives the scheduler, early stopping, and best-checkpoint selection. Metrics come
-        from the shared :class:`MetricAccumulator` (3.2); crosses routes to ``crosses_frame`` (B4).
+        scalar the LR scheduler steps on; best-checkpoint selection and early stopping read
+        ``train.selection_metric`` instead (M8). Metrics come from the shared
+        :class:`MetricAccumulator` (3.2); crosses routes to ``crosses_frame`` (B4).
         """
         self.model.eval()
         acc = MetricAccumulator()
@@ -355,6 +381,7 @@ class Trainer:
         )
         self.early_stopping = EarlyStopping(phase.early_stop_patience, phase.early_stop_min_delta)
         self.scaler = make_grad_scaler(self.use_amp)
+        self.best_selection = float("inf")
         self.best_val_loss = float("inf")
         self._best_epoch = -1
         self._start_epoch = 0
@@ -376,9 +403,11 @@ class Trainer:
                 val_loss, metrics = self.validate()
                 lr = self.optimizer.param_groups[0]["lr"]        # lr used during this epoch
                 epoch_time_s = time.perf_counter() - t0
-                self.scheduler.step(val_loss)                    # OLD train.py:598
+                self.scheduler.step(val_loss)                    # scheduler stays on val_loss (M8)
                 self._log_epoch(epoch, train_loss, val_loss, metrics, lr, epoch_time_s)
-                if val_loss < self.best_val_loss:                # OLD train.py:616-620
+                selection = self._selection_value(val_loss, metrics)
+                if selection < self.best_selection:              # M8: cfg-selected scalar picks best.pth
+                    self.best_selection = selection
                     self.best_val_loss = val_loss
                     self._best_epoch = epoch
                     self.checkpointer.save_best(self, epoch, val_loss)
@@ -387,7 +416,7 @@ class Trainer:
                 # resume with _start_epoch = epoch + 1 is correct; OLD train.py:509 wrote
                 # model-only weights pre-validation (fine for warm-start, wrong for full resume)
                 self.checkpointer.save_last(self, epoch)
-                self.early_stopping(val_loss)                    # OLD train.py:622-627
+                self.early_stopping(selection)                   # M8: stop on the selection scalar
                 if self.early_stopping.early_stop:
                     break
         finally:
@@ -501,6 +530,12 @@ def build_trainer(
         run_dir=run_dir,
     )
     trainer.run_tag = tag                                        # for the cross-run index row (4.5)
+    # M1 instrument: log the effective per-task sampler-draw distribution into the run dir, reusing
+    # the scan cache the loss lever already filled (no extra LMDB passes when class weights are on).
+    if chunks.train_lmdb_paths:
+        write_distribution_report(
+            run_dir, chunks.train_lmdb_paths, cfg.train, scan_cache=trainer.scan_cache
+        )
     if resume_from is not None:
         payload = CheckpointManager.load(
             resume_from,
@@ -511,6 +546,7 @@ def build_trainer(
             device=device,
         )
         trainer.best_val_loss = payload.best_val_loss
+        trainer.best_selection = payload.best_selection
         trainer._best_epoch = payload.epoch
         trainer._start_epoch = payload.epoch + 1
     return trainer

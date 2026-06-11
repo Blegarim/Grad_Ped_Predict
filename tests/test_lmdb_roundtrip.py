@@ -102,10 +102,16 @@ def test_encode_jpeg_bytes_roundtrip() -> None:
 
 
 def test_compute_map_size_matches_legacy_formula() -> None:
-    cfg = DataCfg()
+    # The heuristic path (lmdb_map_size_bytes=None) still pins the OLD preprocess formula exactly.
+    cfg = dataclasses.replace(DataCfg(), lmdb_map_size_bytes=None)
     for n in (100, 100_000):  # floor branch, then estimate branch
         expected = max(int(n * 2 * (512 * 512 * 3) * 0.25 * 5 * 1.5), 4 * 1024**3)
         assert compute_map_size(n, cfg) == expected
+
+
+def test_compute_map_size_default_is_explicit_4gib() -> None:
+    # C3: the default is an explicit 4 GiB (Windows pre-allocates the file at map_size).
+    assert compute_map_size(999_999, DataCfg()) == 4 * 1024**3
 
 
 def test_compute_map_size_override() -> None:

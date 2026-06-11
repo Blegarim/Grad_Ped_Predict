@@ -52,7 +52,9 @@ tight crop + motion → MotionEncoder    ───┘
   stays **CSV**. No hardcoded paths in code — everything flows from `configs/paths.yaml`.
   - **Run-dir convention**: one gitignored dir per run under `PathsCfg.runs_dir`
     (`outputs/runs/{run_id}/`, `run_id = {YYYYMMDD_HHMMSS}_{model_type}[_{tag}]`) holding
-    `resolved_config.yaml` (config snapshot) + `train_log.csv` (per-epoch train+val) +
+    `resolved_config.yaml` (config snapshot, incl. `train.seed`) + `train_log.csv` (per-epoch train+val) +
+    `train_distribution.json` (M1 instrument: effective per-task sampler-draw distribution) +
+    `thresholds.json` (M2: val-tuned decision thresholds, written by a `--split val` eval pass) +
     `checkpoints/{best,last}.pth` + `plots/`. Test metrics → `eval_log.csv`. Cross-run comparison =
     `outputs/runs/index.csv` (one row/run, `crosses_f1`-led; `rebuild_index` regenerates it). Schemas are
     composed once: metric columns from `training/metrics.METRIC_COLUMNS`, run/index machinery in
@@ -72,13 +74,13 @@ src/pedpredict/            # installable package (pip install -e .)
   models/   vit.py geometry.py motion_encoder.py cross_attention.py ensemble.py
             ablations.py heads.py registry.py   # typed model factory
   losses/   multitask.py             # unified class-weight + per-task weighting
-  training/ trainer.py chunk_loader.py callbacks.py schedule.py metrics.py
+  training/ trainer.py chunk_loader.py callbacks.py schedule.py metrics.py distribution.py
   eval/     evaluate.py benchmark.py inference.py
   viz/      plots.py qualitative.py
   export/   onnx.py
 scripts/    # thin CLI wrappers, one job each
   make_sequences.py build_lmdb.py build_lmdb_incremental.py balance_dataset.py augment_dataset.py count_labels.py
-  train.py evaluate.py visualize.py infer_video.py export_onnx.py
+  train.py evaluate.py report_distribution.py visualize.py infer_video.py export_onnx.py
 configs/    paths.yaml data.yaml model.yaml train.yaml schedule.yaml
             eval.yaml balance.yaml augment.yaml export.yaml infer.yaml
 tests/      config · data shapes · lmdb roundtrip · model shapes · losses · metrics · sampler ·
@@ -103,7 +105,9 @@ python scripts/count_labels.py                     # dataset-stats drift gate (n
 
 # Train / evaluate — config-first; override any field with --set section.field=value
 python scripts/train.py    --set model.model_type=full --set train.lr=5e-5
-python scripts/evaluate.py --set model.model_type=full # test metrics → run-dir eval_log.csv
+python scripts/evaluate.py --split val  --checkpoint <best.pth>  # 1) tune+store thresholds on val (M2)
+python scripts/evaluate.py --split test --checkpoint <best.pth>  # 2) report at frozen val thresholds
+python scripts/report_distribution.py                            # M1 instrument: effective sampler draws
 
 # Inference / export / viz
 python scripts/infer_video.py  ...                 # needs [infer] (YOLO detect/track)
@@ -165,6 +169,14 @@ A **single LMDB metadata scan** produces both class frequencies (for loss) and p
 augmentation, for ablation; when enabled, relax 2/3 so the levers don't triple-stack. The single metadata
 scan feeds 2 + 3 only; offline balance scans the sequence pkls (a separate offline artifact), not the LMDB.
 
+**Every lever is switchable from config** (M1): `augment.enabled`, `balance.enabled`,
+`train.use_weighted_sampler`, `train.use_class_weights` — the lever combination is the RQ3 ablation axis.
+**Never toggle blind:** the M1 instrument (`training/distribution.py`, auto-written to every run dir as
+`train_distribution.json`; standalone via `scripts/report_distribution.py`) reports the *effective*
+per-task positive rate of sampler draws vs. the stored base rate — under the current default stack the
+`crosses` training distribution is wildly above the 2.8% deployment rate, which is exactly what the
+instrument exists to expose.
+
 ## Evaluation
 
 Report **Accuracy, F1, AUC, Precision, Recall** (per task + macro-F1), logged to CSV. Also report
@@ -172,6 +184,19 @@ efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`
 `MetricAccumulator` is shared by training-validation and test (no divergence). Degenerate cases use
 `zero_division=0`; AUC needs softmax probabilities. Model types: `full`, `motion_only`, `visual_only`,
 `vanilla_concat` — selected via the typed registry, not raw strings.
+
+**Experimental-validity rules (M2/M7/M8 — non-negotiable):**
+- **Thresholds are tuned on val, never test.** `evaluate.py --split val` sweeps per-task F1-optimal
+  thresholds and stores them in the run dir (`thresholds.json`); `--split test` loads and applies them —
+  the `tuned_*` columns (incl. `tuned_macro_acc`) are the ONLY reportable threshold-tuned numbers. The
+  same-split sweep is logged as `oracle_*` / `oracle_macro_acc` (test-set leakage — diagnosis only,
+  **never quote in a results table**). `overall_acc` = pooled micro accuracy; `*_macro_acc` = mean of
+  per-task accuracies (Q3 disambiguation).
+- **Every run is seeded** (`train.seed`, default 42; in the config snapshot). Multi-seed protocol:
+  screen with 1 seed, confirm finalists with 3, report mean±std.
+- **Model selection + early stopping read `train.selection_metric`** (default `macro_f1`, maximized;
+  options `val_loss`, `crosses_f1`) — the LR scheduler stays on `val_loss`. `best_val_loss` in
+  checkpoints/index = the val loss at the *selected* best epoch.
 
 ## Working Conventions
 

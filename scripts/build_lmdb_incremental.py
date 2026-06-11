@@ -6,7 +6,8 @@ videos straddling the current chunk on disk: per chunk it extracts only the fram
 sequence pkl must already exist (``make_sequences.py`` — annotations only, tiny). See
 :mod:`pedpredict.data.incremental` for the plan and setup.md "Incremental extraction".
 
-    # finish a train build that died at chunk 20000 (delete the partial chunk_020000.lmdb first):
+    # finish a crashed train build — a short (mid-write) final chunk is detected and refused (C2),
+    # so delete the partial chunk dir the error names, then re-run:
     python scripts/build_lmdb_incremental.py --split train
     # explicit resume / fresh start / keep frames for inspection:
     python scripts/build_lmdb_incremental.py --split train --start-idx 20000 --keep-frames
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from pedpredict.config import build_argparser, load_config
 from pedpredict.data.incremental import (
+    assert_resume_safe,
     existing_chunk_starts,
     extract_video_frames,
     iter_build_steps,
@@ -54,6 +56,9 @@ def main(argv: list[str] | None = None) -> None:
     clips_dir = paths.pie_root / "PIE_clips"
 
     records = load_sequences(pkl)
+    if args.start_idx is None:
+        # C2 guard: a crashed build leaves a SHORT final chunk that auto-resume would skip forever.
+        assert_resume_safe(out_dir, len(records), cfg.data.chunk_size)
     start_idx = args.start_idx if args.start_idx is not None else next_chunk_start(
         existing_chunk_starts(out_dir), cfg.data.chunk_size
     )

@@ -63,12 +63,14 @@ class _FakeTrainer:
         scaler: torch.amp.GradScaler,
         scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
         best_val_loss: float = 0.5,
+        best_selection: float = 0.5,
     ) -> None:
         self.model = model
         self.optimizer = optimizer
         self.scaler = scaler
         self.scheduler = scheduler
         self.best_val_loss = best_val_loss
+        self.best_selection = best_selection
 
 
 class _ListChunkProvider:

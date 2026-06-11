@@ -20,7 +20,7 @@ parity is proven at the reused-math seams instead, see ``tests/test_inference.py
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -39,7 +39,7 @@ from pedpredict.utils.device import enable_perf_flags, get_device
 __all__ = [
     "Detection", "Track", "TrackWindow", "FramePrediction", "InferenceResult",
     "FrameSource", "VideoFrameSource", "DirFrameSource", "open_frame_source",
-    "crop_from_frame", "detect_tracks", "smooth_track", "assemble_windows",
+    "crop_from_frame", "detect_tracks", "assemble_windows",
     "preprocess_window", "predict_windows", "aggregate_by_frame",
     "render_overlays", "run_video_inference",
 ]
@@ -68,8 +68,6 @@ class Detection:
     bbox: _BoxInt                        # (x1, y1, x2, y2), int, clamped to frame bounds
     tight: np.ndarray                    # RGB HxWx3 tight crop from the FULL frame (crop_tight)
     context: np.ndarray                  # RGB HxWx3 context crop from the FULL frame (crop_context)
-    cx: float = 0.0                      # bbox center (smoothed by smooth_track; unused by the model)
-    cy: float = 0.0
 
 
 Track = list[Detection]                  # one tracked pedestrian, frame-ordered
@@ -248,28 +246,15 @@ def detect_tracks(source: FrameSource, icfg: InferenceCfg, dcfg: DataCfg) -> dic
                 continue
             bbox = (x1, y1, x2, y2)
             tight, context = crop_from_frame(frame_rgb, bbox, dcfg.context_scale)
-            cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
             tracks.setdefault(track_id, []).append(
-                Detection(frame_idx=frame_idx, bbox=bbox, tight=tight, context=context, cx=cx, cy=cy)
+                Detection(frame_idx=frame_idx, bbox=bbox, tight=tight, context=context)
             )
     return tracks
 
 
-def smooth_track(track: Track, window: int) -> Track:
-    """Centered moving-average of bbox centers (OLD ``smooth_track``); bbox/crops/frame_idx carried.
-
-    Faithful port: the smoothed ``cx``/``cy`` are stored on the returned detections but the bbox is left
-    unchanged, exactly as OLD — the model reads motion from the bbox, so smoothing is observationally a
-    no-op on predictions (preserved for fidelity / future use).
-    """
-    n = len(track)
-    out: Track = []
-    for i in range(n):
-        start, end = max(0, i - window), min(n, i + window + 1)
-        cx = float(np.mean([(track[j].bbox[0] + track[j].bbox[2]) / 2.0 for j in range(start, end)]))
-        cy = float(np.mean([(track[j].bbox[1] + track[j].bbox[3]) / 2.0 for j in range(start, end)]))
-        out.append(replace(track[i], cx=cx, cy=cy))
-    return out
+# Q5: the legacy smooth_track (centered moving-average of bbox centers) was deleted — it wrote
+# smoothed cx/cy that nothing downstream read (motion is computed from the raw bbox), i.e. verified
+# dead computation preserved from OLD. Re-introduce as a bbox-level smoother if ever actually wanted.
 
 
 # ---- stage 2: track -> fixed-length windows (pure) ------------------------------------------
@@ -409,14 +394,13 @@ def run_video_inference(
     cfg: RootCfg, *, video: str | Path, checkpoint: str | Path,
     out_video: str | Path | None = None, device: torch.device | None = None, strict: bool = True,
 ) -> InferenceResult:
-    """open -> detect -> smooth -> window -> build+load -> predict -> aggregate -> render."""
+    """open -> detect -> window -> build+load -> predict -> aggregate -> render."""
     device = device if device is not None else get_device()
     enable_perf_flags(device)
 
     source = open_frame_source(video, fps=cfg.infer.default_fps)
     tracks = detect_tracks(source, cfg.infer, cfg.data)
-    smoothed = {tid: smooth_track(track, cfg.infer.smooth_window) for tid, track in tracks.items()}
-    windows = assemble_windows(smoothed, cfg.data, cfg.infer)
+    windows = assemble_windows(tracks, cfg.data, cfg.infer)
 
     model = build_model(cfg, cfg.eval.model_type).to(device)
     load_eval_weights(model, checkpoint, device=device, strict=strict)

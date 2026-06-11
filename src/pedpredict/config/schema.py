@@ -50,10 +50,12 @@ class DataCfg:
     context_scale: float = 3.0       # context crop = scale * tight bbox (uniform 3.0; flex for ablation)
     jpeg_quality: int = 90
     chunk_size: int = 5000           # Q4: canonical 5000 (OLD main() default was 4500); does not affect parity
-    # LMDB map_size heuristic (lmdb_writer.compute_map_size) — defaults reproduce OLD preprocess literals
-    lmdb_map_size_bytes: int | None = None   # explicit override; None -> heuristic
-    lmdb_map_size_floor_gib: float = 4.0     # OLD floor: 4 * 1024**3
-    lmdb_map_size_safety: float = 1.5        # OLD safety multiplier
+    # LMDB map_size (lmdb_writer.compute_map_size). C3: Windows PRE-ALLOCATES the file at map_size and
+    # the OLD heuristic reserved ~3x the real payload (~2-3 GB JPEG per 5000-sample chunk), so the
+    # default is now an explicit 4 GiB. Too small fails LOUDLY (lmdb.MapFullError); None -> heuristic.
+    lmdb_map_size_bytes: int | None = 4 * 1024**3
+    lmdb_map_size_floor_gib: float = 4.0     # heuristic floor (OLD: 4 * 1024**3); used when bytes is None
+    lmdb_map_size_safety: float = 1.5        # heuristic safety multiplier; used when bytes is None
     # offline writer DataLoader parallelism (preprocessing only — behavior-neutral)
     preprocess_num_workers: int = 8
     preprocess_prefetch_factor: int = 2
@@ -164,9 +166,14 @@ class TrainCfg:
     num_epochs: int = 30
     num_workers: int = 4
     use_amp: bool = True             # request; runtime-gated by CUDA availability in utils/amp.py (Q2)
+    seed: int = 42                   # global RNG seed (M7) — set_seed() at the top of train/evaluate scripts
+    # Scalar that picks best.pth + drives early stopping (M8): {"val_loss", "macro_f1", "crosses_f1"}.
+    # F1 metrics are maximized; the LR scheduler always stays on val_loss.
+    selection_metric: str = "macro_f1"
     loss_weight: dict[str, float] = field(
         default_factory=lambda: {"actions": 0.8, "looks": 0.8, "crosses": 1.2}
     )
+    use_class_weights: bool = True   # imbalance lever 3 off-switch (M1): inverse-freq CE class weights
     use_weighted_sampler: bool = True
     sampler_powers: dict[str, float] = field(
         default_factory=lambda: {"crosses": 1.5, "actions": 0.3, "looks": 0.7}
@@ -217,7 +224,6 @@ class InferenceCfg:
     detector_weights: str = "yolo11n.pt"   # OLD main.py 'yolo11n.pt'
     detector_class_idx: int = 0            # pedestrian class (OLD class_idx=0)
     detector_conf: float = 0.3             # OLD conf=0.3
-    smooth_window: int = 3                 # OLD smooth_track(window=3)
     window_stride: int = 1                 # OLD slid every window (stride 1); data pipeline uses 3
     batch_size: int = 32                   # OLD inference batch_size=32
     default_fps: float = 30.0              # DirFrameSource fps when frames carry no container fps

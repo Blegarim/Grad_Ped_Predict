@@ -15,8 +15,9 @@ peak disk stays at ~the videos straddling one chunk boundary plus the growing LM
 
 The plan (:func:`iter_build_steps`) is pure and unit-tested; extraction (:func:`extract_video_frames`,
 cv2 BGR ``VideoCapture`` -> ``imwrite``, byte-identical to ``PIE.extract_and_save_images``) and the
-per-chunk build are the only I/O. Resumes from existing ``chunk_*.lmdb`` dirs, so a crashed full build
-continues where it stopped (delete the partial final chunk first).
+per-chunk build are the only I/O. Resumes from existing ``chunk_*.lmdb`` dirs; a crashed full build
+continues where it stopped — :func:`assert_resume_safe` (C2) refuses to resume past a final chunk
+that died mid-write, so the partial chunk must be deleted (the error says so) before continuing.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import lmdb
+
 from pedpredict.data.pie_sequences import SequenceRecord
 
 __all__ = [
@@ -33,6 +36,8 @@ __all__ = [
     "BuildStep",
     "parse_frame_path",
     "next_chunk_start",
+    "count_chunk_records",
+    "assert_resume_safe",
     "iter_build_steps",
     "extract_video_frames",
 ]
@@ -63,6 +68,39 @@ def existing_chunk_starts(out_dir: Path) -> list[int]:
     if not out_dir.is_dir():
         return []
     return sorted(int(m.group(1)) for p in out_dir.iterdir() if (m := _CHUNK_RE.match(p.name)))
+
+
+def count_chunk_records(lmdb_path: str | Path) -> int:
+    """Number of ``_meta`` keys committed in one chunk — i.e. samples that finished writing."""
+    env = lmdb.open(str(lmdb_path), readonly=True, lock=False)
+    try:
+        with env.begin(write=False) as txn:
+            return sum(1 for key, _ in txn.cursor() if key.decode().endswith("_meta"))
+    finally:
+        env.close()
+
+
+def assert_resume_safe(out_dir: Path, n_records: int, chunk_size: int) -> None:
+    """Refuse to auto-resume past a short (crashed mid-write) final chunk — the C2 guard.
+
+    ``next_chunk_start`` resumes one chunk past the highest existing ``chunk_*.lmdb``; if the previous
+    build died mid-write, that highest chunk exists but is INCOMPLETE, and resuming would silently skip
+    the gap forever. This counts its committed ``_meta`` keys against the expected
+    ``min(chunk_size, n_records - start)`` and raises with a delete-and-rebuild instruction when short.
+    """
+    starts = existing_chunk_starts(out_dir)
+    if not starts:
+        return
+    last = max(starts)
+    expected = min(chunk_size, max(n_records - last, 0))
+    chunk_path = out_dir / f"chunk_{last:06d}.lmdb"
+    found = count_chunk_records(chunk_path)
+    if found < expected:
+        raise RuntimeError(
+            f"{chunk_path} is incomplete ({found}/{expected} records) — the previous build died "
+            f"mid-write. Auto-resume would skip the missing records forever. Delete that chunk dir "
+            f"and re-run (the build will resume at index {last})."
+        )
 
 
 @dataclass(slots=True)

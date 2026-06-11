@@ -17,6 +17,7 @@ ImageNet normalize lives in the injected transforms (:func:`build_read_transform
 from __future__ import annotations
 
 import io
+import logging
 import os
 import pickle
 from collections.abc import Callable
@@ -32,6 +33,10 @@ from pedpredict.config.schema import DataCfg
 from pedpredict.data.transforms import build_read_transforms
 
 __all__ = ["LMDBChunkDataset"]
+
+# Q6: per-open chatter goes through logging at DEBUG (the dataset is re-opened per chunk per epoch —
+# printed, it buried real warnings like the C1 chunk skips). Enable via logging config when needed.
+_LOGGER = logging.getLogger(__name__)
 
 
 class LMDBChunkDataset(Dataset):
@@ -60,7 +65,7 @@ class LMDBChunkDataset(Dataset):
                         self.seq_ids.append(key_str.split("_")[0])
         finally:
             env.close()
-        print(f"[LMDBChunkDataset] Loaded index from {self.lmdb_path}: {len(self.seq_ids)} sequences")
+        _LOGGER.debug("Loaded index from %s: %d sequences", self.lmdb_path, len(self.seq_ids))
 
     @classmethod
     def from_config(cls, lmdb_path: str | Path, cfg: DataCfg) -> LMDBChunkDataset:

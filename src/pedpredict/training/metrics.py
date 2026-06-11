@@ -23,8 +23,9 @@ docs/archive/MIGRATION.md "Metrics decisions (3.2)"):
 
 Deliberately OUT of scope (documented, owned elsewhere): **loss** aggregation (Trainer, 4.1, via
 :class:`~pedpredict.losses.multitask.MultiTaskLoss`), **temporal-weight** collection (viz, 6.2), and the
-eval-only **threshold sweep** (exposed as :meth:`MetricAccumulator.optimal_threshold_metrics`, so train-val
-and test still share the *same* core :meth:`MetricAccumulator.compute`).
+eval-only **threshold machinery** (:meth:`MetricAccumulator.sweep_thresholds` finds per-task F1-optimal
+cutoffs — tuned on val, M2 — and :meth:`MetricAccumulator.metrics_at_thresholds` applies fixed cutoffs;
+train-val and test still share the *same* core :meth:`MetricAccumulator.compute`).
 """
 
 from __future__ import annotations
@@ -194,21 +195,36 @@ class MetricAccumulator:
 
     # ----------------------------------------------------------------- eval-only (5.1) enrichment
 
-    def optimal_threshold_metrics(self, cfg: EvalCfg) -> dict[str, float]:
-        """Per-task F1-optimal decision threshold + the metrics at it (OLD test.py:110-146,472-497).
+    def sweep_thresholds(self, cfg: EvalCfg) -> dict[str, float]:
+        """Per-task F1-optimal decision threshold over THIS accumulator's data (OLD test.py:110-146).
 
-        Eval-only (NOT part of the shared core :meth:`compute`). Sweeps ``[lo, hi]`` by ``step`` from
-        ``EvalCfg`` over the positive-class probability. Single-class tasks keep threshold ``0.5``.
+        M2: legitimate only on **validation** data — eval stores the val-swept thresholds in the run
+        dir and the test pass applies them via :meth:`metrics_at_thresholds`. Sweeping on test is the
+        same-split *oracle* (leakage; logged as ``oracle_*``, never reported). Single-class tasks
+        keep threshold ``0.5``.
         """
-        thresholds = _sweep(cfg.threshold_sweep_lo, cfg.threshold_sweep_hi, cfg.threshold_sweep_step)
+        grid = _sweep(cfg.threshold_sweep_lo, cfg.threshold_sweep_hi, cfg.threshold_sweep_step)
+        out: dict[str, float] = {}
+        for task in self._tasks:
+            y_true, _, y_prob = self.task_arrays(task)
+            if y_prob.shape[1] != 2 or len(set(y_true.tolist())) < 2:
+                out[task] = 0.5
+            else:
+                out[task] = _best_f1_threshold(y_true, y_prob[:, 1], grid)
+        return out
+
+    def metrics_at_thresholds(self, thresholds: dict[str, float]) -> dict[str, float]:
+        """Per-task metrics with decisions at FIXED ``{task: threshold}`` cutoffs (OLD test.py:472-497).
+
+        Flat keys: ``{task}_{threshold,acc,f1,precision,recall}`` + ``macro_acc`` (Q3: the
+        mean-of-per-task accuracies — *macro* averaging, renamed from the legacy ``overall_acc``
+        which collided with :meth:`compute`'s pooled *micro* accuracy of the same name).
+        """
         out: dict[str, float] = {}
         accs: list[float] = []
         for task in self._tasks:
             y_true, _, y_prob = self.task_arrays(task)
-            if y_prob.shape[1] != 2 or len(set(y_true.tolist())) < 2:
-                thr = 0.5
-            else:
-                thr = _best_f1_threshold(y_true, y_prob[:, 1], thresholds)
+            thr = float(thresholds[task])
             preds = (y_prob[:, 1] >= thr).astype(int)
             acc = float(accuracy_score(y_true, preds))
             out[f"{task}_threshold"] = thr
@@ -217,8 +233,12 @@ class MetricAccumulator:
             out[f"{task}_precision"] = float(precision_score(y_true, preds, average="binary", zero_division=0))
             out[f"{task}_recall"] = float(recall_score(y_true, preds, average="binary", zero_division=0))
             accs.append(acc)
-        out["overall_acc"] = sum(accs) / len(accs) if accs else 0.0  # test.py:495-497 (mean of per-task)
+        out["macro_acc"] = sum(accs) / len(accs) if accs else 0.0
         return out
+
+    def optimal_threshold_metrics(self, cfg: EvalCfg) -> dict[str, float]:
+        """Sweep + metrics on the SAME data — the same-split oracle (M2: log-only, never report)."""
+        return self.metrics_at_thresholds(self.sweep_thresholds(cfg))
 
 
 def _sweep(lo: float, hi: float, step: float) -> list[float]:

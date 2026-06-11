@@ -31,8 +31,10 @@ from pedpredict.config import DataCfg, EvalCfg, PathsCfg, RootCfg, TrainCfg
 from pedpredict.data.lmdb_writer import write_dataset_chunks
 from pedpredict.eval.evaluate import (
     EVAL_LOG_COLUMNS,
+    THRESHOLDS_FILENAME,
     evaluate_model,
     load_eval_weights,
+    load_thresholds,
     run_evaluation,
 )
 from pedpredict.models.registry import ModelType, build_model
@@ -109,18 +111,33 @@ def test_evaluate_metrics_match_golden_oracle(metrics_golden: dict) -> None:
     assert artifacts.metrics.overall_accuracy == pytest.approx(expected["overall_acc"], abs=_TOL)
 
 
-def test_optimal_thresholds_wired(metrics_golden: dict) -> None:
+def test_oracle_thresholds_wired(metrics_golden: dict) -> None:
     scenario = metrics_golden["main"]
     ob, tb = scenario["inputs"]["outputs_batches"], scenario["inputs"]["targets_batches"]
     cfg = EvalCfg()
     artifacts = evaluate_model(_ReplayModel(ob), [_replay_loader(ob, tb)], _CPU, cfg)
 
-    # Same accumulator + EvalCfg -> identical sweep (this is the eval-only enrichment, owned by 3.2).
+    # Same accumulator + EvalCfg -> identical sweep (eval-only enrichment, owned by 3.2). M2: the
+    # same-split sweep is the ORACLE (log-only); without stored thresholds, `tuned` stays None.
     ref_acc = MetricAccumulator()
     for outputs, targets in zip(ob, tb, strict=True):
         ref_acc.update(outputs, targets)
-    expected = ref_acc.optimal_threshold_metrics(cfg)
-    assert artifacts.optimal == pytest.approx(expected)
+    assert artifacts.oracle == pytest.approx(ref_acc.optimal_threshold_metrics(cfg))
+    assert artifacts.thresholds == pytest.approx(ref_acc.sweep_thresholds(cfg))
+    assert artifacts.tuned is None
+
+
+def test_tuned_thresholds_applied(metrics_golden: dict) -> None:
+    """M2: passing tuned_thresholds yields metrics at those FIXED cutoffs (not a re-sweep)."""
+    scenario = metrics_golden["main"]
+    ob, tb = scenario["inputs"]["outputs_batches"], scenario["inputs"]["targets_batches"]
+    fixed = dict.fromkeys(_TASKS, 0.5)
+    artifacts = evaluate_model(
+        _ReplayModel(ob), [_replay_loader(ob, tb)], _CPU, EvalCfg(), tuned_thresholds=fixed
+    )
+    assert artifacts.tuned is not None
+    for task in _TASKS:
+        assert artifacts.tuned[f"{task}_threshold"] == 0.5
 
 
 def test_aggregation_equals_concatenation(metrics_golden: dict) -> None:
@@ -298,3 +315,42 @@ def test_run_evaluation_smoke_tiny_chunk(tmp_path: Path) -> None:
     assert report.temporal_weights_path is not None and report.temporal_weights_path.exists()
     assert (runs_dir / "index.csv").exists()           # cross-run index row appended
     assert set(mp.active_children()) == before          # no leaked processes
+
+
+def test_threshold_protocol_val_then_test(tmp_path: Path) -> None:
+    """M2 round trip: a val pass stores thresholds in the run dir; the test pass loads + applies them."""
+    import csv
+
+    chunk_dir = _write_tiny_chunk(tmp_path)
+    runs_dir = tmp_path / "outputs" / "runs"
+    cfg = dataclasses.replace(
+        RootCfg(),
+        paths=dataclasses.replace(
+            PathsCfg(), lmdb_test=str(chunk_dir), lmdb_val=str(chunk_dir), runs_dir=str(runs_dir)
+        ),
+        eval=dataclasses.replace(EvalCfg(), batch_size=2, num_workers=0),
+        train=dataclasses.replace(TrainCfg(), use_amp=False),
+    )
+    # Checkpoint INSIDE a run dir so both passes resolve to the same run (the normal layout).
+    run_dir = runs_dir / "20990101_000000_full"
+    (run_dir / "checkpoints").mkdir(parents=True)
+    ckpt = run_dir / "checkpoints" / "best.pth"
+    torch.save(build_model(cfg).state_dict(), ckpt)
+
+    val_report = run_evaluation(cfg, checkpoint=ckpt, device=_CPU, split="val")
+    assert val_report.run_dir == run_dir
+    stored = load_thresholds(run_dir)
+    assert stored is not None and set(stored) == set(_TASKS)
+    assert (run_dir / THRESHOLDS_FILENAME).exists()
+    assert stored == pytest.approx(val_report.artifacts.thresholds)  # frozen = the val sweep
+
+    test_report = run_evaluation(cfg, checkpoint=ckpt, device=_CPU, split="test")
+    assert test_report.artifacts.tuned is not None
+    for task in _TASKS:                                  # applied = loaded, NOT re-swept on test
+        assert test_report.artifacts.tuned[f"{task}_threshold"] == pytest.approx(stored[task])
+
+    with open(run_dir / "eval_log.csv", newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [r["split"] for r in rows] == ["val", "test"]
+    assert rows[1]["tuned_crosses_threshold"] != ""      # tuned columns filled on the test row
+    assert rows[1]["oracle_crosses_threshold"] != ""     # oracle logged alongside (never reported)

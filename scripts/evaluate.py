@@ -4,9 +4,15 @@ Ports OLD ``test.py``'s ``main()`` argument surface (``--model_type`` -> ``--set
 ``--model_path`` -> ``--checkpoint``, ``--save_predictions`` -> ``--save-predictions``). Efficiency
 metrics (FLOPs/latency/FPS) come from 5.2's ``benchmark`` behind ``--benchmark``.
 
+Threshold protocol (M2): run ``--split val`` FIRST — it sweeps per-task decision thresholds on val
+and stores them in the run dir; the ``--split test`` pass then loads and applies them (``tuned_*``
+columns). Test-swept numbers are logged as ``oracle_*`` only and must never be reported.
+
 Usage:
-    python scripts/evaluate.py --set eval.model_type=full \
-        --checkpoint outputs/runs/<run_id>/checkpoints/best.pth
+    python scripts/evaluate.py --split val \
+        --checkpoint outputs/runs/<run_id>/checkpoints/best.pth      # tune + store thresholds
+    python scripts/evaluate.py --split test \
+        --checkpoint outputs/runs/<run_id>/checkpoints/best.pth      # report at frozen thresholds
     python scripts/evaluate.py --set eval.model_type=motion_only \
         --checkpoint <path> --save-predictions --save-temporal-weights
 """
@@ -19,6 +25,7 @@ import sys
 from pedpredict.config import build_argparser, load_config
 from pedpredict.eval.evaluate import run_evaluation
 from pedpredict.utils.device import get_device
+from pedpredict.utils.seed import set_seed
 
 
 def main(argv=None) -> int:
@@ -33,6 +40,7 @@ def main(argv=None) -> int:
     parser.add_argument("--benchmark", action="store_true", help="Also run 5.2 efficiency metrics.")
     args = parser.parse_args(argv)
     cfg = load_config(args.config_dir, args.overrides)
+    set_seed(cfg.train.seed)        # M7: symmetric with train.py (eval is deterministic anyway)
     device = get_device()
 
     efficiency = None

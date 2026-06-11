@@ -197,4 +197,29 @@ def test_optimal_threshold_metrics_keys_and_range(golden: dict) -> None:
         assert f"{task}_threshold" in out
         thr = out[f"{task}_threshold"]
         assert thr == 0.5 or cfg.threshold_sweep_lo <= thr <= cfg.threshold_sweep_hi
-    assert 0.0 <= out["overall_acc"] <= 1.0
+    # Q3: the sweep's mean-of-per-task accuracies is MACRO averaging — renamed from the legacy
+    # `overall_acc`, which collided with compute()'s pooled MICRO accuracy of the same name.
+    assert "overall_acc" not in out
+    assert 0.0 <= out["macro_acc"] <= 1.0
+
+
+def test_sweep_then_apply_equals_optimal(golden: dict) -> None:
+    """M2 decomposition: sweep_thresholds + metrics_at_thresholds == the one-shot oracle path."""
+    acc = _feed(MetricAccumulator(), golden["main"])
+    cfg = EvalCfg()
+    swept = acc.sweep_thresholds(cfg)
+    assert set(swept) == set(_TASKS)
+    assert acc.metrics_at_thresholds(swept) == pytest.approx(acc.optimal_threshold_metrics(cfg))
+
+
+def test_metrics_at_fixed_thresholds_respects_cutoff(golden: dict) -> None:
+    """metrics_at_thresholds applies the GIVEN cutoffs (the val-tuned-on-test path, M2)."""
+    acc = _feed(MetricAccumulator(), golden["main"])
+    fixed = dict.fromkeys(_TASKS, 0.5)
+    out = acc.metrics_at_thresholds(fixed)
+    for task in _TASKS:
+        assert out[f"{task}_threshold"] == 0.5
+        # threshold 0.5 on the positive-class prob == argmax decisions == compute()'s accuracy
+        y_true, y_pred, y_prob = acc.task_arrays(task)
+        expected_acc = float((y_true == (y_prob[:, 1] >= 0.5).astype(int)).mean())
+        assert out[f"{task}_acc"] == pytest.approx(expected_acc)

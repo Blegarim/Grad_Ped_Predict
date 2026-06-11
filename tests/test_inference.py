@@ -3,7 +3,7 @@
 Full video inference is not golden-able end-to-end (non-deterministic YOLO + a trained checkpoint + a
 real video), so parity is proven at the reused-math seams: the preprocessing math is already golden
 (``test_transforms.py``) and the forward is already golden (``ensemble.pt``). These tests cover the NEW
-glue — smoothing, windowing, in-memory preprocess == the on-disk path, aggregation — plus the lazy
+glue — windowing, in-memory preprocess == the on-disk path, aggregation — plus the lazy
 detector isolation and the two flagged fixes (context_scale, BGR). Legacy parity uses in-test verbatim
 oracles (the repo convention, cf. ``_legacy_compute_motion``).
 """
@@ -35,7 +35,6 @@ from pedpredict.eval.inference import (
     preprocess_window,
     render_overlays,
     run_video_inference,
-    smooth_track,
 )
 from pedpredict.models.registry import ModelType, build_model
 
@@ -50,24 +49,11 @@ def _dummy_crop(h: int = 8, w: int = 6) -> np.ndarray:
 
 
 def _make_track(bboxes: list[tuple[int, int, int, int]]) -> list[Detection]:
-    """Build a frame-ordered track; cx/cy = raw bbox centers (as detect_tracks sets them)."""
-    track = []
-    for i, b in enumerate(bboxes):
-        cx, cy = (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
-        track.append(Detection(frame_idx=i, bbox=b, tight=_dummy_crop(), context=_dummy_crop(), cx=cx, cy=cy))
-    return track
-
-
-def _legacy_smooth(bboxes, window):
-    """Verbatim transcription of OLD smooth_track center math (pedestrian_detection.py 69-80)."""
-    cxs = [(b[0] + b[2]) / 2.0 for b in bboxes]
-    cys = [(b[1] + b[3]) / 2.0 for b in bboxes]
-    out = []
-    n = len(bboxes)
-    for i in range(n):
-        start, end = max(0, i - window), min(n, i + window + 1)
-        out.append((float(np.mean(cxs[start:end])), float(np.mean(cys[start:end]))))
-    return out
+    """Build a frame-ordered track (as detect_tracks produces it)."""
+    return [
+        Detection(frame_idx=i, bbox=b, tight=_dummy_crop(), context=_dummy_crop())
+        for i, b in enumerate(bboxes)
+    ]
 
 
 def _legacy_windows(bboxes, seq_len):
@@ -92,17 +78,7 @@ def _fast_cfg() -> RootCfg:
 _BBOXES = [(50 + 4 * i, 40 + 3 * i, 90 + 4 * i, 120 + 3 * i) for i in range(6)]
 
 
-# --------------------------------------------------------------------------- 1. smooth_track parity
-
-
-def test_smooth_track_matches_legacy() -> None:
-    track = _make_track(_BBOXES)
-    out = smooth_track(track, window=3)
-    oracle = _legacy_smooth(_BBOXES, window=3)
-    assert len(out) == len(track)
-    for det, (cx, cy), orig in zip(out, oracle, track, strict=True):
-        assert det.cx == pytest.approx(cx) and det.cy == pytest.approx(cy)
-        assert det.bbox == orig.bbox and det.frame_idx == orig.frame_idx   # bbox/frame carried unchanged
+# (Q5: the legacy smooth_track parity test was deleted with the function — verified dead computation.)
 
 
 # --------------------------------------------------------------------------- 2. windowing parity
@@ -139,7 +115,7 @@ def _synthetic_window(rng, n=5, hh=200, ww=300):
         tight, context = crop_from_frame(frame, bbox, cfg.context_scale)
         frames.append(frame)
         bboxes.append(bbox)
-        dets.append(Detection(i, bbox, tight, context, 0.0, 0.0))
+        dets.append(Detection(i, bbox, tight, context))
     return TrackWindow(0, tuple(dets)), frames, bboxes
 
 
@@ -260,7 +236,7 @@ def test_run_inference_with_stub_detector(tmp_path, monkeypatch) -> None:
         for i, frame in enumerate(source):
             bbox = (5 + i, 5 + i, 40 + i, 55 + i)
             tight, context = crop_from_frame(frame, bbox, dcfg.context_scale)
-            track.append(Detection(i, bbox, tight, context, 0.0, 0.0))
+            track.append(Detection(i, bbox, tight, context))
         return {1: track}
 
     monkeypatch.setattr(inf, "detect_tracks", _stub_detect)
