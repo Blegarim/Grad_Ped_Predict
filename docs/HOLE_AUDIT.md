@@ -601,6 +601,11 @@ every module touched).
 
 ### Final attack order (resolved 2026-06-11 — supersedes the suggested order above)
 
+> **Execution progress (2026-06-15):** step 1 (code fixes) merged to `main` (`4c2120b`); step 2 *code*
+> — the v2 data-contract changes — merged to `main` (`66c6000`). **Remaining before WP0 baselines:**
+> run the actual regeneration on real PIE data and re-pin the STALE Dataset Statistics
+> (per [V2_REBUILD_RUNBOOK.md](V2_REBUILD_RUNBOOK.md)), then the step-3 registry/rename wave.
+
 The one structural change from the original suggestion: the v1 train build is **abandoned, not
 resumed** — every dataset-touching decision landed `fix`, so there is exactly one v2 rebuild of all
 three splits, and no v1 IO is spent first.
