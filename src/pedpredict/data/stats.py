@@ -11,6 +11,12 @@ classes (the imbalance lever, policy 1.3/1.4), so it is excluded by default and 
 when opted in. Because the base-train LMDB is a deterministic 1:1 image of ``sequences_train.pkl`` (writer
 applies no filter), these counts reproduce the 1.1 fixture exactly — drift is EXACT integer equality.
 
+By that same 1:1 property the identical counts can be read **before any LMDB exists**, straight from the
+``sequences_<split>.pkl`` written by ``make_sequences.py`` (:func:`compute_dataset_stats_from_sequences`).
+That is the pre-LMDB drift canary the runbook calls for at sequence-gen time: it agrees with the LMDB scan
+exactly, mirroring the 1.6 scanner's clamp (``crosses`` via :func:`~pedpredict.data.balance.clamp_cross`;
+``actions``/``looks`` read as-is), so re-pinning the table never has to wait on a multi-hour LMDB build.
+
 Changes vs OLD ``label_count.py`` (flagged, see docs/archive/MIGRATION.md): per-chunk rows -> per-split aggregate; the
 ``crosses[irrelevant]`` (-1) column is dropped (crosses are clamped to {0,1} at 1.1); the legacy ``label_counts``
 Counter helper is deleted in favour of the 1.6 scanner.
@@ -24,6 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from pedpredict.data.balance import clamp_cross
 from pedpredict.data.sampler import TASKS, LabelScanCache, TaskCounts
 from pedpredict.paths import ResolvedPaths
 
@@ -33,6 +40,8 @@ __all__ = [
     "split_lmdb_dirs",
     "compute_split_stats",
     "compute_dataset_stats",
+    "compute_split_stats_from_sequences",
+    "compute_dataset_stats_from_sequences",
     "format_table",
     "write_stats_csv",
     "load_reference",
@@ -94,6 +103,46 @@ def compute_dataset_stats(paths: ResolvedPaths, *, include_aug: bool = False,
     for split in splits:
         try:
             out.append(compute_split_stats(split, dirs[split], cache))
+        except FileNotFoundError:
+            if not skip_missing:
+                raise
+    return out
+
+
+def compute_split_stats_from_sequences(split: str, pkl_path: Path) -> SplitStats:
+    """Aggregate one split's per-task counts straight from its ``sequences_<split>.pkl`` (raises if absent).
+
+    The pre-LMDB twin of :func:`compute_split_stats`: the base LMDB is a no-filter 1:1 image of this pkl,
+    so the counts are identical to scanning the built chunks (and to the drift fixture). Mirrors the 1.6
+    scanner's clamp — ``crosses`` via :func:`clamp_cross`, ``actions``/``looks`` read as-is — so the drift
+    gate behaves the same whether fed pkls or LMDBs.
+    """
+    from pedpredict.data.pie_sequences import load_sequences
+
+    pkl_path = Path(pkl_path)
+    if not pkl_path.exists():
+        raise FileNotFoundError(f"[{split}] no sequence pkl at {pkl_path}")
+    counts: dict[str, TaskCounts] = {task: {} for task in TASKS}
+    for rec in load_sequences(pkl_path):
+        values = {
+            "actions": int(rec["actions"]),
+            "looks": int(rec["looks"]),
+            "crosses": clamp_cross(int(rec["crosses"])),
+        }
+        for task, value in values.items():
+            counts[task][value] = counts[task].get(value, 0) + 1
+    n = sum(counts[TASKS[0]].values())   # every record increments each task once -> total == N
+    return SplitStats(split=split, n=n, counts=counts)
+
+
+def compute_dataset_stats_from_sequences(paths: ResolvedPaths, *, splits: Sequence[str] = _SPLITS,
+                                         skip_missing: bool = False) -> list[SplitStats]:
+    """Stats for each split from ``sequences_<split>.pkl`` under ``paths.sequences_dir``. With
+    ``skip_missing`` a split lacking its pkl is omitted, not raised."""
+    out: list[SplitStats] = []
+    for split in splits:
+        try:
+            out.append(compute_split_stats_from_sequences(split, paths.sequences_dir / f"sequences_{split}.pkl"))
         except FileNotFoundError:
             if not skip_missing:
                 raise

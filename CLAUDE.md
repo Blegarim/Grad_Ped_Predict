@@ -103,7 +103,8 @@ python scripts/build_lmdb.py      --split test_benchmark   # M5 eval set → pre
 python scripts/build_lmdb_incremental.py --split train  # disk-bounded, resumable: extract→crop→delete per video
 python scripts/balance_dataset.py                  # opt-in offline balance (default off)
 python scripts/augment_dataset.py                  # minority-class augmentation
-python scripts/count_labels.py                     # dataset-stats drift gate (nonzero on drift)
+python scripts/count_labels.py                     # dataset-stats drift gate (nonzero on drift); scans base LMDBs
+python scripts/count_labels.py --from-sequences    #   …or count the pkls (pre-LMDB canary; same counts by 1:1 image)
 
 # Train / evaluate — config-first; override any field with --set section.field=value
 python scripts/train.py    --set model.model_type=full --set train.lr=5e-5

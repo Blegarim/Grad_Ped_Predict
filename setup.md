@@ -66,9 +66,11 @@ frame**; `crosses` = any crossing in the future window; **right-censored windows
 counted**. Record the printed **`censored`** count — it's the thesis sentence "N windows excluded as
 right-censored."
 
-Then run the drift canary **now**, before spending hours on LMDBs:
+Then run the drift canary **now**, before spending hours on LMDBs — `--from-sequences` counts the pkls
+you just generated (the base LMDB is a 1:1 image of them, so the numbers are identical to a post-build
+scan; without the flag the script needs the LMDBs to exist):
 ```powershell
-python scripts/count_labels.py
+python scripts/count_labels.py --from-sequences
 ```
 ⚠️ The legacy ~95,684 train / 22,665 val / 76,048 test figures are **v1 and STALE** — the v2 relabel
 (state-at-end + censor-drop) deflates N and every positive rate (`looks` hardest), so v2 counts *will*
@@ -147,13 +149,14 @@ Report the `tuned_*` columns only; `oracle_*` are same-split (leakage) diagnosti
 
 ### Critical path
 install (`.[dev]` + GPU torch) → gate → drop PIE into `data/` (incl. `annotations_vehicle/`) →
-`make_sequences.py --split all` + `--benchmark` → `count_labels.py` (re-pin) → build LMDBs (val/test
+`make_sequences.py --split all` + `--benchmark` → `count_labels.py --from-sequences` (re-pin) → build LMDBs (val/test
 standard, train incremental, + `test_benchmark`) → `augment_dataset.py` → `train.py` → `evaluate.py`
 (val then test).
 
 ### Gotchas
 - The **GPU torch reinstall** (step 1) is easy to miss — without it you silently train on CPU.
-- **`count_labels.py` is your canary** — run it right after step 3, not after burning hours on LMDBs.
+- **`count_labels.py --from-sequences` is your canary** — it reads the pkls, so run it right after step 3,
+  not after burning hours on LMDBs (the bare `count_labels.py` form scans the LMDBs and only works post-build).
 - **Augment is mandatory for the default config** even though it's described as a "lever" (the trainer
   unions `preprocessed_train_aug`).
 - **`annotations_vehicle/` is required** for the ego-speed channel — a missing OBD file fails sequence-gen.

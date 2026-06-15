@@ -18,12 +18,21 @@ from pedpredict.data.stats import (
     SplitStats,
     check_drift,
     compute_split_stats,
+    compute_split_stats_from_sequences,
     format_table,
     load_reference,
     write_stats_csv,
 )
 
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "pie_sequences_counts.json"
+
+# Same 8 records the `split_dir` fixture writes across its two chunks (actions=1 ×5, looks=1 ×3, crosses=1 ×2).
+_DEMO_RECORDS = [
+    {"actions": 1, "looks": 1, "crosses": 1}, {"actions": 1, "looks": 1, "crosses": 0},
+    {"actions": 1, "looks": 0, "crosses": 0}, {"actions": 0, "looks": 0, "crosses": 0},
+    {"actions": 1, "looks": 1, "crosses": 1}, {"actions": 1, "looks": 0, "crosses": 0},
+    {"actions": 0, "looks": 0, "crosses": 0}, {"actions": 0, "looks": 0, "crosses": 0},
+]
 
 
 def _write_chunk(records: list[dict], path: Path) -> None:
@@ -83,6 +92,40 @@ def test_aggregation_matches_scanner(split_dir):
 def test_missing_dir_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         compute_split_stats("demo", [tmp_path / "nope"])
+
+
+def _write_pkl(records: list[dict], path: Path) -> Path:
+    with open(path, "wb") as handle:
+        pickle.dump(records, handle)
+    return path
+
+
+def test_from_sequences_counts(tmp_path):
+    """The pre-LMDB pkl path counts records straight from sequences_<split>.pkl."""
+    s = compute_split_stats_from_sequences("demo", _write_pkl(_DEMO_RECORDS, tmp_path / "seq.pkl"))
+    assert s.n == 8
+    assert s.pos == {"actions": 5, "looks": 3, "crosses": 2}
+
+
+def test_from_sequences_matches_lmdb(split_dir, tmp_path):
+    """The pkl twin reproduces the LMDB scan exactly (base LMDB is a 1:1 image of the pkl)."""
+    pkl_stats = compute_split_stats_from_sequences("demo", _write_pkl(_DEMO_RECORDS, tmp_path / "seq.pkl"))
+    lmdb_stats = compute_split_stats("demo", [split_dir])
+    assert (pkl_stats.n, pkl_stats.pos) == (lmdb_stats.n, lmdb_stats.pos)
+
+
+def test_from_sequences_clamps_crosses(tmp_path):
+    """``crosses == -1`` clamps to 0 like the 1.6 scanner (so it never counts as positive)."""
+    s = compute_split_stats_from_sequences(
+        "demo", _write_pkl([{"actions": 0, "looks": 0, "crosses": -1}], tmp_path / "seq.pkl")
+    )
+    assert s.pos["crosses"] == 0
+    assert s.n == 1
+
+
+def test_from_sequences_missing_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        compute_split_stats_from_sequences("demo", tmp_path / "absent.pkl")
 
 
 def test_check_drift_passes_and_detects():
