@@ -19,13 +19,34 @@ check looks for the ``.png`` that this wrapper never writes).
 
 from __future__ import annotations
 
+import os
 import sys
 
 sys.path.insert(0, ".")
 
 import cv2  # noqa: E402
 
+import PIE.utilities.pie_data as _pie_data  # noqa: E402
 from PIE.utilities.pie_data import PIE  # noqa: E402
+
+# --- TEMP (set04-only extraction): remove this block to restore all-sets behavior. ---------------
+# extract_and_save_images iterates every set folder under data/PIE_clips/ (pie_data.py: the
+# `listdir(self._clips_path)` line). Until set04 is the only set staged, restrict just that one
+# directory listing to set04 so extraction skips sets we haven't downloaded. Surgical: every other
+# listdir call (annotation dirs, etc.) passes straight through.
+_ONLY_SET = "set04"
+_orig_listdir = _pie_data.listdir
+
+
+def _listdir_only_set(path):
+    entries = _orig_listdir(path)
+    if os.path.basename(os.path.normpath(path)) == "PIE_clips":
+        return [e for e in entries if e == _ONLY_SET]
+    return entries
+
+
+_pie_data.listdir = _listdir_only_set
+# --- END TEMP ------------------------------------------------------------------------------------
 
 # Match the LMDB writer's encode quality envelope (jpeg_quality=90); 95 keeps the only real lossy
 # step the LMDB re-encode, not this intermediate.
