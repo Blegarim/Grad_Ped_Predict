@@ -1,8 +1,15 @@
 """Temporal motion + tight-crop encoder.
 
-Port of OLD ``models/Motion_Encoder.MotionEncoder``. Behavior-preserving (numerically equivalent to the
-legacy module for identical weights+input, eval mode) -- the math, op order, and the in-forward motion
-normalization are kept verbatim. Resolved band-aids:
+Port of OLD ``models/Motion_Encoder.MotionEncoder`` with ONE deliberate, config-gated change (hole
+audit A4): the in-forward motion normalization is selectable via ``model.motion_norm``:
+
+* ``"image"`` (default) -- divide each channel by a fixed global scale (x-channels / frame width,
+  y-channels / frame height, ego / ``ego_speed_scale``). Absolute geometry (position in frame, box
+  size) survives as real values; pixel quantization jitter is NOT amplified.
+* ``"per_sequence"`` -- the legacy per-sequence z-norm, kept verbatim as the "old" arm of the A4
+  ablation. Golden-parity tests pin this mode; numerics in this mode are unchanged vs legacy.
+
+Everything else is behavior-preserving. Resolved band-aids:
 
 * **B6 (config drift).** ``__main__`` is a smoke test built from ``ModelCfg`` (``motion_kwargs()``), not
   the drifting legacy kwargs (``hidden_dim=224``).
@@ -42,11 +49,29 @@ class MotionEncoder(nn.Module):
         num_heads: int = 8,
         dropout: float = 0.3,
         max_positions: int = 200,
+        motion_norm: str = "image",
+        norm_image_size: tuple[int, int] = (1920, 1080),
+        ego_speed_scale: float = 50.0,
     ) -> None:
         super().__init__()
         self.motion_dim = motion_dim
         self.hidden_dim = hidden_dim
         self.d_model = d_model
+        if motion_norm not in {"image", "per_sequence"}:
+            raise ValueError(f"motion_norm must be 'image' or 'per_sequence'; got {motion_norm!r}")
+        self.motion_norm = motion_norm
+        # Fixed per-channel scale for "image" norm, following the stored channel order
+        # (cx, cy, dx, dy, w, h, dw, dh, ego) sliced to motion_dim. Non-persistent: keeps OLD
+        # state_dicts loading strict=True in "per_sequence" parity mode.
+        width, height = float(norm_image_size[0]), float(norm_image_size[1])
+        scale_full = [width, height, width, height, width, height, width, height, float(ego_speed_scale)]
+        if motion_dim > len(scale_full):
+            raise ValueError(f"motion_dim={motion_dim} exceeds the {len(scale_full)}-channel motion contract")
+        self.register_buffer(
+            "motion_scale",
+            torch.tensor(scale_full[:motion_dim]).view(1, 1, motion_dim),
+            persistent=False,
+        )
 
         # Tight-crop feature extraction -> [B*T, hidden_dim, 1, 1] (adaptive pool == resolution-agnostic).
         self.img_encoder = nn.Sequential(
@@ -100,8 +125,17 @@ class MotionEncoder(nn.Module):
 
     @classmethod
     def from_config(cls, cfg: ModelCfg) -> MotionEncoder:
-        """B6: build from ``ModelCfg`` (``motion_kwargs()`` == OLD ``motion_enc_args_config()``)."""
-        return cls(**cfg.motion_kwargs())
+        """B6: build from ``ModelCfg`` (``motion_kwargs()`` == OLD ``motion_enc_args_config()``).
+
+        The A4 norm fields ride outside ``motion_kwargs()`` so that dict stays a pure
+        legacy-parity surface (same pattern as ``emit_crosses_pooled`` in ``cross_kwargs``).
+        """
+        return cls(
+            **cfg.motion_kwargs(),
+            motion_norm=cfg.motion_norm,
+            norm_image_size=tuple(cfg.motion_norm_image_size),
+            ego_speed_scale=cfg.ego_speed_scale,
+        )
 
     def forward(self, motion: torch.Tensor, tight: torch.Tensor) -> torch.Tensor:
         """``motion [B, T, motion_dim]`` (raw) + ``tight [B, T, 3, H, W]`` -> ``[B, T, d_model]``."""
@@ -119,8 +153,12 @@ class MotionEncoder(nn.Module):
         img_feats = img_feats.squeeze(-1).squeeze(-1)  # [B*T, hidden_dim]
         img_feats = img_feats.view(b, t, -1)      # [B, T, hidden_dim]
 
-        # Per-sequence motion normalization (verbatim; std uses the unbiased default).
-        motion_norm = (motion - motion.mean(dim=1, keepdim=True)) / (motion.std(dim=1, keepdim=True) + 1e-6)
+        # A4 norm choice: fixed image-dimension scale (keeps absolute geometry) vs the legacy
+        # per-sequence z-norm (verbatim parity arm; std uses the unbiased default).
+        if self.motion_norm == "image":
+            motion_norm = motion / self.motion_scale
+        else:
+            motion_norm = (motion - motion.mean(dim=1, keepdim=True)) / (motion.std(dim=1, keepdim=True) + 1e-6)
         motion_feats = self.motion_encoder(motion_norm.transpose(1, 2))  # [B, hidden_dim//2, T]
         motion_feats = motion_feats.transpose(1, 2)                      # [B, T, hidden_dim//2]
 

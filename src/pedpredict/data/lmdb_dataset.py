@@ -47,10 +47,14 @@ class LMDBChunkDataset(Dataset):
         lmdb_path: str | Path,
         transform_tight: Callable[[Image.Image], Tensor],
         transform_context: Callable[[Image.Image], Tensor],
+        motion_dim: int | None = None,
     ) -> None:
         self.lmdb_path = str(lmdb_path)
         self.transform_tight = transform_tight
         self.transform_context = transform_context
+        # v2 store-wide/slice-narrow contract (A4/M9): the chunk stores MOTION_STORE_DIM channels;
+        # __getitem__ slices to this consumed width. None -> return the full stored vector.
+        self.motion_dim = motion_dim
         self._env: lmdb.Environment | None = None
         self._pid: int | None = None
 
@@ -69,9 +73,9 @@ class LMDBChunkDataset(Dataset):
 
     @classmethod
     def from_config(cls, lmdb_path: str | Path, cfg: DataCfg) -> LMDBChunkDataset:
-        """Build with config-driven read transforms (Resize -> ToTensor -> ImageNet Normalize)."""
+        """Build with config-driven read transforms + the ``cfg.motion_dim`` consumed-width slice."""
         transform_tight, transform_context = build_read_transforms(cfg)
-        return cls(lmdb_path, transform_tight, transform_context)
+        return cls(lmdb_path, transform_tight, transform_context, motion_dim=cfg.motion_dim)
 
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
@@ -95,13 +99,27 @@ class LMDBChunkDataset(Dataset):
     def __len__(self) -> int:
         return len(self.seq_ids)
 
-    def __getitem__(self, idx: int) -> dict[str, Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, Tensor | str | int]:
         seq_id = self.seq_ids[idx]
         env = self._get_env()
         with env.begin(write=False) as txn:
             meta = pickle.loads(txn.get(f"{seq_id}_meta".encode()))
             motions, actions = meta["motions"], meta["actions"]
             looks, crosses = meta["looks"], meta["crosses"]
+            if "track_id" not in meta:
+                raise ValueError(
+                    f"[LMDBChunkDataset] Sequence {seq_id!r} has v1 meta (no track_id) — this chunk "
+                    f"predates the v2 rebuild and must be rebuilt: {self.lmdb_path}"
+                )
+            track_id = meta["track_id"]
+            if self.motion_dim is not None:
+                if motions.shape[1] < self.motion_dim:
+                    raise ValueError(
+                        f"[LMDBChunkDataset] Sequence {seq_id!r}: stored motions have "
+                        f"{motions.shape[1]} channels < motion_dim={self.motion_dim} — stale chunk, "
+                        f"rebuild required: {self.lmdb_path}"
+                    )
+                motions = motions[:, : self.motion_dim]
 
             t_frames = motions.shape[0]   # frame count comes from the motion tensor (1.2 contract)
             imgs_tight, imgs_context = [], []
@@ -122,11 +140,15 @@ class LMDBChunkDataset(Dataset):
                     f"Chunk may be corrupted: {self.lmdb_path}"
                 )
 
-        return {
+        sample: dict[str, Tensor | str | int] = {
             "images_tight": torch.stack(imgs_tight),
             "images_context": torch.stack(imgs_context),
             "motions": motions,
             "actions": actions,
             "looks": looks,
             "crosses": crosses,
+            "track_id": track_id,  # str — eval-side track aggregation (M6); collate ignores it
         }
+        if "tte" in meta:  # M5 benchmark-protocol chunks only
+            sample["tte"] = meta["tte"]
+        return sample

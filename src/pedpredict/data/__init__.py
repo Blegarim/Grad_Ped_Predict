@@ -25,7 +25,10 @@ from .lmdb_writer import (
     write_sample,
 )
 from .pie_sequences import (
+    BenchmarkRecord,
+    PieTrack,
     SequenceRecord,
+    WindowStats,
     clamp_to_binary,
     generate_sequences,
     iter_pie_tracks,
@@ -33,7 +36,9 @@ from .pie_sequences import (
     pie_data_opts,
     save_sequences,
     window_track,
+    window_track_benchmark,
     windows_from_pie,
+    windows_from_pie_benchmark,
 )
 from .sampler import (
     TASKS,
@@ -101,8 +106,11 @@ __all__ = [
     "load_reference",
     "split_lmdb_dirs",
     "write_stats_csv",
-    # sequences (1.1)
+    # sequences (1.1, v2 contract)
+    "BenchmarkRecord",
+    "PieTrack",
     "SequenceRecord",
+    "WindowStats",
     "clamp_to_binary",
     "generate_sequences",
     "iter_pie_tracks",
@@ -110,7 +118,9 @@ __all__ = [
     "pie_data_opts",
     "save_sequences",
     "window_track",
+    "window_track_benchmark",
     "windows_from_pie",
+    "windows_from_pie_benchmark",
     # runtime dataset + collate (1.5)
     "LMDBChunkDataset",
     "build_collate",

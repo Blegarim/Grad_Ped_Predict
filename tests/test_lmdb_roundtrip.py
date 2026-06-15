@@ -1,9 +1,10 @@
-"""Prompt 1.2 — LMDB write/read roundtrip (the schema contract, exercised end-to-end).
+"""LMDB write/read roundtrip (the v2 schema contract, exercised end-to-end).
 
 Writes a tiny chunk with the real writer, reopens it with raw ``lmdb``, and asserts the key/value
-contract consumed by ``lmdb_dataset`` (1.5): per-frame tight/context JPEG blobs that decode to the
-right uint8 shapes, and a ``_meta`` pickle holding exactly ``{motions, actions, looks, crosses}``
-(``bboxes`` deliberately dropped vs legacy). Also pins ``compute_map_size`` to the legacy formula.
+contract consumed by ``lmdb_dataset``: per-frame tight/context JPEG blobs that decode to the right
+uint8 shapes, and a ``_meta`` pickle holding exactly ``{motions[T,9], actions, looks, crosses,
+track_id}`` (+ ``tte`` for M5 benchmark records; ``bboxes`` deliberately dropped vs legacy). Also
+pins ``compute_map_size`` to the legacy formula.
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ _N = 3
 _SMALL_MAP = 64 * 1024 * 1024
 
 
-def _make_record(dirpath, idx: int):
-    """One record: ``_SEQ_LEN`` deterministic 200x200 PNG frames + moving/growing bboxes + labels."""
+def _make_record(dirpath, idx: int, *, tte: int | None = None):
+    """One v2 record: ``_SEQ_LEN`` deterministic PNG frames + bboxes + track_id/ego + labels."""
     paths = []
     for t in range(_SEQ_LEN):
         yy, xx = np.mgrid[0:200, 0:200]
@@ -36,7 +37,18 @@ def _make_record(dirpath, idx: int):
         Image.fromarray(arr).save(p)
         paths.append(str(p))
     bboxes = [[10.0 + t, 10.0 + t, 60.0 + 2 * t, 90.0 + 3 * t] for t in range(_SEQ_LEN)]
-    return {"images": paths, "bboxes": bboxes, "actions": 1, "looks": 0, "crosses": 1}
+    rec = {
+        "images": paths,
+        "bboxes": bboxes,
+        "track_id": f"ped_{idx}",
+        "ego_speed": [float(10 * idx + t) for t in range(_SEQ_LEN)],
+        "actions": 1,
+        "looks": 0,
+        "crosses": 1,
+    }
+    if tte is not None:
+        rec["tte"] = tte
+    return rec
 
 
 def _decode(buf: bytes) -> torch.Tensor:
@@ -64,14 +76,36 @@ def test_lmdb_roundtrip(tmp_path) -> None:
                     assert context.shape == (3, 384, 384) and context.dtype == torch.uint8
 
                 meta = pickle.loads(txn.get(f"{j}_meta".encode()))
-                assert set(meta) == {"motions", "actions", "looks", "crosses"}  # no 'bboxes'
-                assert meta["motions"].shape == (_SEQ_LEN, 8)
+                assert set(meta) == {"motions", "actions", "looks", "crosses", "track_id"}  # no 'bboxes'
+                assert meta["motions"].shape == (_SEQ_LEN, 9)  # MOTION_STORE_DIM (8 bbox + ego)
                 assert meta["motions"].dtype == torch.float32
+                # frame-0 deltas are true zeros (A4); ego channel carries the record's speeds (M9)
+                assert meta["motions"][0, 2:4].tolist() == [0.0, 0.0]
+                assert meta["motions"][0, 6:8].tolist() == [0.0, 0.0]
+                assert meta["motions"][:, 8].tolist() == [float(10 * j + t) for t in range(_SEQ_LEN)]
+                assert meta["track_id"] == f"ped_{j}"
                 for key in ("actions", "looks", "crosses"):
                     assert meta[key].dtype == torch.long and meta[key].ndim == 0
 
             # exactly N*(SEQ_LEN tight + SEQ_LEN context + 1 meta) entries, nothing extra
             assert txn.stat()["entries"] == _N * (2 * _SEQ_LEN + 1)
+    finally:
+        env.close()
+
+
+def test_benchmark_record_roundtrips_tte(tmp_path) -> None:
+    """M5 benchmark records carry ``tte`` through the writer into the meta pickle."""
+    cfg = dataclasses.replace(DataCfg(), lmdb_map_size_bytes=_SMALL_MAP)
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    records = [_make_record(frames_dir, 0, tte=45)]
+    paths = write_dataset_chunks(records, tmp_path / "lmdb", cfg, num_workers=0)
+    env = lmdb.open(str(paths[0]), readonly=True, lock=False)
+    try:
+        with env.begin() as txn:
+            meta = pickle.loads(txn.get(b"0_meta"))
+            assert meta["tte"] == 45
+            assert set(meta) == {"motions", "actions", "looks", "crosses", "track_id", "tte"}
     finally:
         env.close()
 

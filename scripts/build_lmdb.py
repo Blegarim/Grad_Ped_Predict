@@ -6,6 +6,7 @@ Thin wrapper: load config -> resolve paths -> read ``<sequences_dir>/sequences_<
 
     python scripts/build_lmdb.py --split val
     python scripts/build_lmdb.py --split all --set data.context_scale=3.0
+    python scripts/build_lmdb.py --split test_benchmark      # M5 TTE-protocol eval set
     python scripts/build_lmdb.py --split train --pkl data/sequences/sequences_train_aug.pkl \
         --out-dir preprocessed_train_aug
 """
@@ -20,18 +21,21 @@ from pedpredict.data.pie_sequences import load_sequences
 from pedpredict.paths import ResolvedPaths, resolve_paths
 
 _SPLITS = ("train", "val", "test")
+_EXTRA_SPLITS = ("test_benchmark",)  # explicit-only (excluded from --split all)
 
 
 def _out_dir_for(split: str, paths: ResolvedPaths) -> Path:
     """Map a split to its configured LMDB dir (train -> first dir; balanced/aug variants in 1.3/1.4)."""
     if split == "train":
         return paths.lmdb_train[0]
+    if split == "test_benchmark":
+        return paths.lmdb_test_benchmark
     return paths.lmdb_val if split == "val" else paths.lmdb_test
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_argparser()
-    parser.add_argument("--split", choices=(*_SPLITS, "all"), default="all")
+    parser.add_argument("--split", choices=(*_SPLITS, *_EXTRA_SPLITS, "all"), default="all")
     parser.add_argument("--pkl", default=None, help="Override the input sequence pickle path.")
     parser.add_argument("--out-dir", default=None, help="Override the output LMDB directory.")
     args = parser.parse_args(argv)

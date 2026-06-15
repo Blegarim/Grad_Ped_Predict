@@ -278,14 +278,16 @@ def assemble_windows(tracks: dict[int, Track], cfg: DataCfg, icfg: InferenceCfg)
 def preprocess_window(
     win: TrackWindow, cfg: DataCfg, transform_tight, transform_context
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """One window -> ``(images_tight[T,3,h,w], images_context[T,3,H,W], motions[T,8])``.
+    """One window -> ``(images_tight[T,3,h,w], images_context[T,3,H,W], motions[T,motion_dim])``.
 
     Wraps the stored RGB crops as PIL, applies the read transforms (resize + ImageNet normalize), and
-    computes motion via the canonical ``compute_motion`` (B7 — same 8-dim fn, no ``[..., :8]`` slice).
+    computes motion via the canonical ``compute_motion``, sliced to ``cfg.motion_dim`` exactly like
+    the LMDB read path. Raw video carries no OBD, so the ego channel is zeros — with the default
+    ``motion_dim=8`` it is sliced away; a ``motion_dim=9`` model would see a dead ego channel here.
     """
     tights = [transform_tight(Image.fromarray(d.tight)) for d in win.detections]
     contexts = [transform_context(Image.fromarray(d.context)) for d in win.detections]
-    motions = compute_motion([d.bbox for d in win.detections])
+    motions = compute_motion([d.bbox for d in win.detections])[:, : cfg.motion_dim]
     return torch.stack(tights, dim=0), torch.stack(contexts, dim=0), motions
 
 

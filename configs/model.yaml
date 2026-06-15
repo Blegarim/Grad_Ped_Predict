@@ -2,6 +2,12 @@
 d_model: 128
 in_channels: 3
 motion_dim: 8            # must equal data.motion_dim (validated)
+# A4 runtime motion normalization (applied in MotionEncoder.forward; ablatable from the same data):
+#   image        -> fixed global scale (x/width, y/height, ego/ego_speed_scale); keeps absolute geometry
+#   per_sequence -> legacy per-sequence z-norm (the "old" arm of the A4 ablation; golden-parity mode)
+motion_norm: image
+motion_norm_image_size: [1920, 1080]   # (W, H); must equal data.source_width/height (validated)
+ego_speed_scale: 50.0    # km/h scale for the ego channel under image norm
 stage_dims: [36, 36, 288, 36]
 layer_nums: [2, 4, 5, 7]
 head_nums:  [2, 2, 16, 2]

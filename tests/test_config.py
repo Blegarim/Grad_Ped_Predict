@@ -142,6 +142,48 @@ def test_validation_motion_dim_consistency() -> None:
         load_config(_CONFIG_DIR, overrides=["data.motion_dim=7"])
 
 
+def test_validation_motion_dim_capped_by_store_dim() -> None:
+    """v2 store-wide/slice-narrow: motion_dim cannot exceed the stored 9 channels."""
+    with pytest.raises(ConfigError, match="MOTION_STORE_DIM"):
+        load_config(_CONFIG_DIR, overrides=["data.motion_dim=10", "model.motion_dim=10"])
+    # 9 (with ego) is the valid maximum
+    cfg = load_config(_CONFIG_DIR, overrides=["data.motion_dim=9", "model.motion_dim=9"])
+    assert cfg.data.motion_dim == cfg.model.motion_dim == 9
+
+
+def test_validation_motion_norm_mode() -> None:
+    with pytest.raises(ConfigError, match="motion_norm"):
+        load_config(_CONFIG_DIR, overrides=["model.motion_norm=zscore"])
+    for mode in ("image", "per_sequence"):
+        assert load_config(_CONFIG_DIR, overrides=[f"model.motion_norm={mode}"]).model.motion_norm == mode
+
+
+def test_validation_motion_norm_image_size_must_match_source() -> None:
+    """The runtime image-dim norm must use the same frame dims the data was generated from."""
+    with pytest.raises(ConfigError, match="motion_norm_image_size"):
+        load_config(_CONFIG_DIR, overrides=["model.motion_norm_image_size=[1280,720]"])
+    cfg = load_config(
+        _CONFIG_DIR,
+        overrides=[
+            "data.source_width=1280", "data.source_height=720",
+            "model.motion_norm_image_size=[1280,720]",
+        ],
+    )
+    assert tuple(cfg.model.motion_norm_image_size) == (1280, 720)
+
+
+def test_validation_benchmark_windowing() -> None:
+    """M5 invariants: obs_len in [2, max_seq_len]; tte_min <= tte_max; overlap in [0, 1)."""
+    for bad in (
+        ["data.benchmark_obs_len=1"],
+        ["data.benchmark_obs_len=21"],
+        ["data.benchmark_tte_min=70"],          # > tte_max=60
+        ["data.benchmark_overlap=1.0"],
+    ):
+        with pytest.raises(ConfigError):
+            load_config(_CONFIG_DIR, overrides=bad)
+
+
 def test_validation_num_classes_keys() -> None:
     with pytest.raises(ConfigError):
         load_config(_CONFIG_DIR, overrides=["model.num_classes={actions: 2, looks: 2}"])

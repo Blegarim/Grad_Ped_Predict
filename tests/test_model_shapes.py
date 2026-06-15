@@ -154,8 +154,12 @@ def motion_golden() -> dict:
 
 
 def test_golden_motion_parity(motion_golden: dict) -> None:
-    """New MotionEncoder loads the OLD state_dict (strict=True) and reproduces the OLD output (eval)."""
-    model = MotionEncoder(**motion_golden["motion_kwargs"])
+    """New MotionEncoder loads the OLD state_dict (strict=True) and reproduces the OLD output (eval).
+
+    Pinned to ``motion_norm="per_sequence"`` — the legacy in-forward z-norm the capture used; the
+    A4 default ("image") is a deliberate, config-gated behavior change outside this parity surface.
+    """
+    model = MotionEncoder(**motion_golden["motion_kwargs"], motion_norm="per_sequence")
     model.load_state_dict(motion_golden["state_dict"], strict=True)
     model.eval()
     with torch.no_grad():
@@ -193,9 +197,48 @@ def test_motion_pos_encoding_capacity_guard() -> None:
 
 
 def test_motion_conv_in_channels_matches_datacfg() -> None:
-    """Coupling guard (1.2/1.4/2.2): the Conv1d input width equals the 8-dim motion contract."""
+    """Coupling guard (1.2/1.4/2.2): the Conv1d input width equals the consumed motion_dim."""
     model = MotionEncoder.from_config(ModelCfg())
     assert model.motion_encoder[0].in_channels == DataCfg().motion_dim == ModelCfg().motion_dim
+
+
+# --------------------------------------------------------------------------- A4: motion_norm flag
+
+
+def test_motion_norm_image_scale_vector() -> None:
+    """Image norm divides x-channels by W, y-channels by H, ego by ego_speed_scale (channel order)."""
+    model = MotionEncoder.from_config(ModelCfg(motion_dim=9, motion_norm="image"))
+    expected = [1920.0, 1080.0, 1920.0, 1080.0, 1920.0, 1080.0, 1920.0, 1080.0, 50.0]
+    assert model.motion_scale.flatten().tolist() == expected
+    # default 8-dim slices the same pattern
+    model8 = MotionEncoder.from_config(ModelCfg())
+    assert model8.motion_scale.flatten().tolist() == expected[:8]
+
+
+def test_motion_norm_image_preserves_absolute_geometry() -> None:
+    """Two constant-position sequences at different cx must produce different outputs under image
+    norm (per-sequence z-norm erases the difference — that is exactly hole A4)."""
+    torch.manual_seed(0)
+    model = MotionEncoder.from_config(ModelCfg(motion_norm="image")).eval()
+    tight = torch.zeros(1, 4, 3, 32, 32)
+    left = torch.tensor([[100.0, 500.0, 0.0, 0.0, 50.0, 100.0, 0.0, 0.0]]).repeat(4, 1).unsqueeze(0)
+    right = left.clone()
+    right[..., 0] = 1800.0  # same box, opposite side of the frame
+    with torch.no_grad():
+        out_left = model(left, tight)
+        out_right = model(right, tight)
+    assert not torch.allclose(out_left, out_right)
+
+
+def test_motion_norm_invalid_mode_raises() -> None:
+    with pytest.raises(ValueError, match="motion_norm"):
+        MotionEncoder(motion_norm="zscore")
+
+
+def test_motion_scale_buffer_not_in_state_dict() -> None:
+    """The norm buffer is non-persistent so OLD checkpoints keep loading strict=True."""
+    model = MotionEncoder.from_config(ModelCfg())
+    assert "motion_scale" not in model.state_dict()
 
 
 # =========================================================================== Prompt 2.3 — CrossAttention
@@ -345,9 +388,12 @@ def _dummy_full_inputs(cfg: ModelCfg, img_size: int = 224, b: int = 2, t: int = 
 
 
 def test_golden_ensemble_full_parity(ensemble_golden: dict) -> None:
-    """New EnsembleModel loads the OLD full-model state_dict (strict=True) and reproduces every key (eval)."""
+    """New EnsembleModel loads the OLD full-model state_dict (strict=True) and reproduces every key (eval).
+
+    Pinned to the legacy per-sequence motion norm (see test_golden_motion_parity).
+    """
     entry = ensemble_golden["full"]
-    model = EnsembleModel.from_config(ModelCfg(), img_size=entry["img_size"])
+    model = EnsembleModel.from_config(ModelCfg(motion_norm="per_sequence"), img_size=entry["img_size"])
     model.load_state_dict(entry["state_dict"], strict=True)
     model.eval()
     with torch.no_grad():
@@ -482,7 +528,8 @@ _ABLATION_FORWARD = {
 
 
 def _build_ablation(mt: ModelType, entry: dict) -> nn.Module:
-    return _ABLATION_CLASS[mt].from_config(ModelCfg(), entry["img_size"])
+    # per-sequence norm: the legacy capture's motion normalization (A4 parity pin)
+    return _ABLATION_CLASS[mt].from_config(ModelCfg(motion_norm="per_sequence"), entry["img_size"])
 
 
 def _rebuild_ablation_with_gate(mt: ModelType, ref: nn.Module, emit: bool) -> nn.Module:

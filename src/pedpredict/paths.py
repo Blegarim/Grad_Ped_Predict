@@ -50,6 +50,7 @@ class ResolvedPaths:
     lmdb_train: tuple[Path, ...]
     lmdb_val: Path
     lmdb_test: Path
+    lmdb_test_benchmark: Path
     log_dir: Path
     ckpt_dir: Path
     run_ckpt_dir: Path
@@ -66,6 +67,7 @@ def resolve_paths(cfg: PathsCfg, root: Path | None = None) -> ResolvedPaths:
         lmdb_train=tuple(_resolve_one(base, p) for p in cfg.lmdb_train),
         lmdb_val=_resolve_one(base, cfg.lmdb_val),
         lmdb_test=_resolve_one(base, cfg.lmdb_test),
+        lmdb_test_benchmark=_resolve_one(base, cfg.lmdb_test_benchmark),
         log_dir=_resolve_one(base, cfg.log_dir),
         ckpt_dir=_resolve_one(base, cfg.ckpt_dir),
         run_ckpt_dir=_resolve_one(base, cfg.run_ckpt_dir),

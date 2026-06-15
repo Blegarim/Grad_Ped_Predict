@@ -281,7 +281,15 @@ def _write_tiny_chunk(tmp_path: Path) -> Path:
             Image.fromarray(arr).save(p)
             paths.append(str(p))
         bboxes = [[10.0 + t, 10.0 + t, 60.0 + 2 * t, 90.0 + 3 * t] for t in range(seq_len)]
-        records.append({"images": paths, "bboxes": bboxes, "actions": idx % 2, "looks": 0, "crosses": idx % 2})
+        records.append({
+            "images": paths,
+            "bboxes": bboxes,
+            "track_id": f"ped_{idx}",
+            "ego_speed": [0.0] * seq_len,
+            "actions": idx % 2,
+            "looks": 0,
+            "crosses": idx % 2,
+        })
     out_dir = tmp_path / "test_lmdb"
     write_dataset_chunks(records, out_dir, cfg_data, num_workers=0)
     return out_dir

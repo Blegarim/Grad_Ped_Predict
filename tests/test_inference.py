@@ -131,10 +131,17 @@ def test_preprocess_equals_process_record(tmp_path) -> None:
         p = tmp_path / f"f_{i}.png"             # PNG = lossless -> decoded pixels identical
         Image.fromarray(frame).save(p)
         paths.append(str(p))
-    rec = {"images": paths, "bboxes": [list(b) for b in bboxes], "actions": 0, "looks": 0, "crosses": 0}
+    rec = {
+        "images": paths,
+        "bboxes": [list(b) for b in bboxes],
+        "track_id": "ped_infer",
+        "ego_speed": [0.0] * len(paths),  # the raw-video path has no OBD — ego is zeros there too
+        "actions": 0, "looks": 0, "crosses": 0,
+    }
     exp = process_record(rec, cfg, tt, tc)
 
-    torch.testing.assert_close(m_out, exp.motions, rtol=0, atol=0)
+    # inference slices to motion_dim exactly like the LMDB read path
+    torch.testing.assert_close(m_out, exp.motions[:, : cfg.motion_dim], rtol=0, atol=0)
     torch.testing.assert_close(t_out, exp.images_tight, rtol=0, atol=1e-6)
     torch.testing.assert_close(c_out, exp.images_context, rtol=0, atol=1e-6)
 
@@ -144,7 +151,8 @@ def test_motion_is_canonical_compute_motion() -> None:
     cfg = RootCfg().data
     tt, tc = build_read_transforms(cfg)
     _, _, m_out = preprocess_window(win, cfg, tt, tc)
-    torch.testing.assert_close(m_out, compute_motion(bboxes), rtol=0, atol=0)
+    assert m_out.shape[-1] == cfg.motion_dim
+    torch.testing.assert_close(m_out, compute_motion(bboxes)[:, : cfg.motion_dim], rtol=0, atol=0)
 
 
 def test_context_scale_uses_data_cfg() -> None:

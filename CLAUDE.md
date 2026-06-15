@@ -29,7 +29,7 @@ tight crop + motion → MotionEncoder    ───┘
 | Component | Role |
 |---|---|
 | `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Outputs `[B, T, d_model]`. |
-| `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + fusion + GRU + learned pos-encoding + MultiheadAttention. Outputs `[B, T, d_model]`. |
+| `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + fusion + GRU + learned pos-encoding + MultiheadAttention. In-forward motion norm is config-gated: `model.motion_norm` = `image` (fixed frame-dim scale, default) \| `per_sequence` (legacy z-norm, A4 ablation arm). Outputs `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → pooling MLP → softmax temporal weights → per-task classifier heads. |
 | `EnsembleModel` | Wires all components; applies **LayerNorm before fusion**; `return_feats` path used by viz. |
 | Ablations | `MotionOnlyModel`, `VisualOnlyModel`, `VanillaConcatModel` (concat instead of cross-attention); same output-dict format. |
@@ -96,8 +96,10 @@ Setup and the full CLI surface live in [README.md](README.md); the essentials:
 pip install -e .[dev]
 
 # Data pipeline (offline → runtime)
-python scripts/make_sequences.py  --split all      # PIE → sequences_<split>.pkl
+python scripts/make_sequences.py  --split all      # PIE → sequences_<split>.pkl + windowing stats json (M4)
+python scripts/make_sequences.py  --benchmark      # M5 TTE-protocol eval windows → sequences_test_benchmark.pkl
 python scripts/build_lmdb.py      --split val      # sequences → LMDB chunks (needs all of a split's frames)
+python scripts/build_lmdb.py      --split test_benchmark   # M5 eval set → preprocessed_test_benchmark
 python scripts/build_lmdb_incremental.py --split train  # disk-bounded, resumable: extract→crop→delete per video
 python scripts/balance_dataset.py                  # opt-in offline balance (default off)
 python scripts/augment_dataset.py                  # minority-class augmentation
@@ -121,26 +123,50 @@ pytest -m "not slow"
 
 ## Data Pipeline
 
-**LMDB schema (written contract)** — keys reset **per chunk** (`<key>` = sample index within the chunk):
-- `<key>_meta` (pickle): `motions[T,8]`, `actions`, `looks`, `crosses` (no `bboxes`)
+**LMDB schema v2 (written contract)** — keys reset **per chunk** (`<key>` = sample index within the chunk):
+- `<key>_meta` (pickle): `motions[T,9]`, `actions`, `looks`, `crosses`, `track_id` (+ `tte`, benchmark
+  chunks only; no `bboxes`)
 - per-frame `<key>_<t>_tight` and `<key>_<t>_context` JPEG blobs (stored **un-normalized** `[0,1]·255`;
   ImageNet normalize is applied at read time, not by the writer)
 
 Stages (offline → runtime): PIE → sequence generation (sliding windows `seq_len=20`, `stride=3`,
-`future_offset=30`, `tol=2`; filter #2 drops windows with any crossing during observation) → crop/motion
-extraction + LMDB writer (`context_scale=3.0`, `jpeg_quality=90`, `chunk_size=5000`) → offline balance/split
-→ offline augmentation (minority classes) → runtime `LMDBChunkDataset` (per-process env keyed on pid) + collate.
+`future_offset=30`, `tol=2`; filter #2 drops windows with any crossing during observation; **M4 censor
+filter** drops windows whose future window is not fully observed — counted per split in
+`sequences_<split>_stats.json`) → crop/motion extraction + LMDB writer (`context_scale=3.0`,
+`jpeg_quality=90`, `chunk_size=5000`) → offline balance/split → offline augmentation (minority classes)
+→ runtime `LMDBChunkDataset` (per-process env keyed on pid; slices motions to `data.motion_dim`) + collate.
 
+**v2 labeling contract (hole audit M3/M4/M5/M6/M9 — deliberate departures from v1/legacy):**
+- **M3**: `actions`/`looks` = pedestrian **state at the last observed frame** (`signal[end-1]`);
+  ONLY `crosses` is a future label (`any()` over the fully-observed future window).
+- **M4**: right-censored windows (truncated future) are **dropped, not labeled 0**.
+- **M6**: every record/meta carries `track_id` (PIE pedestrian id) for eval-side track aggregation.
+- **M9 + A4 (motion v2)**: the stored motion vector is **9-dim** `(cx, cy, dx, dy, w, h, dw, dh, ego_speed)`
+  (`MOTION_STORE_DIM`, channel table in `data/transforms.compute_motion`): frame-0 deltas are **true
+  zeros** (legacy raw-size quirk removed); `ego_speed` = PIE OBD km/h. **Store wide, slice narrow**:
+  consumers read `data.motion_dim` (8 = no ego, 9 = with ego — the M9 ablation is two configs over one
+  dataset). The normalization choice is a **runtime flag** `model.motion_norm`
+  (`image` = fixed frame-dimension scale, default; `per_sequence` = legacy z-norm, the A4 ablation arm
+  pinned by the golden-parity tests).
+- **M5**: a separate **benchmark-protocol eval set** (test split only): TTE-sampled windows
+  (`benchmark_obs_len=16` ending 30–60 frames before the PIE `crossing_point`), `crosses` labeled by the
+  crossing **event**; records carry `tte`. Built via `make_sequences.py --benchmark` +
+  `build_lmdb.py --split test_benchmark` → `preprocessed_test_benchmark`.
 - `crosses` raw labels `{-1,0,1}` are clamped to `{0,1}` (at sequence generation; the writer does not re-clamp).
 - `context_scale` is a single uniform **3.0** across data + benchmark (kept config-flexible for ablation).
-- The **8-dim motion feature** is `(cx, cy, dx, dy, w, h, dw, dh)` from the int-truncated bbox (documented per
-  channel in `data/transforms.compute_motion`); `horizontal_flip` augmentation negates **index 2 (dx)** —
-  the index must match the channel definition or augmented data corrupts silently. ⚠️ Preserved quirk:
-  frame-0 `dw`/`dh` (idx 6/7) hold the *raw* `w0`/`h0`, not a delta (improvement candidate).
+- `horizontal_flip` augmentation negates **index 2 (dx)** AND reflects **index 0 (cx)** about
+  `data.source_width` (A4 fix); ego (idx 8) is flip-invariant. The indices must match the channel
+  definition or augmented data corrupts silently.
 
 ### Dataset Statistics
 
-Positive-class rates in the generated sequences:
+⚠️ **STALE — v1 numbers.** The v2 relabel (M3 state-at-end, M4 censor filter) changes N and all
+positive rates; both are expected to **drop** (`looks` hardest). The table and the
+`pie_sequences_counts.json` fixture MUST be re-pinned from the v2 regen (`make_sequences.py` prints the
+per-split window stats incl. the thesis-reportable censored count) before any v2 LMDB build is trusted —
+execution checklist: [docs/V2_REBUILD_RUNBOOK.md](docs/V2_REBUILD_RUNBOOK.md).
+
+Positive-class rates in the generated sequences (v1, superseded):
 
 | Split | N | actions=1 | looks=1 | crosses=1 |
 |---|---|---|---|---|

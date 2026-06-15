@@ -11,6 +11,8 @@ from .loader import (
     validate_config,
 )
 from .schema import (
+    MOTION_CHANNELS,
+    MOTION_STORE_DIM,
     AugmentCfg,
     BalanceCfg,
     DataCfg,
@@ -26,6 +28,8 @@ from .schema import (
 )
 
 __all__ = [
+    "MOTION_CHANNELS",
+    "MOTION_STORE_DIM",
     "AugmentCfg",
     "BalanceCfg",
     "ConfigError",

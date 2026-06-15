@@ -78,8 +78,10 @@ PIE → sequence windows → LMDB chunks (JPEG crops + motion/labels) → balanc
 For example, the first two stages:
 
 ```bash
-python scripts/make_sequences.py --split all     # PIE → data/sequences/sequences_<split>.pkl
+python scripts/make_sequences.py --split all     # PIE → data/sequences/sequences_<split>.pkl (+ stats json)
+python scripts/make_sequences.py --benchmark     # TTE-protocol eval windows → sequences_test_benchmark.pkl
 python scripts/build_lmdb.py     --split val     # sequences → preprocessed_<split>/chunk_*.lmdb
+python scripts/build_lmdb.py     --split test_benchmark  # benchmark eval set → preprocessed_test_benchmark
 python scripts/build_lmdb_incremental.py --split train  # disk-bounded + resumable build (see setup.md)
 ```
 
@@ -87,10 +89,11 @@ python scripts/build_lmdb_incremental.py --split train  # disk-bounded + resumab
 the frames each chunk uses (cv2, byte-identical to PIE's extractor), builds the chunk, deletes the spent
 frames, and resumes from the last completed chunk — for train or any split too large to stage at once.
 
-Crops are stored un-normalized (JPEG); ImageNet normalization is applied at read time. The 8-dim motion
-feature and the LMDB key/value schema are documented in
-[data/transforms.py](src/pedpredict/data/transforms.py) and
-[data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py).
+Crops are stored un-normalized (JPEG); ImageNet normalization is applied at read time. The stored motion
+vector is 9-dim — `(cx, cy, dx, dy, w, h, dw, dh, ego_speed)`, frame-0 deltas zero, sliced to
+`data.motion_dim` at read time — documented channel-by-channel in
+[data/transforms.py](src/pedpredict/data/transforms.py); the LMDB key/value schema (incl. `track_id`)
+lives in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py).
 
 ## Install
 

@@ -1,27 +1,28 @@
-"""Crop geometry + motion features + normalization.
+"""Crop geometry + motion features + normalization (v2 motion contract).
 
-Owns the per-frame *math* of the LMDB pipeline, ported from OLD
-``scripts/PIE_sequence_Dataset_1.py::PIESequenceDataset._process_sequence``. The companion
-``lmdb_writer.py`` owns only serialization/chunking — this split is band-aid B5 (one fused
-``preprocess`` script becomes geometry + writer).
+Owns the per-frame *math* of the LMDB pipeline. The companion ``lmdb_writer.py`` owns only
+serialization/chunking (B5 split). Crop geometry and JPEG handling are unchanged from the legacy
+port; the **motion feature is the v2 contract** (hole audit A4 + M9, deliberate behavior changes):
 
-Behavior is preserved exactly vs the legacy ``_process_sequence`` (verified by
-``tests/test_transforms.py`` against ``tests/fixtures/golden/lmdb_process_record.pt``), with two
-deliberate, contract-aligned changes flagged in docs/archive/MIGRATION.md:
+* **Frame-0 deltas are true zeros.** The legacy quirk (``dx``/``dy`` duplicated the first delta;
+  ``dw``/``dh`` held the *raw* initial size, which per-sequence normalization turned into a t=0
+  spike that deleted both channels) is fixed.
+* **Ego-vehicle speed is the 9th channel.** The writer ALWAYS stores the full
+  ``MOTION_STORE_DIM`` (9) vector; runtime consumers slice to ``data.motion_dim``
+  ("store wide, slice narrow") so with/without-ego are two configs over one dataset.
+* **No normalization is baked in** — motions are stored in raw pixel / km/h units; the
+  normalization choice is a *runtime* model flag (``model.motion_norm``, A4 ablation).
 
-* **TurboJPEG dropped** — frames are decoded with PIL only (:func:`load_rgb`). The legacy hardcoded
-  ``C:\\libjpeg-turbo64`` DLL path is removed (a path/B5 smell); decode output is otherwise identical.
+Other write/read conventions are unchanged:
+
+* Frames are decoded with PIL only (:func:`load_rgb`).
 * **ImageNet normalize is NOT applied at write time.** Stored crops are plain ``[0, 1]`` → JPEG;
-  :func:`imagenet_normalize` is *defined* here but consumed at read time by ``lmdb_dataset`` (1.5).
-
-The 8-dim motion feature is pinned and documented in :func:`compute_motion` (upstream half of B7):
-``(cx, cy, dx, dy, w, h, dw, dh)`` from the **int-truncated** bbox. The writer emits exactly
-``motion_dim`` channels so the legacy ``motions[..., :8]`` slice (1.5) becomes a no-op to delete.
+  :func:`imagenet_normalize` is *defined* here but consumed at read time by ``lmdb_dataset``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,7 +32,7 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from pedpredict.config.schema import DataCfg
+from pedpredict.config.schema import MOTION_STORE_DIM, DataCfg
 from pedpredict.data.pie_sequences import SequenceRecord
 
 __all__ = [
@@ -99,26 +100,32 @@ def crop_context(img: Image.Image, box_int: _BoxInt, scale: float) -> Image.Imag
     return img.crop((x1c, y1c, x2c, y2c))
 
 
-def compute_motion(boxes_int: list[_BoxInt] | tuple[_BoxInt, ...]) -> Tensor:
-    """Build the ``[T, 8]`` motion feature ``(cx, cy, dx, dy, w, h, dw, dh)`` from int boxes.
+def compute_motion(
+    boxes_int: list[_BoxInt] | tuple[_BoxInt, ...],
+    ego_speed: Sequence[float] | None = None,
+) -> Tensor:
+    """Build the ``[T, 9]`` v2 motion feature ``(cx, cy, dx, dy, w, h, dw, dh, ego)`` from int boxes.
 
-    Channel definition (preserved EXACTLY from OLD lines 95-108 — including the frame-0 asymmetry):
+    Channel definition (v2 contract — hole audit A4 + M9; values are RAW pixel / km/h units, the
+    normalization choice lives at runtime in ``MotionEncoder``):
 
     ===  ====  ===================================================  ==================================
     idx  name  value                                                notes
     ===  ====  ===================================================  ==================================
-    0    cx    ``(x1 + x2) / 2``                                    absolute center x
+    0    cx    ``(x1 + x2) / 2``                                    absolute center x; flip-REFLECTED
     1    cy    ``(y1 + y2) / 2``                                    absolute center y
-    2    dx    ``cx_t - cx_{t-1}``;  t=0 -> ``cx_1 - cx_0``         flip-negated channel in 1.4
-    3    dy    ``cy_t - cy_{t-1}``;  t=0 -> ``cy_1 - cy_0``         first delta duplicated
+    2    dx    ``cx_t - cx_{t-1}``;  **t=0 -> 0**                   flip-NEGATED channel
+    3    dy    ``cy_t - cy_{t-1}``;  **t=0 -> 0**
     4    w     ``x2 - x1``
     5    h     ``y2 - y1``
-    6    dw    ``w_t - w_{t-1}``;  **t=0 -> ``w_0`` (raw width)**   legacy quirk: NOT a delta at t=0
-    7    dh    ``h_t - h_{t-1}``;  **t=0 -> ``h_0`` (raw height)**  legacy quirk: NOT a delta at t=0
+    6    dw    ``w_t - w_{t-1}``;  **t=0 -> 0**                     legacy raw-size quirk REMOVED (A4)
+    7    dh    ``h_t - h_{t-1}``;  **t=0 -> 0**
+    8    ego   OBD ego-vehicle speed (km/h)                         M9; ``None`` -> zeros (video infer)
     ===  ====  ===================================================  ==================================
 
-    The dw/dh frame-0 quirk (raw size, not a delta) is almost certainly an unintended legacy bug;
-    Phase A preserves it because the trained weights depend on it (Phase-B fix candidate).
+    Always returns ``MOTION_STORE_DIM`` (9) channels — runtime consumers slice to ``motion_dim``.
+    ``ego_speed=None`` fills the ego channel with zeros (the raw-video inference path has no OBD);
+    callers that then feed a ``motion_dim=9`` model are knowingly feeding a dead channel.
     """
     centers, widths, heights = [], [], []
     for x1, y1, x2, y2 in boxes_int:
@@ -128,16 +135,32 @@ def compute_motion(boxes_int: list[_BoxInt] | tuple[_BoxInt, ...]) -> Tensor:
     centers_t = torch.tensor(centers, dtype=torch.float32)
     widths_t = torch.tensor(widths, dtype=torch.float32)
     heights_t = torch.tensor(heights, dtype=torch.float32)
-    if centers_t.shape[0] < 2:  # OLD would index dt[0:1] on an empty delta; fail loudly instead
-        raise ValueError(f"compute_motion needs T >= 2 frames; got T={centers_t.shape[0]}")
-    dt = centers_t[1:] - centers_t[:-1]
-    dt = torch.cat([dt[0:1], dt], dim=0)
-    dw = torch.cat([widths_t[0:1], widths_t[1:] - widths_t[:-1]], dim=0)
-    dh = torch.cat([heights_t[0:1], heights_t[1:] - heights_t[:-1]], dim=0)
-    return torch.cat(
-        [centers_t, dt, widths_t.unsqueeze(1), heights_t.unsqueeze(1), dw.unsqueeze(1), dh.unsqueeze(1)],
+    t = centers_t.shape[0]
+    if t < 2:
+        raise ValueError(f"compute_motion needs T >= 2 frames; got T={t}")
+    dt = torch.cat([torch.zeros(1, 2), centers_t[1:] - centers_t[:-1]], dim=0)
+    dw = torch.cat([torch.zeros(1), widths_t[1:] - widths_t[:-1]], dim=0)
+    dh = torch.cat([torch.zeros(1), heights_t[1:] - heights_t[:-1]], dim=0)
+    if ego_speed is None:
+        ego_t = torch.zeros(t, dtype=torch.float32)
+    else:
+        if len(ego_speed) != t:
+            raise ValueError(f"compute_motion: ego_speed has {len(ego_speed)} frames, expected {t}")
+        ego_t = torch.tensor([float(v) for v in ego_speed], dtype=torch.float32)
+    out = torch.cat(
+        [
+            centers_t,
+            dt,
+            widths_t.unsqueeze(1),
+            heights_t.unsqueeze(1),
+            dw.unsqueeze(1),
+            dh.unsqueeze(1),
+            ego_t.unsqueeze(1),
+        ],
         dim=1,
     )
+    assert out.shape[1] == MOTION_STORE_DIM
+    return out
 
 
 def resize_to_tensor(size: tuple[int, int]) -> Callable[[Image.Image], Tensor]:
@@ -179,12 +202,14 @@ def build_read_transforms(cfg: DataCfg) -> tuple[Callable, Callable]:
 class ProcessedSample:
     """One windowed sequence after cropping/resize — the writer's serialization input."""
 
-    images_tight: Tensor    # [T, 3, img_height, img_width]            float [0, 1]
-    images_context: Tensor  # [T, 3, H*scale, W*scale]                 float [0, 1]
-    motions: Tensor         # [T, 8]  (cx, cy, dx, dy, w, h, dw, dh)   float32
+    images_tight: Tensor    # [T, 3, img_height, img_width]                 float [0, 1]
+    images_context: Tensor  # [T, 3, H*scale, W*scale]                      float [0, 1]
+    motions: Tensor         # [T, 9]  (cx, cy, dx, dy, w, h, dw, dh, ego)   float32, raw units
     actions: Tensor         # 0-dim long
     looks: Tensor           # 0-dim long
     crosses: Tensor         # 0-dim long
+    track_id: str = ""      # PIE pedestrian id (M6) — eval-side track aggregation
+    tte: int | None = None  # M5 benchmark windows only: frames to crossing_point
 
 
 def process_record(
@@ -215,10 +240,12 @@ def process_record(
     return ProcessedSample(
         images_tight=torch.stack(tights, dim=0),
         images_context=torch.stack(contexts, dim=0),
-        motions=compute_motion(boxes),
+        motions=compute_motion(boxes, ego_speed=rec["ego_speed"]),
         actions=torch.tensor(rec["actions"], dtype=torch.long),
         looks=torch.tensor(rec["looks"], dtype=torch.long),
         crosses=torch.tensor(rec["crosses"], dtype=torch.long),
+        track_id=rec["track_id"],
+        tte=rec.get("tte"),
     )
 
 

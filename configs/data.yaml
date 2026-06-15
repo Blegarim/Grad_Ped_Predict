@@ -1,6 +1,10 @@
 # DataCfg — data-layer constants (B7 magic constants relocated here).
 max_seq_len: 20
+# CONSUMED motion channels (model input width). The v2 writer always stores 9 (8 bbox channels +
+# ego-speed, MOTION_STORE_DIM); the dataset slices to this at read time. 8 = no ego, 9 = with ego.
 motion_dim: 8            # must equal model.motion_dim (validated)
+source_width: 1920       # PIE source-frame pixel dims; used by flip cx-reflection (A4) and
+source_height: 1080      # cross-checked against model.motion_norm_image_size
 img_height: 128
 img_width: 128
 read_context_height: 224  # read-time context model input (OLD train.py); write-time context is img*context_scale=384
@@ -21,6 +25,12 @@ seq_len: 20
 stride: 3
 future_offset: 30
 tol: 2
+# M5 benchmark-protocol eval set (test split only): fixed-TTE windows before the PIE crossing_point,
+# labeled by the crossing EVENT (Kotseruba et al. WACV 2021 protocol). stride = obs_len*(1-overlap).
+benchmark_obs_len: 16
+benchmark_tte_min: 30
+benchmark_tte_max: 60
+benchmark_overlap: 0.6
 # PIE source opts (generate_data_trajectory_sequence) — mirror the OLD data_opts literals
 min_track_size: 10
 fstride: 1

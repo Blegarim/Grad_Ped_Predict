@@ -23,6 +23,7 @@ import yaml
 
 from ..models.geometry import feature_map_size, is_global
 from .schema import (
+    MOTION_STORE_DIM,
     AugmentCfg,
     BalanceCfg,
     DataCfg,
@@ -231,8 +232,44 @@ def validate_config(root: RootCfg) -> None:
     if m.frame_pool not in _FRAME_POOLS:
         raise ConfigError(f"model.frame_pool must be one of {sorted(_FRAME_POOLS)}; got {m.frame_pool!r}")
 
-    if d.motion_dim != m.motion_dim:  # B7: writer-channel / model-input agreement
+    if d.motion_dim != m.motion_dim:  # B7: dataset-slice / model-input agreement
         raise ConfigError(f"data.motion_dim ({d.motion_dim}) != model.motion_dim ({m.motion_dim})")
+    if d.motion_dim > MOTION_STORE_DIM:  # v2 store-wide/slice-narrow contract (A4/M9)
+        raise ConfigError(
+            f"data.motion_dim ({d.motion_dim}) exceeds the stored motion width MOTION_STORE_DIM "
+            f"({MOTION_STORE_DIM}) — the LMDB only holds {MOTION_STORE_DIM} channels"
+        )
+    if m.motion_norm not in {"image", "per_sequence"}:
+        raise ConfigError(
+            f"model.motion_norm must be 'image' or 'per_sequence'; got {m.motion_norm!r}"
+        )
+    if tuple(m.motion_norm_image_size) != (d.source_width, d.source_height):
+        raise ConfigError(
+            f"model.motion_norm_image_size {tuple(m.motion_norm_image_size)} != "
+            f"(data.source_width, data.source_height) ({d.source_width}, {d.source_height}) — "
+            f"the runtime motion norm must use the SAME frame dims the data was generated from"
+        )
+    if m.ego_speed_scale <= 0.0:
+        raise ConfigError(f"model.ego_speed_scale must be > 0; got {m.ego_speed_scale}")
+    if d.source_width <= 0 or d.source_height <= 0:
+        raise ConfigError(
+            f"data.source_width/source_height must be positive; got {d.source_width}x{d.source_height}"
+        )
+
+    # M5 benchmark-protocol windowing invariants
+    if d.benchmark_obs_len <= 1:
+        raise ConfigError(f"data.benchmark_obs_len must be >= 2; got {d.benchmark_obs_len}")
+    if d.benchmark_obs_len > d.max_seq_len:
+        raise ConfigError(
+            f"data.benchmark_obs_len ({d.benchmark_obs_len}) exceeds data.max_seq_len ({d.max_seq_len})"
+        )
+    if not (0 <= d.benchmark_tte_min <= d.benchmark_tte_max):
+        raise ConfigError(
+            f"require 0 <= benchmark_tte_min <= benchmark_tte_max; "
+            f"got {d.benchmark_tte_min}, {d.benchmark_tte_max}"
+        )
+    if not (0.0 <= d.benchmark_overlap < 1.0):
+        raise ConfigError(f"data.benchmark_overlap must be in [0, 1); got {d.benchmark_overlap}")
 
     if set(m.num_classes) != _TASK_KEYS:
         raise ConfigError(f"model.num_classes keys must be {sorted(_TASK_KEYS)}; got {sorted(m.num_classes)}")

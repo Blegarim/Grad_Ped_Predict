@@ -5,21 +5,21 @@ serialization/chunking concern. All crop/motion math lives in :mod:`pedpredict.d
 (band-aid B5). The writer JPEG-encodes the (already un-normalized ``[0, 1]``) crops and pickles the
 per-sample metadata into per-chunk LMDB environments.
 
-LMDB key/value contract (consumed by ``lmdb_dataset`` in 1.5) — keys reset **per chunk**, where
+LMDB key/value contract v2 (consumed by ``lmdb_dataset``) — keys reset **per chunk**, where
 ``j`` is the sample index within the chunk and ``t`` the frame index:
 
-====================  ==========================  ===========================================
+====================  ==========================  =====================================================
 key (utf-8)           value                       decodes to
-====================  ==========================  ===========================================
+====================  ==========================  =====================================================
 ``f"{j}_{t}_tight"``   JPEG bytes                  uint8 ``[3, img_height, img_width]``
 ``f"{j}_{t}_context"`` JPEG bytes                  uint8 ``[3, H*scale, W*scale]``
-``f"{j}_meta"``        ``pickle`` dict             ``{motions[T,8], actions, looks, crosses}``
-====================  ==========================  ===========================================
+``f"{j}_meta"``        ``pickle`` dict             ``{motions[T,9], actions, looks, crosses,
+                                                   track_id, (tte)}``
+====================  ==========================  =====================================================
 
-Deliberate change vs legacy (flagged in docs/archive/MIGRATION.md): the OLD meta was "everything not
-``images*``", which silently also stored ``bboxes``. The frozen contract drops it — motions already
-encode bbox geometry and 1.5 never reads ``meta['bboxes']``. JPEG bytes + motions + labels are
-byte/numerically identical to legacy.
+v2 meta (hole audit): ``motions`` is the full ``MOTION_STORE_DIM`` (9) vector — 8 bbox channels with
+true-zero frame-0 deltas + ego-speed (A4/M9); ``track_id`` is the PIE pedestrian id (M6); ``tte`` is
+present only in M5 benchmark-protocol chunks. ``bboxes`` stays dropped (motions encode the geometry).
 """
 
 from __future__ import annotations
@@ -79,13 +79,16 @@ def encode_jpeg_bytes(img01: Tensor, quality: int) -> bytes:
 
 
 def pack_meta(sample: ProcessedSample) -> bytes:
-    """Pickle the per-sample metadata. ``bboxes`` intentionally dropped vs legacy (see module docstring)."""
+    """Pickle the per-sample v2 metadata (see the module-docstring contract table)."""
     meta = {
         "motions": sample.motions,
         "actions": sample.actions,
         "looks": sample.looks,
         "crosses": sample.crosses,
+        "track_id": sample.track_id,
     }
+    if sample.tte is not None:  # M5 benchmark-protocol chunks only
+        meta["tte"] = sample.tte
     return pickle.dumps(meta)
 
 

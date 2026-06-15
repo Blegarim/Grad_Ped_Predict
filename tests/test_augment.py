@@ -1,10 +1,12 @@
-"""Prompt 1.4 — offline augmentation parity + invariance tests.
+"""Offline augmentation tests (v2 flip contract).
 
 Three kinds of checks:
-  * GOLDEN parity: the re-homed ``SequenceAugmenter`` reproduces OLD ``SequenceAugmenter`` per transform
-    (``tests/fixtures/golden/augment_cases.pt``; see ``tests/_capture/capture_augment_golden.py``).
-  * INVARIANCE: ``flip(flip(x)) == x`` and the flip↔motion-channel coupling (only ``dx`` negated) — the
-    "silent corruption" the schematic flags.
+  * GOLDEN-DERIVED parity: color/noise/erase still reproduce the OLD ``SequenceAugmenter`` exactly
+    (``tests/fixtures/golden/augment_cases.pt``); the FLIP expectation is derived from the golden
+    with the A4 fix applied (absolute ``cx`` reflected about the source width — the legacy version
+    left it unreflected, silently corrupting flipped copies' geometry).
+  * INVARIANCE: ``flip(flip(x)) == x`` and the flip↔motion-channel coupling (``dx`` negated, ``cx``
+    reflected, everything else untouched).
   * PLAN: ``plan_oversample`` is deterministic and respects the minority multipliers (negatives excluded).
 """
 
@@ -21,6 +23,7 @@ from PIL import Image
 from pedpredict.config import AugmentCfg, ConfigError, DataCfg, RootCfg, validate_config
 from pedpredict.data.augment import (
     _FLIP_NEGATE_IDX,
+    _FLIP_REFLECT_IDX,
     AugItem,
     AugmentedCropSequenceDataset,
     SequenceAugmenter,
@@ -31,6 +34,7 @@ from pedpredict.data.augment import (
 from pedpredict.data.transforms import ProcessedSample, compute_motion, process_record
 
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "augment_cases.pt"
+_SOURCE_WIDTH = DataCfg().source_width
 
 
 def _sample_from(d: dict) -> ProcessedSample:
@@ -52,7 +56,7 @@ def golden() -> dict:
 
 @pytest.fixture
 def augmenter() -> SequenceAugmenter:
-    return SequenceAugmenter(AugmentCfg())
+    return SequenceAugmenter(AugmentCfg(), _SOURCE_WIDTH)
 
 
 def _assert_sample_close(got: ProcessedSample, exp: dict, *, atol: float) -> None:
@@ -64,9 +68,15 @@ def _assert_sample_close(got: ProcessedSample, exp: dict, *, atol: float) -> Non
 # --------------------------------------------------------------------------- golden parity per transform
 
 
-def test_flip_matches_golden(golden, augmenter) -> None:
+def test_flip_matches_golden_with_a4_reflection(golden, augmenter) -> None:
+    """Images + negated dx stay golden-exact; cx is additionally reflected (the A4 fix)."""
     out = augmenter.horizontal_flip(_sample_from(golden["input"]))
-    _assert_sample_close(out, golden["outputs"]["flip"], atol=0)  # flip is exact
+    exp = golden["outputs"]["flip"]
+    torch.testing.assert_close(out.images_tight, exp["images_tight"], rtol=0, atol=0)
+    torch.testing.assert_close(out.images_context, exp["images_context"], rtol=0, atol=0)
+    exp_motions = exp["motions"].clone()  # legacy flip output: dx negated, cx NOT reflected
+    exp_motions[:, _FLIP_REFLECT_IDX] = _SOURCE_WIDTH - exp_motions[:, _FLIP_REFLECT_IDX]
+    torch.testing.assert_close(out.motions, exp_motions, rtol=0, atol=0)
 
 
 def test_color_matches_golden(golden, augmenter) -> None:
@@ -99,20 +109,26 @@ def test_flip_involution(golden, augmenter) -> None:
     torch.testing.assert_close(back.motions, s.motions, rtol=0, atol=0)
 
 
-def test_flip_negates_only_dx(golden, augmenter) -> None:
+def test_flip_touches_exactly_dx_and_cx(golden, augmenter) -> None:
     s = _sample_from(golden["input"])
     out = augmenter.horizontal_flip(s)
     for ch in range(s.motions.shape[1]):
-        expected = -s.motions[:, ch] if ch == _FLIP_NEGATE_IDX else s.motions[:, ch]
+        if ch == _FLIP_NEGATE_IDX:
+            expected = -s.motions[:, ch]
+        elif ch == _FLIP_REFLECT_IDX:
+            expected = _SOURCE_WIDTH - s.motions[:, ch]
+        else:
+            expected = s.motions[:, ch]
         torch.testing.assert_close(out.motions[:, ch], expected, rtol=0, atol=0)
 
 
-def test_flip_index_matches_motion_channel_def(augmenter) -> None:
-    """Guard the cross-module coupling: the negated channel must be ``dx`` in compute_motion's layout."""
+def test_flip_indices_match_motion_channel_def(augmenter) -> None:
+    """Guard the cross-module coupling: negate ``dx`` (2), reflect ``cx`` (0) in compute_motion's layout."""
     assert _FLIP_NEGATE_IDX == 2
-    boxes = [(50, 40, 90, 120), (55, 45, 99, 127)]  # dx = +7 per the 1.2 hand-checked oracle
-    motions = compute_motion(boxes)
-    assert motions[:, _FLIP_NEGATE_IDX].tolist() == [7.0, 7.0]
+    assert _FLIP_REFLECT_IDX == 0
+    boxes = [(50, 40, 90, 120), (55, 45, 99, 127)]  # cx = 70, 77; dx = 0, +7 (v2 frame-0 zero)
+    motions = compute_motion(boxes, ego_speed=[30.0, 31.0])
+    assert motions[:, _FLIP_NEGATE_IDX].tolist() == [0.0, 7.0]
     s = ProcessedSample(
         images_tight=torch.zeros(2, 3, 4, 4),
         images_context=torch.zeros(2, 3, 4, 4),
@@ -121,7 +137,10 @@ def test_flip_index_matches_motion_channel_def(augmenter) -> None:
         looks=torch.tensor(0),
         crosses=torch.tensor(0),
     )
-    assert augmenter.horizontal_flip(s).motions[:, _FLIP_NEGATE_IDX].tolist() == [-7.0, -7.0]
+    flipped = augmenter.horizontal_flip(s).motions
+    assert flipped[:, _FLIP_NEGATE_IDX].tolist() == [-0.0, -7.0]
+    assert flipped[:, _FLIP_REFLECT_IDX].tolist() == [float(_SOURCE_WIDTH - 70), float(_SOURCE_WIDTH - 77)]
+    assert flipped[:, 8].tolist() == [30.0, 31.0]  # ego speed is flip-invariant (M9)
 
 
 # --------------------------------------------------------------------------- oversampling plan
@@ -170,7 +189,15 @@ def _png_record(dirpath: Path, n_frames: int = 4) -> dict:
         Image.fromarray(arr).save(p)
         paths.append(str(p))
     bboxes = [[10.0 + t, 10.0 + t, 60.0 + 2 * t, 90.0 + 3 * t] for t in range(n_frames)]
-    return {"images": paths, "bboxes": bboxes, "actions": 1, "looks": 1, "crosses": 1}
+    return {
+        "images": paths,
+        "bboxes": bboxes,
+        "track_id": "ped_aug",
+        "ego_speed": [float(t) for t in range(n_frames)],
+        "actions": 1,
+        "looks": 1,
+        "crosses": 1,
+    }
 
 
 def test_dataset_identity_and_flip(tmp_path) -> None:

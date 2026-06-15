@@ -16,13 +16,14 @@ are each golden-locked), so these tests pin the orchestration the Trainer owns:
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 import torch
 
-from pedpredict.config.schema import RootCfg
+from pedpredict.config.schema import ModelCfg, RootCfg
 from pedpredict.losses.multitask import MultiTaskLoss
 from pedpredict.models.registry import build_model
 from pedpredict.training import (
@@ -36,6 +37,9 @@ from pedpredict.training.callbacks import EarlyStopping
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "trainer_step.pt"
 _TASKS = ("actions", "looks", "crosses")
 _CPU = torch.device("cpu")
+# The legacy oracle was captured with the per-sequence motion z-norm; pin it for value parity
+# (the A4 default is the new image-dimension norm — a deliberate behavior change, config-gated).
+_PARITY_CFG = dataclasses.replace(RootCfg(), model=ModelCfg(motion_norm="per_sequence"))
 
 # Post-step weight tensors are compared at a looser atol than the fixture's scalar ``tol`` (1e-6).
 # The legacy oracle was captured on a different CPU BLAS build; conv2d backward accumulates in a
@@ -75,13 +79,13 @@ def _loss_from_golden(golden: dict) -> MultiTaskLoss:
 
 
 def _fresh_model(golden: dict) -> torch.nn.Module:
-    model = build_model(RootCfg())
+    model = build_model(_PARITY_CFG)  # per-sequence norm: matches the legacy capture
     model.load_state_dict(golden["init_state"])
     return model
 
 
 def _trainer(golden: dict, model: torch.nn.Module, *, train=None, val=None, **kw) -> Trainer:
-    cfg = RootCfg()
+    cfg = _PARITY_CFG
     chunks = _ListChunkProvider(train or [], val or [])
     return Trainer(cfg, model, _CPU, chunks, loss=_loss_from_golden(golden), **kw)
 

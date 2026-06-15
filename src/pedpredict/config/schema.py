@@ -17,6 +17,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# v2 stored-motion contract (A4/M9): the writer ALWAYS stores the full vector — 8 bbox-derived
+# channels (frame-0 deltas are true zeros, not the legacy raw-size quirk) + 1 ego-speed channel.
+# Runtime consumers slice to ``data.motion_dim`` ("store wide, slice narrow"), so with-ego and
+# without-ego are two configs over ONE dataset. Channel semantics live in transforms.compute_motion.
+MOTION_STORE_DIM: int = 9
+MOTION_CHANNELS: tuple[str, ...] = ("cx", "cy", "dx", "dy", "w", "h", "dw", "dh", "ego_speed")
+
 
 @dataclass(frozen=True, slots=True)
 class PathsCfg:
@@ -28,6 +35,7 @@ class PathsCfg:
     lmdb_train_balanced: tuple[str, ...] = ("preprocessed_train_balanced",)  # Phase 1 balanced-warmup source
     lmdb_val: str = "preprocessed_val"
     lmdb_test: str = "preprocessed_test"
+    lmdb_test_benchmark: str = "preprocessed_test_benchmark"  # M5 TTE-protocol eval set (test split only)
     log_dir: str = "training_log"          # legacy flat dirs (kept for reading OLD artifacts)
     ckpt_dir: str = "best_model_outputs"   # legacy flat dirs
     run_ckpt_dir: str = "model_outputs"    # legacy flat dirs
@@ -40,7 +48,13 @@ class DataCfg:
 
     # B7: magic constants relocated from scripts/train_utils.py
     max_seq_len: int = 20            # was train_utils.MAX_SEQ_LEN
-    motion_dim: int = 8              # was the [..., :8] slice; writer must emit exactly this many channels
+    # CONSUMED motion channels (model input width). The v2 writer always stores MOTION_STORE_DIM (9)
+    # channels; the runtime dataset slices to this. 8 = no ego-speed, 9 = with ego-speed (M9 ablation).
+    motion_dim: int = 8
+    # PIE source-frame pixel dims — used by flip augmentation (cx reflection, A4) and cross-checked
+    # against model.motion_norm_image_size (the runtime image-dimension motion normalization).
+    source_width: int = 1920
+    source_height: int = 1080
     img_height: int = 128            # write+read tight size; also read-tight model input
     img_width: int = 128
     # read-time context model input (OLD train.py:362 Resize((224,224))) — distinct from the write-time
@@ -64,6 +78,13 @@ class DataCfg:
     stride: int = 3
     future_offset: int = 30
     tol: int = 2
+    # M5 benchmark-protocol eval set (test split only): fixed-TTE windows relative to the PIE
+    # crossing_point, labeled by the crossing EVENT (attributes['crossing'] > 0), à la
+    # Kotseruba et al. WACV 2021. Sampling stride = round(obs_len * (1 - overlap)).
+    benchmark_obs_len: int = 16
+    benchmark_tte_min: int = 30
+    benchmark_tte_max: int = 60
+    benchmark_overlap: float = 0.6
     # PIE source opts (generate_data_trajectory_sequence) — defaults mirror the OLD data_opts literals
     min_track_size: int = 10
     fstride: int = 1
@@ -84,6 +105,16 @@ class ModelCfg:
     d_model: int = 128               # get_unified_dim_model() — one value shared by ALL modules
     in_channels: int = 3
     motion_dim: int = 8              # must equal DataCfg.motion_dim (cross-checked in validate_config, B7)
+    # A4 runtime motion normalization (ablatable from the SAME v2 data — the norm is applied in
+    # MotionEncoder.forward, never baked into the LMDB):
+    #   "image"        -> divide each channel by a fixed global scale (x-channels / source width,
+    #                     y-channels / source height, ego / ego_speed_scale). Absolute geometry
+    #                     (curb proximity, box size = distance proxy) survives as real values.
+    #   "per_sequence" -> legacy per-sequence z-norm (erases absolute geometry; amplifies px jitter).
+    #                     Golden-parity tests pin this mode; it is the "old" arm of the A4 ablation.
+    motion_norm: str = "image"
+    motion_norm_image_size: tuple[int, int] = (1920, 1080)  # (W, H); must equal data.source_width/height
+    ego_speed_scale: float = 50.0    # km/h scale for the ego channel under "image" norm (PIE OBD speed)
     # ViT — mirror config.vit_args_config() EXACTLY
     stage_dims: tuple[int, ...] = (36, 36, 288, 36)
     layer_nums: tuple[int, ...] = (2, 4, 5, 7)

@@ -7,12 +7,13 @@ so the legacy augmenter could never have run on it (dead/broken code — a B5 fr
 port re-homes the **transform math, unchanged** onto :class:`~pedpredict.data.transforms.ProcessedSample`
 (the writer's crop output) and applies it at write time.
 
-Faithful semantics preserved from OLD:
-  * ``horizontal_flip`` mirrors the width axis of both crops **and** negates motion channel
-    :data:`_FLIP_NEGATE_IDX` (= ``dx``, idx 2 in ``compute_motion``). The flip↔channel coupling — which
-    the schematic flags as silently corrupting if mismatched — is made explicit here and guarded by
-    ``tests/test_augment.py``. ⚠️ Legacy quirks ride along (Phase B): absolute ``cx`` (idx 0) is NOT
-    reflected; motion noise hits absolute channels too.
+Semantics (v2 — hole audit A4 applied):
+  * ``horizontal_flip`` mirrors the width axis of both crops, negates motion channel
+    :data:`_FLIP_NEGATE_IDX` (= ``dx``, idx 2 in ``compute_motion``) **and reflects absolute ``cx``
+    (idx 0) about the source-frame width** (A4 fix — the legacy version left ``cx`` unreflected,
+    silently corrupting absolute geometry for flipped copies). ``cy``/sizes/``ego`` are flip-invariant.
+    The flip↔channel coupling is guarded by ``tests/test_augment.py``.
+    ⚠️ Remaining known quirk (C4, WP1 redesign): motion noise hits absolute channels too.
   * Each minority record yields its **original** plus several **single-transform** copies (OLD ``__call__``
     appends a fresh copy per selected transform — it does NOT compose transforms). One :class:`AugItem`
     therefore carries exactly one transform (or ``None`` for the identity copy).
@@ -49,9 +50,10 @@ __all__ = [
     "augment_sequence_file",
 ]
 
-#: Motion channel negated by a horizontal flip — ``dx`` in ``compute_motion``'s
-#: ``(cx, cy, dx, dy, w, h, dw, dh)``. LOCKED (docs/archive/MIGRATION.md 1.2/1.4); a mismatch silently corrupts data.
-_FLIP_NEGATE_IDX: int = 2
+#: Motion channels touched by a horizontal flip, indexing ``compute_motion``'s
+#: ``(cx, cy, dx, dy, w, h, dw, dh, ego)``. LOCKED to the channel table; a mismatch silently corrupts data.
+_FLIP_NEGATE_IDX: int = 2    # dx  -> -dx
+_FLIP_REFLECT_IDX: int = 0   # cx  -> source_width - cx (A4)
 
 
 class TransformName(str, Enum):
@@ -84,8 +86,9 @@ class SequenceAugmenter:
     :meth:`apply` seeds them deterministically per :class:`AugItem`.
     """
 
-    def __init__(self, cfg: AugmentCfg) -> None:
+    def __init__(self, cfg: AugmentCfg, source_width: int) -> None:
         self.cfg = cfg
+        self.source_width = source_width  # PIE frame width in px (DataCfg.source_width) — cx reflection
         self._jitter = ColorJitter(
             brightness=cfg.color_brightness,
             contrast=cfg.color_contrast,
@@ -94,9 +97,10 @@ class SequenceAugmenter:
         )
 
     def horizontal_flip(self, s: ProcessedSample) -> ProcessedSample:
-        """Mirror the width axis of both crops; negate motion ``dx`` (idx :data:`_FLIP_NEGATE_IDX`)."""
+        """Mirror the width axis of both crops; negate ``dx`` and reflect ``cx`` about the frame width."""
         motions = s.motions.clone()
         motions[:, _FLIP_NEGATE_IDX] *= -1
+        motions[:, _FLIP_REFLECT_IDX] = self.source_width - motions[:, _FLIP_REFLECT_IDX]
         return replace(
             s,
             images_tight=torch.flip(s.images_tight, dims=[3]),
@@ -114,7 +118,8 @@ class SequenceAugmenter:
         return replace(s, images_tight=tight, images_context=context)
 
     def motion_noise(self, s: ProcessedSample) -> ProcessedSample:
-        """Add ``N(0, motion_noise_std)`` to ALL 8 motion channels (faithful to OLD)."""
+        """Add ``N(0, motion_noise_std)`` to ALL stored motion channels (C4: de-facto identity at
+        0.02 px; redesign rides the WP1 lever ablation)."""
         return replace(s, motions=s.motions + torch.randn_like(s.motions) * self.cfg.motion_noise_std)
 
     def random_erase_frames(self, s: ProcessedSample, rng: random.Random) -> ProcessedSample:
@@ -231,7 +236,7 @@ class AugmentedCropSequenceDataset(Dataset):
         self.records = records
         self.items = items
         self.cfg = cfg
-        self.augmenter = SequenceAugmenter(aug_cfg)
+        self.augmenter = SequenceAugmenter(aug_cfg, cfg.source_width)
         self.transform_tight = transform_tight or bt
         self.transform_context = transform_context or bc
 

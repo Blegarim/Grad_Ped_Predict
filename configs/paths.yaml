@@ -5,6 +5,7 @@ lmdb_train: [preprocessed_train, preprocessed_train_aug]
 lmdb_train_balanced: [preprocessed_train_balanced]
 lmdb_val: preprocessed_val
 lmdb_test: preprocessed_test
+lmdb_test_benchmark: preprocessed_test_benchmark  # M5 TTE-protocol eval set (test split only)
 log_dir: training_log            # legacy flat dirs (kept for reading OLD artifacts)
 ckpt_dir: best_model_outputs     # legacy flat dirs
 run_ckpt_dir: model_outputs      # legacy flat dirs
