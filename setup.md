@@ -91,7 +91,12 @@ python scripts/build_lmdb.py --split test_benchmark
 ```
 The Python extractor processes whatever set folders exist under `data/PIE_clips/`, so stage one split's
 sets at a time and delete its frames before the next. (Use `'all'` instead of `'annotated'` only if
-sequence-gen later reports missing frames.)
+sequence-gen later reports missing frames.) It writes lossless **PNG**; on a tight disk, swap the
+one-liner for the JPG variant — same annotated selection, ~3–5× smaller transient cache, found
+transparently by the runtime's same-stem `.jpg` fallback:
+```powershell
+python scripts/extract_annotated_jpg.py
+```
 
 **train — the self-bounding builder (no full-split extraction):**
 ```powershell
