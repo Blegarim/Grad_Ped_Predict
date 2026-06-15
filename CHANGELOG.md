@@ -3,8 +3,8 @@
 ## Unreleased — v2 data contract (hole audit, attack-order step 2 code) (2026-06-12)
 
 All dataset-touching fixes from [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md), bundled for the ONE v2
-rebuild (execution: [docs/V2_REBUILD_RUNBOOK.md](docs/V2_REBUILD_RUNBOOK.md)). **Deliberate behavior
-changes** — v1 sequence pkls and LMDBs are obsolete; the runtime dataset hard-errors on v1 chunks.
+rebuild (execution: [setup.md](setup.md)). **Deliberate behavior changes** — v1 sequence pkls and
+LMDBs are obsolete; the runtime dataset hard-errors on v1 chunks.
 
 - **M3** — `actions`/`looks` relabeled as state-at-end-of-observation; `crosses` stays future-any.
 - **M4** — right-censored windows dropped (not labeled 0) and counted per split

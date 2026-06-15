@@ -164,7 +164,7 @@ filter** drops windows whose future window is not fully observed — counted per
 positive rates; both are expected to **drop** (`looks` hardest). The table and the
 `pie_sequences_counts.json` fixture MUST be re-pinned from the v2 regen (`make_sequences.py` prints the
 per-split window stats incl. the thesis-reportable censored count) before any v2 LMDB build is trusted —
-execution checklist: [docs/V2_REBUILD_RUNBOOK.md](docs/V2_REBUILD_RUNBOOK.md).
+execution checklist: [setup.md](setup.md) (steps 3–4).
 
 Positive-class rates in the generated sequences (v1, superseded):
 

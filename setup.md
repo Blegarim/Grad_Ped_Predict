@@ -1,138 +1,159 @@
-0. Machine prerequisites
- Python 3.10–3.12 (3.13+ won't build the pinned torch/numpy — README:92). Your .venv is already 3.10 per memory, but this is a fresh PC, so install it.
- git, and a CUDA-capable GPU + driver if you want to train in a reasonable time (CPU works for tests, not for real training).
- ffmpeg on PATH — PIE's frame extractor shells out to it.
- Disk: budget large. PIE clips are tens of GB; extracted annotated frames add a lot, extracting all frames is hundreds of GB. Then LMDBs on top. Plan for ~0.5 TB headroom if extracting all.
-   Low-storage knob (C3): LMDB **pre-allocates `data.lmdb_map_size_bytes` per chunk** on Windows (the file is created at full map_size, not grown). Default is 4 GiB/chunk, so the train split (~19 chunks) reserves ~76 GB of LMDB even though real JPEG payload is ~2–3 GB/chunk. On a tight disk, lower it — build one chunk, measure its size, set `--set data.lmdb_map_size_bytes=<measured+30%>`. This is the lever that fixed the original disk-full crash; do not leave it on the old auto-heuristic.
+# Setup — fresh machine to trained model
 
-1. Get the code + environment
- Clone the repo (brings the vendored PIE/ toolkit with it).
- Create venv and install:
+The whole pipeline, start to finish, on the current **v2 data contract**. What `actions`/`looks`/
+`crosses` mean and how the data is built is in [CLAUDE.md](CLAUDE.md) (Data Pipeline); this file is the
+runbook. Steps 0–1 need no dataset, so you can install and pass the gate before downloading anything.
 
+> **Rebuilding over an old v1 checkout?** The v1 sequence pkls and LMDBs are obsolete (the runtime
+> hard-errors on v1 chunks). Delete `data/sequences/*.pkl` and `preprocessed_{train,train_aug,val,test}/`
+> before step 3, then follow the steps as written — they regenerate everything under the v2 contract.
+
+## 0. Prerequisites
+- **Python 3.10–3.12** (3.13+ won't build the pinned torch/numpy — README).
+- **git**; **ffmpeg** on PATH (PIE's frame extractor shells out to it — needed for val/test only).
+- **CUDA GPU + driver** for training in reasonable time (CPU is fine for the test gate, not for training).
+- **Disk:** PIE clips are tens of GB; extracting a *full split's* frames is hundreds of GB; LMDBs sit on
+  top. The **train** build avoids full-split extraction (it extracts per-chunk and deletes — step 4), so
+  budget for clips + the growing LMDB, not clips + all frames. Low-storage knob (**C3**):
+  `data.lmdb_map_size_bytes` is **pre-allocated per chunk** on Windows — the 4 GiB default reserves
+  ~76 GB across the ~19 train chunks even though real payload is ~2–3 GB/chunk. On a tight disk, build
+  one chunk, measure it, and pass `--set data.lmdb_map_size_bytes=<measured+30%>`.
+
+## 1. Code + environment
+```powershell
+git clone <repo>           # brings the vendored PIE/ toolkit with it
+cd Grad_Ped_Predict
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
- GPU torch (the pinned torch==2.7.1 resolves to a CPU wheel by default — README:105):
-
-pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu121
- Sanity gate before touching data:
-
+pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu121   # GPU wheel; default resolves to CPU
+```
+Gate (no dataset needed — confirms the install is sound):
+```powershell
 ruff check .
 pytest -m "not slow"
-These don't need the dataset and confirm the install is sound.
+```
 
-2. Acquire the PIE dataset
- Heads-up — "PIE" is two separate things, don't conflate them:
-   - PIE toolkit (code) = the `PIE/` folder the repo clone already brought in. Its only job is to be importable (`from PIE.utilities.pie_data import PIE`, make_sequences.py:29). Don't put dataset videos in here.
-   - PIE dataset (videos + annotations) = a separate multi-GB download from York University. It goes under `data/` (paths.yaml `pie_root: data`; the pipeline constructs `PIE(data_path='data')`).
+## 2. Acquire the PIE dataset
+"PIE" is two things — don't conflate them:
+- **PIE toolkit (code)** = the `PIE/` folder the clone already brought in. Only job: be importable
+  (`from PIE.utilities.pie_data import PIE`). No videos go here.
+- **PIE dataset (videos + annotations)** = a separate multi-GB download from York University, placed under
+  `data/` (`paths.yaml` → `pie_root: data`).
 
- Request/download PIE from the official source (York University PIE dataset — videos PIE_clips/ for set01–set06, plus annotations/, annotations_attributes/, annotations_vehicle/).
- Place them under `data/` so the layout matches the tree below. The annotations bundled in the `PIE/` clone must also live at `data/annotations/` — copy them across (or just download the full annotation set into `data/`). The PIE class reads/writes these subfolders under data_path (pie_data.py:59-64):
-
+Download and lay out under `data/`:
 ```
 Grad_Ped_Predict/
-  PIE/                       # toolkit (code) — already cloned; importable, holds no videos
-  data/                      # ← pie_root: the PIE class's data_path
-    PIE_clips/               # set01..set06/video_####.mp4   (download from YorkU)
+  PIE/                       # toolkit (code) — already cloned; holds no videos
+  data/                      # ← pie_root
+    PIE_clips/               # set01..set06/video_####.mp4   (from YorkU)
     annotations/             # set01..set06/*_annt.xml
     annotations_attributes/
-    annotations_vehicle/
-    images/                  # created by step 3 (extract_and_save_images); empty for now
-    sequences/               # created by step 4 (make_sequences.py)
+    annotations_vehicle/     # OBD — REQUIRED for the v2 ego-speed channel (M9); don't skip it
+    images/                  # created on demand (val/test extraction, step 4)
+    sequences/               # created by step 3
+```
+Split mapping is fixed by PIE: **train = set01/02/04, val = set05/06, test = set03**.
+
+## 3. Generate sequence windows (annotations only — no frames yet)
+```powershell
+python scripts/make_sequences.py --split all      # sequences_{train,val,test}.pkl + *_stats.json
+python scripts/make_sequences.py --benchmark      # M5 TTE-protocol eval set (test split only)
+```
+Windowing params (`seq_len=20`, `stride=3`, `future_offset=30`, `tol=2`) come from
+[configs/data.yaml](configs/data.yaml). v2 labels: `actions`/`looks` = state at the **last observed
+frame**; `crosses` = any crossing in the future window; **right-censored windows are dropped and
+counted**. Record the printed **`censored`** count — it's the thesis sentence "N windows excluded as
+right-censored."
+
+Then run the drift canary **now**, before spending hours on LMDBs:
+```powershell
+python scripts/count_labels.py
+```
+⚠️ The legacy ~95,684 train / 22,665 val / 76,048 test figures are **v1 and STALE** — the v2 relabel
+(state-at-end + censor-drop) deflates N and every positive rate (`looks` hardest), so v2 counts *will*
+differ legitimately. The gate is currently relaxed to structural checks. **Re-pin from this run** (one
+doc-sync change): update the Dataset Statistics table in [CLAUDE.md](CLAUDE.md), re-pin
+`tests/fixtures/golden/pie_sequences_counts.json`, and re-check `train.sampler_powers` for `looks` if its
+rate fell far. After re-pinning, a nonzero exit again means real drift — stop and investigate.
+
+## 4. Build LMDBs (pkl → preprocessed chunks)
+ImageNet normalization is applied at read time, not here. Two paths:
+
+**val / test / benchmark — extract that split's frames, then build** (small enough to stage whole):
+```powershell
+python -c "import sys; sys.path.insert(0,'.'); from PIE.utilities.pie_data import PIE; PIE(data_path='data').extract_and_save_images(extract_frame_type='annotated')"
+python scripts/build_lmdb.py --split val
+python scripts/build_lmdb.py --split test
+python scripts/build_lmdb.py --split test_benchmark
+```
+The Python extractor processes whatever set folders exist under `data/PIE_clips/`, so stage one split's
+sets at a time and delete its frames before the next. (Use `'all'` instead of `'annotated'` only if
+sequence-gen later reports missing frames.)
+
+**train — the self-bounding builder (no full-split extraction):**
+```powershell
+python scripts/build_lmdb_incremental.py --split train
+```
+It consumes `sequences_train.pkl` and, chunk by chunk, extracts **only** the frames those records
+reference straight from `data/PIE_clips/` (cv2, byte-identical to PIE's extractor), builds the chunk, then
+deletes the spent frames. Peak disk = the videos straddling one chunk + the growing LMDB — never the whole
+split, no pre-extracted `images/` or ffmpeg needed. It's resumable: the **C2** guard counts the committed
+records in the highest chunk and, if short, refuses to continue and names the partial `chunk_NNNNNN.lmdb`
+to delete — a crashed build can no longer silently skip a half-written chunk. Set the **C3** map_size knob
+(step 0) on a tight disk. Override with `--start-idx N` / `--keep-frames`.
+
+Storage-limited staging order (all of a split's sets must be present together to build it):
+
+| Round | Extract sets | Build | Then delete |
+|---|---|---|---|
+| 1 | set05, set06 | `build_lmdb.py --split val` | val frames |
+| 2 | set03 | `build_lmdb.py --split test` + `--split test_benchmark` | test frames |
+| 3 | set01, 02, 04 | `build_lmdb_incremental.py --split train` | (auto, per chunk) |
+
+## 5. Augmentation (default-ON imbalance lever)
+The default imbalance policy is augmentation + online sampler + loss weights; the trainer unions
+`preprocessed_train` with `preprocessed_train_aug`, so this dir must exist:
+```powershell
+python scripts/augment_dataset.py      # augment.enabled defaults true; oversamples crosses/looks → preprocessed_train_aug
+```
+Opt-in alternative for ablation only (the downsample path — do **not** stack with augmentation):
+```powershell
+python scripts/balance_dataset.py --split train --set balance.enabled=true
 ```
 
- Split mapping is fixed by PIE: train = set01/02/04, val = set05/06, test = set03 (pie_data.py:90-94).
+## 6. Train
+```powershell
+python scripts/train.py --set model.model_type=full
+```
+Writes `outputs/runs/{timestamp}_full/` with `resolved_config.yaml` (incl. the seed), `train_log.csv`,
+`train_distribution.json`, `checkpoints/{best,last}.pth`, `plots/`. Override anything inline, e.g.
+`--set train.lr=5e-5`.
 
-3. Extract frames from clips (PIE's own tool)
- Run PIE's extract_and_save_images — it reads data/PIE_clips/ and writes data/images/setXX/video_YYYY/00000.png:
+## 7. Evaluate (two passes — thresholds tuned on val, applied to test)
+```powershell
+python scripts/evaluate.py --split val  --checkpoint outputs/runs/<run>/checkpoints/best.pth   # tunes + stores thresholds.json
+python scripts/evaluate.py --split test --checkpoint outputs/runs/<run>/checkpoints/best.pth   # loads + applies them
+```
+Report the `tuned_*` columns only; `oracle_*` are same-split (leakage) diagnostics. Lead metric is
+`crosses_f1` (accuracy is misleading at ~37:1). `index.csv` tracks runs for cross-run comparison.
 
-python -c "import sys; sys.path.insert(0,'.'); from PIE.utilities.pie_data import PIE; PIE(data_path='data').extract_and_save_images(extract_frame_type='annotated')"
-Use 'annotated' first (smaller — it's the frames behavior sequences reference). If sequence generation later complains about missing frames, re-run with 'all'. The Python extractor processes whatever set folders exist in data/PIE_clips/ (pie_data.py:229), so it's already per-set if you only stage the sets you're working on.
+## 8. Optional downstream
+- ONNX export + parity: `pip install -e .[export]` → `python scripts/export_onnx.py …`
+- Video inference (YOLO): `pip install -e .[infer]` → `python scripts/infer_video.py …`
+- Plots / qualitative: `python scripts/visualize.py …`
 
-Incremental extraction (storage-limited PCs)
- Extracting ALL frames for the whole dataset is ~3 TB; even 'annotated' is hundreds of GB. If the disk can't hold it all at once, process one SPLIT at a time — extract → build its LMDB → delete its frames → next. Granularity is the split, NOT arbitrary sets: build_lmdb crops every frame a split's pkl references, and PIE's split→set mapping is fixed (pie_data.py:90-94):
+---
 
-   - val   = set05 + set06
-   - test  = set03
-   - train = set01 + set02 + set04   ← all three must be present together to build the train LMDB
+### Critical path
+install (`.[dev]` + GPU torch) → gate → drop PIE into `data/` (incl. `annotations_vehicle/`) →
+`make_sequences.py --split all` + `--benchmark` → `count_labels.py` (re-pin) → build LMDBs (val/test
+standard, train incremental, + `test_benchmark`) → `augment_dataset.py` → `train.py` → `evaluate.py`
+(val then test).
 
- So "set01+02 all the way to LMDB then delete" does NOT work — the train LMDB also needs set04. Generate all three sequence pkls up front (step 4 — annotations only, tiny, frame-free), then loop:
-
- | Round | Extract sets   | Build                                         | Then delete  |
- |-------|----------------|-----------------------------------------------|--------------|
- | 1     | set05, set06   | build_lmdb --split val                        | val frames   |
- | 2     | set03          | build_lmdb --split test                        | test frames  |
- | 3     | set01,02,04    | build_lmdb --split train  → augment_dataset    | train frames |
-
- To extract specific sets with PIE's own ffmpeg script (all frames), use the parametrized helper scripts/split_sets.sh (a per-set variant of PIE/annotations/split_clips_to_frames.sh). Run it from inside data/ (relative paths) in Git Bash with ffmpeg on PATH:
-
-   cd /d/Grad_Ped_Predict/data
-   bash ../scripts/split_sets.sh set05 set06
-
- Prefer the Python 'annotated' extractor above when you only need annotated frames (~10x smaller); use split_sets.sh only if you need all frames.
-
-Resumable per-video build (train, or any disk that can't hold a whole split)
- The per-split table above still needs ALL of a split's frames staged at once — fine for val/test, but
- train (set01+02+04) peaks at hundreds of GB and is the usual cause of a mid-build disk-full crash. For
- train specifically (or any split too big to stage), skip steps 3+5 and use the self-bounding builder:
-
-   python scripts/build_lmdb_incremental.py --split train
-
- It generates nothing new — it consumes the existing sequences_train.pkl (run step 4 first) and, chunk by
- chunk, extracts ONLY the frames those records reference (cv2, byte-identical to PIE's extractor), builds
- the chunk, then deletes the spent video frames. Peak disk = the videos straddling one chunk + the growing
- LMDB, never the whole split. No ffmpeg or pre-extracted images/ needed — just data/PIE_clips/.
-
- It is resumable: it auto-detects the completed chunk_NNNNNN.lmdb dirs and continues from the next index, so
- a crashed build picks up where it stopped. The C2 resume guard now **counts the committed records in the
- highest chunk** and, if it is short of `min(chunk_size, n_records - start)`, refuses to continue and tells
- you which partial chunk_NNNNNN.lmdb to delete (the one being written when the disk filled) — so a crashed
- build can no longer silently skip past a half-written chunk. Delete the named dir and re-run. Override
- resume/cleanup with --start-idx N / --keep-frames.
-
-4. Generate sequence windows (PIE → pkl)
- ```powershell python scripts/make_sequences.py --split all
-
-Produces `data/sequences/sequences_{train,val,test}.pkl`. Windowing params (`seq_len=20`, `stride=3`, `future_offset=30`, `tol=2`) come from [configs/data.yaml](configs/data.yaml). This is the step that imports PIE and unwraps tracks ([make_sequences.py](scripts/make_sequences.py)).
-
-⚠️ **v2 data contract — read [docs/V2_REBUILD_RUNBOOK.md](docs/V2_REBUILD_RUNBOOK.md) first.** This is the canonical execution order for the current build (M3 state-at-end labels, M4 censor-drop, M6 `track_id`, M9 ego-speed, A4 motion fixes). It also adds the benchmark eval set — run `python scripts/make_sequences.py --benchmark` and later `python scripts/build_lmdb.py --split test_benchmark`.
-
- Sanity-check counts:
-
-python scripts/count_labels.py
-The ~95,684 train / 22,665 val / 76,048 test figures below are **v1 numbers and now STALE** — the v2 relabel (M3 state-at-end + M4 censor-drop) deflates N and every positive rate (`looks` hardest), so the v2 counts will legitimately differ. The drift gate is currently relaxed to structural checks until the regen re-pins the fixture (runbook step 2); record `make_sequences`'s printed `censored` count for the thesis. After re-pinning, a nonzero exit again means real drift — stop and investigate.
-
-5. Build LMDBs (pkl → preprocessed chunks)
- ```powershell python scripts/build_lmdb.py --split all
-
-Writes `preprocessed_train/`, `preprocessed_val/`, `preprocessed_test/` (JPEG crops + motion/labels; ImageNet norm applied at read time, not here).
-
-6. Augmentation (default-ON imbalance lever)
-The default imbalance policy is augmentation + online sampler + loss weights (CLAUDE.md). The trainer expects preprocessed_train_aug to exist because lmdb_train = [preprocessed_train, preprocessed_train_aug] are unioned at train time.
-
- ```powershell python scripts/augment_dataset.py --set augment.enabled=true
-
-Reads `sequences_train.pkl`, oversamples minority (crosses/looks) records, writes `preprocessed_train_aug/` ([augment_dataset.py](scripts/augment_dataset.py)).
- Optional, opt-in alternative — offline balance (do not stack with augmentation; it`s the downsample alternative for ablation). Skip unless ablating:
-
-python scripts/balance_dataset.py --split train --set balance.enabled=true
-
-7. Train
- ```powershell python scripts/train.py --set model.model_type=full
-
-Writes a run dir `outputs/runs/{timestamp}_full/` with `resolved_config.yaml`, `train_log.csv`, `checkpoints/{best,last}.pth`, `plots/`. Override anything inline, e.g. `--set train.lr=5e-5`.
-
-8. Evaluate on test
- ```powershell python scripts/evaluate.py --set model.model_type=full
-
-Writes `eval_log.csv` into the run dir. Lead metric is `crosses_f1` (accuracy is misleading at ~37:1 imbalance). `rebuild_index` / the index regen keeps `outputs/runs/index.csv` for cross-run comparison.
-
-9. Optional downstream
- ONNX export + parity: pip install -e .[export] then python scripts/export_onnx.py …
- Video inference (YOLO): pip install -e .[infer] then python scripts/infer_video.py …
- Plots/qualitative: python scripts/visualize.py …
-The critical-path short version
-install (.[dev] + GPU torch) → 2. drop PIE into data/ → 3. extract_and_save_images → 4. make_sequences.py --split all → count_labels.py (gate) → 5. build_lmdb.py --split all → 6. augment_dataset.py --set augment.enabled=true → 7. train.py → 8. evaluate.py.
-
-A few gotchas worth flagging up front: the GPU torch reinstall (step 1) is easy to miss and you`ll silently train on CPU; augment is mandatory for the default config even though it`s described as a "lever" (the trainer unions that dir); and count_labels.py is your canary — run it right after sequence generation, not after you`ve burned hours on LMDBs.
-
+### Gotchas
+- The **GPU torch reinstall** (step 1) is easy to miss — without it you silently train on CPU.
+- **`count_labels.py` is your canary** — run it right after step 3, not after burning hours on LMDBs.
+- **Augment is mandatory for the default config** even though it's described as a "lever" (the trainer
+  unions `preprocessed_train_aug`).
+- **`annotations_vehicle/` is required** for the ego-speed channel — a missing OBD file fails sequence-gen.

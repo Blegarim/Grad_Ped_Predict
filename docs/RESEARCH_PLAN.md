@@ -184,7 +184,7 @@ is tested; the grid is never searched.
    - a benchmark-protocol eval mode (`make_sequences.py --benchmark`, test-split only) for literature
      comparison.
 3. **Run the rebuild + re-pin — the remaining WP0 gate.** Execute the regeneration on real PIE data
-   (per [`V2_REBUILD_RUNBOOK.md`](V2_REBUILD_RUNBOOK.md)): regenerate sequences + build LMDBs for all
+   (per [`setup.md`](../setup.md)): regenerate sequences + build LMDBs for all
    three splits + the benchmark set; then doc-sync the now-STALE numbers — re-pin the Dataset
    Statistics table (recording the M3 class-rate shift and the M4 censored-window count as
    thesis-reportable figures), restore the `count_labels` drift gate to exact counts, update the
