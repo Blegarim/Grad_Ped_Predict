@@ -42,6 +42,9 @@ python scripts/count_labels.py                             # drift gate vs the r
 ```
 
 Frame staging order per [setup.md](../setup.md) (val → test → train rounds on a storage-limited disk).
+On a tight disk also set `data.lmdb_map_size_bytes` (C3) — LMDB pre-allocates it per chunk on Windows;
+the 4 GiB default reserves ~76 GB across the train split. Measure one finished chunk + 30% and pass
+`--set data.lmdb_map_size_bytes=<bytes>`.
 
 ## What changed underneath (for orientation)
 

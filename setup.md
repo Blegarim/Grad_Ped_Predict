@@ -3,6 +3,7 @@
  git, and a CUDA-capable GPU + driver if you want to train in a reasonable time (CPU works for tests, not for real training).
  ffmpeg on PATH — PIE's frame extractor shells out to it.
  Disk: budget large. PIE clips are tens of GB; extracted annotated frames add a lot, extracting all frames is hundreds of GB. Then LMDBs on top. Plan for ~0.5 TB headroom if extracting all.
+   Low-storage knob (C3): LMDB **pre-allocates `data.lmdb_map_size_bytes` per chunk** on Windows (the file is created at full map_size, not grown). Default is 4 GiB/chunk, so the train split (~19 chunks) reserves ~76 GB of LMDB even though real JPEG payload is ~2–3 GB/chunk. On a tight disk, lower it — build one chunk, measure its size, set `--set data.lmdb_map_size_bytes=<measured+30%>`. This is the lever that fixed the original disk-full crash; do not leave it on the old auto-heuristic.
 
 1. Get the code + environment
  Clone the repo (brings the vendored PIE/ toolkit with it).
@@ -83,18 +84,23 @@ Resumable per-video build (train, or any disk that can't hold a whole split)
  LMDB, never the whole split. No ffmpeg or pre-extracted images/ needed — just data/PIE_clips/.
 
  It is resumable: it auto-detects the completed chunk_NNNNNN.lmdb dirs and continues from the next index, so
- a crashed build picks up where it stopped. ⚠️ First delete the partial final chunk (the one being written
- when the disk filled — e.g. chunk_020000.lmdb if you got ~20k in); the builder refuses to resume onto an
- existing chunk dir. Override resume/cleanup with --start-idx N / --keep-frames.
+ a crashed build picks up where it stopped. The C2 resume guard now **counts the committed records in the
+ highest chunk** and, if it is short of `min(chunk_size, n_records - start)`, refuses to continue and tells
+ you which partial chunk_NNNNNN.lmdb to delete (the one being written when the disk filled) — so a crashed
+ build can no longer silently skip past a half-written chunk. Delete the named dir and re-run. Override
+ resume/cleanup with --start-idx N / --keep-frames.
 
 4. Generate sequence windows (PIE → pkl)
  ```powershell python scripts/make_sequences.py --split all
 
 Produces `data/sequences/sequences_{train,val,test}.pkl`. Windowing params (`seq_len=20`, `stride=3`, `future_offset=30`, `tol=2`) come from [configs/data.yaml](configs/data.yaml). This is the step that imports PIE and unwraps tracks ([make_sequences.py](scripts/make_sequences.py)).
- Verify counts match the documented table (drift gate):
+
+⚠️ **v2 data contract — read [docs/V2_REBUILD_RUNBOOK.md](docs/V2_REBUILD_RUNBOOK.md) first.** This is the canonical execution order for the current build (M3 state-at-end labels, M4 censor-drop, M6 `track_id`, M9 ego-speed, A4 motion fixes). It also adds the benchmark eval set — run `python scripts/make_sequences.py --benchmark` and later `python scripts/build_lmdb.py --split test_benchmark`.
+
+ Sanity-check counts:
 
 python scripts/count_labels.py
-Expect ~95,684 train / 22,665 val / 76,048 test. Nonzero exit = your sequences drifted from the documented stats — stop and investigate before training.
+The ~95,684 train / 22,665 val / 76,048 test figures below are **v1 numbers and now STALE** — the v2 relabel (M3 state-at-end + M4 censor-drop) deflates N and every positive rate (`looks` hardest), so the v2 counts will legitimately differ. The drift gate is currently relaxed to structural checks until the regen re-pins the fixture (runbook step 2); record `make_sequences`'s printed `censored` count for the thesis. After re-pinning, a nonzero exit again means real drift — stop and investigate.
 
 5. Build LMDBs (pkl → preprocessed chunks)
  ```powershell python scripts/build_lmdb.py --split all
