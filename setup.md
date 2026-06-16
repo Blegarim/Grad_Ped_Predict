@@ -104,6 +104,7 @@ python scripts/build_lmdb_incremental.py --split train
 ```
 It consumes `sequences_train.pkl` and, chunk by chunk, extracts **only** the frames those records
 reference straight from `data/PIE_clips/` (cv2, byte-identical to PIE's extractor), builds the chunk, then
+
 deletes the spent frames. Peak disk = the videos straddling one chunk + the growing LMDB — never the whole
 split, no pre-extracted `images/` or ffmpeg needed. It's resumable: the **C2** guard counts the committed
 records in the highest chunk and, if short, refuses to continue and names the partial `chunk_NNNNNN.lmdb`
@@ -124,6 +125,10 @@ The default imbalance policy is augmentation + online sampler + loss weights; th
 ```powershell
 python scripts/augment_dataset.py      # augment.enabled defaults true; oversamples crosses/looks → preprocessed_train_aug
 ```
+Augment reads its source crops **straight from the built `preprocessed_train` LMDB** (step 4), not the
+PIE frames — so it runs cleanly after the incremental build that deleted them. Run it after step 4;
+augment errors if `preprocessed_train` is missing. (To augment a balanced base instead, point it at that
+dir: `--in-dir preprocessed_train_balanced`.)
 Opt-in alternative for ablation only (the downsample path — do **not** stack with augmentation):
 ```powershell
 python scripts/balance_dataset.py --split train --set balance.enabled=true

@@ -15,7 +15,7 @@ from .balance import (
     summarize,
 )
 from .collate import build_collate, collate_sequences
-from .lmdb_dataset import LMDBChunkDataset
+from .lmdb_dataset import LMDBChunkDataset, read_raw_sample
 from .lmdb_writer import (
     compute_map_size,
     encode_jpeg_bytes,
@@ -123,6 +123,7 @@ __all__ = [
     "windows_from_pie_benchmark",
     # runtime dataset + collate (1.5)
     "LMDBChunkDataset",
+    "read_raw_sample",
     "build_collate",
     "build_read_transforms",
     "collate_sequences",

@@ -1,12 +1,13 @@
-"""Build the offline minority-class augmentation LMDB.
+"""Build the offline minority-class augmentation LMDB from the built base-train LMDB.
 
-Thin wrapper: load config -> read ``<sequences_dir>/sequences_train.pkl`` -> oversample minority
-records into single-transform copies -> write ``preprocessed_train_aug`` (``paths.lmdb_train[1]``).
-This LMDB is unioned with ``preprocessed_train`` at train time (the legacy imbalance policy). All
-augmentation params flow from ``AugmentCfg`` (no literals here).
+Thin wrapper: load config -> read the ``chunk_*.lmdb`` under ``preprocessed_train`` (``paths.lmdb_train[0]``)
+-> oversample minority records into single-transform copies -> write ``preprocessed_train_aug``
+(``paths.lmdb_train[1]``), unioned with ``preprocessed_train`` at train time. Source crops come from the
+built LMDB, NOT the PIE frames — so this runs AFTER ``build_lmdb_incremental.py`` (which deletes those
+frames). All augmentation params flow from ``AugmentCfg`` (no literals here).
 
     python scripts/augment_dataset.py
-    python scripts/augment_dataset.py --pkl data/sequences/sequences_train_balanced.pkl
+    python scripts/augment_dataset.py --in-dir preprocessed_train_balanced   # augment a balanced base
     python scripts/augment_dataset.py --set augment.crosses_multiplier=8
 """
 
@@ -15,15 +16,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from pedpredict.config import build_argparser, load_config
-from pedpredict.data.augment import AugmentedCropSequenceDataset, plan_oversample, summarize_plan
-from pedpredict.data.lmdb_writer import write_dataset_chunks_from
-from pedpredict.data.pie_sequences import load_sequences
+from pedpredict.data.augment import augment_lmdb_dir
 from pedpredict.paths import resolve_paths
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_argparser()
-    parser.add_argument("--pkl", default=None, help="Input train sequence pkl (default: sequences_train.pkl).")
+    parser.add_argument("--in-dir", default=None,
+                        help="Base train LMDB dir to augment from (default: lmdb_train[0]).")
     parser.add_argument("--out-dir", default=None, help="Output LMDB dir (default: lmdb_train[1]).")
     args = parser.parse_args(argv)
 
@@ -35,16 +35,15 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     paths = resolve_paths(cfg.paths)
-    pkl = Path(args.pkl) if args.pkl else paths.sequences_dir / "sequences_train.pkl"
+    in_dir = Path(args.in_dir) if args.in_dir else paths.lmdb_train[0]
     out_dir = Path(args.out_dir) if args.out_dir else paths.lmdb_train[1]
-    if not pkl.exists():
-        raise SystemExit(f"Missing {pkl}")
+    if not in_dir.is_dir():
+        raise SystemExit(
+            f"Missing base train LMDB {in_dir} — build it first "
+            f"(scripts/build_lmdb_incremental.py --split train)."
+        )
 
-    records = load_sequences(pkl)
-    items = plan_oversample(records, cfg.augment)
-    print(f"[augment] {pkl.name} -> {out_dir} | plan: {summarize_plan(records, items)}")
-    dataset = AugmentedCropSequenceDataset(records, items, cfg.data, cfg.augment)
-    chunks = write_dataset_chunks_from(dataset, out_dir, cfg.data)
+    chunks = augment_lmdb_dir(in_dir, out_dir, cfg.data, cfg.augment)
     print(f"[augment] wrote {len(chunks)} chunk(s)")
 
 

@@ -7,6 +7,14 @@ so the legacy augmenter could never have run on it (dead/broken code — a B5 fr
 port re-homes the **transform math, unchanged** onto :class:`~pedpredict.data.transforms.ProcessedSample`
 (the writer's crop output) and applies it at write time.
 
+**Source = the built base-train LMDB, not the PIE frames.** The crops augmentation transforms are
+already stored in ``preprocessed_train`` (un-normalized JPEG), and ``build_lmdb_incremental.py`` deletes
+the original frames as it goes. So the source is :class:`LMDBSampleSource` (the inverse of the writer,
+via :func:`~pedpredict.data.lmdb_dataset.read_raw_sample`) — uniform with the rest of the pipeline, where
+every stage consumes the prior stage's LMDB artifact. Any indexable ``source[i] -> ProcessedSample``
+works (:class:`~pedpredict.data.transforms.CropSequenceDataset` still augments on-disk frames in tests),
+since the transform math is source-agnostic.
+
 Semantics (v2 — hole audit A4 applied):
   * ``horizontal_flip`` mirrors the width axis of both crops, negates motion channel
     :data:`_FLIP_NEGATE_IDX` (= ``dx``, idx 2 in ``compute_motion``) **and reflects absolute ``cx``
@@ -25,20 +33,26 @@ All probabilities / multipliers / params come from :class:`~pedpredict.config.sc
 
 from __future__ import annotations
 
+import os
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
+from typing import Protocol
 
+import lmdb
 import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import ColorJitter
 
 from pedpredict.config.schema import AugmentCfg, DataCfg
+from pedpredict.data.lmdb_dataset import read_raw_sample
 from pedpredict.data.lmdb_writer import write_dataset_chunks_from
-from pedpredict.data.pie_sequences import SequenceRecord, load_sequences
-from pedpredict.data.transforms import ProcessedSample, build_write_transforms, process_record
+from pedpredict.data.pie_sequences import SequenceRecord
+from pedpredict.data.sampler import scan_chunk_labels
+from pedpredict.data.stats import iter_chunk_lmdbs
+from pedpredict.data.transforms import ProcessedSample
 
 __all__ = [
     "TransformName",
@@ -46,8 +60,10 @@ __all__ = [
     "SequenceAugmenter",
     "plan_oversample",
     "summarize_plan",
-    "AugmentedCropSequenceDataset",
-    "augment_sequence_file",
+    "SampleSource",
+    "LMDBSampleSource",
+    "AugmentedSampleDataset",
+    "augment_lmdb_dir",
 ]
 
 #: Motion channels touched by a horizontal flip, indexing ``compute_motion``'s
@@ -211,53 +227,133 @@ def summarize_plan(records: Sequence[SequenceRecord], items: Sequence[AugItem]) 
     }
 
 
+# --------------------------------------------------------------------------- sample sources
+
+
+class SampleSource(Protocol):
+    """Any indexable random-access source of :class:`ProcessedSample` (image-based or LMDB-based)."""
+
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> ProcessedSample: ...
+
+
+class LMDBSampleSource:
+    """Picklable, worker-safe view over base-train LMDB chunks yielding un-normalized
+    :class:`ProcessedSample` s by global index — the augmentation source once the incremental build has
+    deleted the original PIE frames (augment reads its crops straight from ``preprocessed_train``).
+
+    Mirrors :class:`~pedpredict.data.lmdb_dataset.LMDBChunkDataset`'s pid-keyed per-process env handling
+    so it survives the writer's ``spawn`` DataLoader workers. ONE metadata pass (one
+    :func:`~pedpredict.data.sampler.scan_chunk_labels` per chunk, in the MAIN process) builds both the
+    flat global index and the minority-plan labels — no extra scanner (B3).
+    """
+
+    def __init__(self, chunk_paths: Sequence[str | Path]) -> None:
+        self.chunk_paths = [str(p) for p in chunk_paths]
+        if not self.chunk_paths:
+            raise FileNotFoundError("LMDBSampleSource: no base train LMDB chunks to augment from")
+        self._index: list[tuple[int, str]] = []        # (chunk ordinal, seq_id) in scan order
+        self._labels: list[dict[str, int]] = []         # {actions, looks, crosses} aligned to _index
+        for ci, path in enumerate(self.chunk_paths):
+            scan = scan_chunk_labels(path)
+            for seq_id, (actions, looks, crosses) in zip(scan.seq_ids, scan.label_rows, strict=True):
+                self._index.append((ci, seq_id))
+                self._labels.append({"actions": actions, "looks": looks, "crosses": crosses})
+        self._envs: dict[int, lmdb.Environment] = {}
+        self._pid: int | None = None
+
+    @property
+    def label_records(self) -> list[dict[str, int]]:
+        """Per-sample ``{actions, looks, crosses}`` (scan order) — the input to :func:`plan_oversample`."""
+        return self._labels
+
+    def __len__(self) -> int:
+        return len(self._index)
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state["_envs"] = {}   # live handles must not cross the worker pickle boundary
+        state["_pid"] = None
+        return state
+
+    def __del__(self) -> None:
+        self._close_envs()
+
+    def _close_envs(self) -> None:
+        for env in self._envs.values():
+            env.close()
+        self._envs = {}
+
+    def _get_env(self, ci: int) -> lmdb.Environment:
+        pid = os.getpid()
+        if self._pid != pid:                 # new worker — drop any inherited handles, reopen lazily
+            self._close_envs()
+            self._pid = pid
+        env = self._envs.get(ci)
+        if env is None:
+            env = lmdb.open(self.chunk_paths[ci], readonly=True, lock=False)
+            self._envs[ci] = env
+        return env
+
+    def __getitem__(self, index: int) -> ProcessedSample:
+        ci, seq_id = self._index[index]
+        with self._get_env(ci).begin(write=False) as txn:
+            return read_raw_sample(txn, seq_id, self.chunk_paths[ci])
+
+
 # --------------------------------------------------------------------------- write-time integration
 
 
-class AugmentedCropSequenceDataset(Dataset):
-    """``Dataset[ProcessedSample]`` yielding one (possibly augmented) sample per :class:`AugItem`.
+class AugmentedSampleDataset(Dataset):
+    """``Dataset[ProcessedSample]`` applying each :class:`AugItem`'s transform to a sample from ``source``.
 
-    ``__getitem__`` crops the source record (:func:`process_record`) then applies the item's transform.
-    Build-time transforms are constructed once; the augmenter is stateless beyond its ``ColorJitter``, so
-    the dataset is picklable for Windows-``spawn`` DataLoader workers.
+    Source-agnostic (``source[i] -> ProcessedSample``) so the transform math is shared: pass an
+    :class:`LMDBSampleSource` to augment the built train LMDB (the default), or a
+    :class:`~pedpredict.data.transforms.CropSequenceDataset` to augment on-disk frames. The augmenter is
+    stateless beyond its ``ColorJitter``, so the dataset is picklable for Windows-``spawn`` workers.
     """
 
     def __init__(
-        self,
-        records: Sequence[SequenceRecord],
-        items: Sequence[AugItem],
-        cfg: DataCfg,
-        aug_cfg: AugmentCfg,
-        *,
-        transform_tight=None,
-        transform_context=None,
+        self, source: SampleSource, items: Sequence[AugItem], aug_cfg: AugmentCfg, source_width: int
     ) -> None:
-        bt, bc = build_write_transforms(cfg)
-        self.records = records
+        self.source = source
         self.items = items
-        self.cfg = cfg
-        self.augmenter = SequenceAugmenter(aug_cfg, cfg.source_width)
-        self.transform_tight = transform_tight or bt
-        self.transform_context = transform_context or bc
+        self.augmenter = SequenceAugmenter(aug_cfg, source_width)
 
     def __len__(self) -> int:
         return len(self.items)
 
     def __getitem__(self, index: int) -> ProcessedSample:
         item = self.items[index]
-        sample = process_record(self.records[item.record_index], self.cfg, self.transform_tight, self.transform_context)
+        sample = self.source[item.record_index]
         if item.transform is None:
             return sample
         return self.augmenter.apply(sample, item.transform, item.seed)
 
 
-def augment_sequence_file(in_path: str | Path, out_dir: str | Path, cfg: DataCfg, aug_cfg: AugmentCfg) -> list[Path]:
-    """Load a sequence pkl, plan the minority oversampling, and write the augmented LMDB chunks.
+def augment_lmdb_dir(
+    in_dir: str | Path,
+    out_dir: str | Path,
+    data_cfg: DataCfg,
+    aug_cfg: AugmentCfg,
+    *,
+    num_workers: int | None = None,
+) -> list[Path]:
+    """Augment the minority classes of a built base-train LMDB into ``out_dir`` (the LMDB twin of
+    :func:`~pedpredict.data.balance.balance_sequence_file`).
 
-    Returns the written ``chunk_*.lmdb`` paths. The output is an ordinary LMDB consumable by 1.5 exactly
-    like ``preprocessed_train`` — it just contains minority records + their augmented copies.
+    Reads source crops straight from the ``chunk_*.lmdb`` under ``in_dir`` (no PIE frames needed — the
+    incremental build deletes them), plans the oversampling from the stored labels, applies the
+    single-transform copies, and writes ``preprocessed_train_aug``-style chunks (track_id preserved, so
+    the runtime :class:`LMDBChunkDataset` accepts them). Returns the written chunk paths.
     """
-    records = load_sequences(in_path)
-    items = plan_oversample(records, aug_cfg)
-    dataset = AugmentedCropSequenceDataset(records, items, cfg, aug_cfg)
-    return write_dataset_chunks_from(dataset, out_dir, cfg)
+    chunk_paths = iter_chunk_lmdbs(Path(in_dir))
+    if not chunk_paths:
+        raise FileNotFoundError(f"augment_lmdb_dir: no chunk_*.lmdb under {in_dir}")
+    source = LMDBSampleSource(chunk_paths)
+    items = plan_oversample(source.label_records, aug_cfg)
+    print(f"[augment] {Path(in_dir).name} -> {Path(out_dir).name} | "
+          f"plan: {summarize_plan(source.label_records, items)}")
+    dataset = AugmentedSampleDataset(source, items, aug_cfg, data_cfg.source_width)
+    return write_dataset_chunks_from(dataset, out_dir, data_cfg, num_workers=num_workers)

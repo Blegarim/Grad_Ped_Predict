@@ -25,13 +25,18 @@ from pedpredict.data.augment import (
     _FLIP_NEGATE_IDX,
     _FLIP_REFLECT_IDX,
     AugItem,
-    AugmentedCropSequenceDataset,
+    AugmentedSampleDataset,
+    LMDBSampleSource,
     SequenceAugmenter,
     TransformName,
+    augment_lmdb_dir,
     plan_oversample,
     summarize_plan,
 )
-from pedpredict.data.transforms import ProcessedSample, compute_motion, process_record
+from pedpredict.data.lmdb_dataset import LMDBChunkDataset
+from pedpredict.data.lmdb_writer import write_dataset_chunks
+from pedpredict.data.stats import iter_chunk_lmdbs
+from pedpredict.data.transforms import CropSequenceDataset, ProcessedSample, compute_motion, process_record
 
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "augment_cases.pt"
 _SOURCE_WIDTH = DataCfg().source_width
@@ -201,10 +206,11 @@ def _png_record(dirpath: Path, n_frames: int = 4) -> dict:
 
 
 def test_dataset_identity_and_flip(tmp_path) -> None:
+    """Image-source path: AugmentedSampleDataset over a CropSequenceDataset (frames on disk)."""
     cfg = DataCfg()
     rec = _png_record(tmp_path)
     items = [AugItem(0, None, 0), AugItem(0, TransformName.FLIP, 0)]
-    ds = AugmentedCropSequenceDataset([rec], items, cfg, AugmentCfg())
+    ds = AugmentedSampleDataset(CropSequenceDataset([rec], cfg), items, AugmentCfg(), cfg.source_width)
     assert len(ds) == 2
 
     plain = process_record(rec, cfg)
@@ -213,6 +219,75 @@ def test_dataset_identity_and_flip(tmp_path) -> None:
     torch.testing.assert_close(flipped.images_tight, torch.flip(plain.images_tight, dims=[3]), rtol=0, atol=0)
     dx, plain_dx = flipped.motions[:, _FLIP_NEGATE_IDX], plain.motions[:, _FLIP_NEGATE_IDX]
     torch.testing.assert_close(dx, -plain_dx, rtol=0, atol=0)
+
+
+# --------------------------------------------------------------------------- LMDB-source path (post-incremental)
+
+_SMALL_MAP = 64 * 1024 * 1024   # Windows pre-allocates the file; keep the test chunk tiny
+
+
+def _build_base_lmdb(tmp_path: Path, n: int) -> Path:
+    """Write a tiny base-train LMDB (the artifact the incremental build leaves; frames then deleted)."""
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    cfg = dataclasses.replace(DataCfg(), lmdb_map_size_bytes=_SMALL_MAP)
+    records = [_png_record(frames) for _ in range(n)]  # all crosses=1, looks=1 minority records
+    out = tmp_path / "base"
+    write_dataset_chunks(records, out, cfg, num_workers=0)
+    return out
+
+
+def test_lmdb_source_roundtrips_sample_and_labels(tmp_path) -> None:
+    """LMDBSampleSource decodes stored crops un-resized/un-normalized + exact motions/labels/track."""
+    base = _build_base_lmdb(tmp_path, n=1)
+    src = LMDBSampleSource(iter_chunk_lmdbs(base))
+    assert len(src) == 1
+    assert src.label_records == [{"actions": 1, "looks": 1, "crosses": 1}]
+
+    got = src[0]
+    ref_dir = tmp_path / "ref"
+    ref_dir.mkdir()
+    plain = process_record(_png_record(ref_dir), DataCfg())
+    # crop sizes match the stored write size (no resize); motions/labels are byte-exact (no JPEG on them)
+    assert got.images_tight.shape == plain.images_tight.shape
+    assert got.images_context.shape == plain.images_context.shape
+    torch.testing.assert_close(got.motions, plain.motions, rtol=0, atol=0)
+    assert got.track_id == "ped_aug"
+    assert int(got.crosses) == 1 and int(got.looks) == 1
+
+
+def test_lmdb_source_flip_matches_decoded_sample(tmp_path) -> None:
+    """Flipping from the LMDB source is the exact width-flip of the LMDB-decoded crop + negated dx."""
+    base = _build_base_lmdb(tmp_path, n=1)
+    src = LMDBSampleSource(iter_chunk_lmdbs(base))
+    raw = src[0]
+    ds = AugmentedSampleDataset(src, [AugItem(0, TransformName.FLIP, 0)], AugmentCfg(), DataCfg().source_width)
+    flipped = ds[0]
+    torch.testing.assert_close(flipped.images_tight, torch.flip(raw.images_tight, dims=[3]), rtol=0, atol=0)
+    torch.testing.assert_close(
+        flipped.motions[:, _FLIP_NEGATE_IDX], -raw.motions[:, _FLIP_NEGATE_IDX], rtol=0, atol=0
+    )
+
+
+def test_augment_lmdb_dir_writes_runtime_consumable_chunks(tmp_path) -> None:
+    """End-to-end: augment the base LMDB and confirm the output loads back through LMDBChunkDataset."""
+    base = _build_base_lmdb(tmp_path, n=2)
+    cfg = dataclasses.replace(DataCfg(), lmdb_map_size_bytes=_SMALL_MAP)
+    aug_cfg = AugmentCfg(crosses_multiplier=2, looks_multiplier=2)
+    out = tmp_path / "aug"
+    chunks = augment_lmdb_dir(base, out, cfg, aug_cfg, num_workers=0)
+    assert chunks and all(p.exists() for p in chunks)
+
+    n_written = 0
+    for chunk in iter_chunk_lmdbs(out):
+        ds = LMDBChunkDataset.from_config(str(chunk), cfg)   # would raise on v1 meta (missing track_id)
+        for i in range(len(ds)):
+            sample = ds[i]
+            assert sample["track_id"] == "ped_aug"
+            assert sample["motions"].shape[1] == cfg.motion_dim
+            n_written += 1
+    # plan = (2 crosses-pos records x2) + (2 looks-pos records x2) = 8 samples (every record is both)
+    assert n_written == 2 * aug_cfg.crosses_multiplier + 2 * aug_cfg.looks_multiplier
 
 
 # --------------------------------------------------------------------------- config validation

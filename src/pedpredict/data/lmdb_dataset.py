@@ -28,11 +28,55 @@ import torch
 from PIL import Image
 from torch import Tensor
 from torch.utils.data import Dataset
+from torchvision import transforms
 
 from pedpredict.config.schema import DataCfg
-from pedpredict.data.transforms import build_read_transforms
+from pedpredict.data.transforms import ProcessedSample, build_read_transforms
 
-__all__ = ["LMDBChunkDataset"]
+__all__ = ["LMDBChunkDataset", "read_raw_sample"]
+
+#: Decode a stored crop to an un-normalized ``[0, 1]`` CHW tensor at its STORED size (no resize, no
+#: ImageNet normalize) — the inverse of ``lmdb_writer.encode_jpeg_bytes``. Built once (stateless).
+_DECODE_TO_TENSOR = transforms.ToTensor()
+
+
+def read_raw_sample(txn: lmdb.Transaction, seq_id: str, lmdb_path: str = "") -> ProcessedSample:
+    """Decode one stored sample back into an un-normalized :class:`ProcessedSample` — the inverse of
+    :func:`pedpredict.data.lmdb_writer.write_sample`.
+
+    Crops are decoded to ``[0, 1]`` CHW at their STORED size (no resize, no normalize) and the full
+    ``MOTION_STORE_DIM`` motion vector + ``track_id``/``tte`` are kept, so the result is the writer's
+    input modulo JPEG. Offline augmentation uses this to re-augment the built train LMDB after the
+    incremental build deletes the source frames; the runtime :class:`LMDBChunkDataset` read path instead
+    resizes + normalizes + slices motions (lossy for re-encoding), so it must not be reused here.
+    """
+    meta = pickle.loads(txn.get(f"{seq_id}_meta".encode()))
+    if "track_id" not in meta:
+        raise ValueError(
+            f"[read_raw_sample] Sequence {seq_id!r} has v1 meta (no track_id) — rebuild required: {lmdb_path}"
+        )
+    motions = meta["motions"]
+    t_frames = motions.shape[0]
+    imgs_tight, imgs_context = [], []
+    for k in range(t_frames):
+        tbuf = txn.get(f"{seq_id}_{k}_tight".encode())
+        cbuf = txn.get(f"{seq_id}_{k}_context".encode())
+        if tbuf is None or cbuf is None:
+            raise ValueError(
+                f"[read_raw_sample] Sequence {seq_id!r}: missing frame {k} blob — corrupt chunk: {lmdb_path}"
+            )
+        imgs_tight.append(_DECODE_TO_TENSOR(Image.open(io.BytesIO(tbuf)).convert("RGB")))
+        imgs_context.append(_DECODE_TO_TENSOR(Image.open(io.BytesIO(cbuf)).convert("RGB")))
+    return ProcessedSample(
+        images_tight=torch.stack(imgs_tight),
+        images_context=torch.stack(imgs_context),
+        motions=motions,
+        actions=torch.as_tensor(meta["actions"], dtype=torch.long),
+        looks=torch.as_tensor(meta["looks"], dtype=torch.long),
+        crosses=torch.as_tensor(meta["crosses"], dtype=torch.long),
+        track_id=meta["track_id"],
+        tte=meta.get("tte"),
+    )
 
 # Q6: per-open chatter goes through logging at DEBUG (the dataset is re-opened per chunk per epoch —
 # printed, it buried real warnings like the C1 chunk skips). Enable via logging config when needed.
