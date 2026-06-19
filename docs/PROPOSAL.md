@@ -96,7 +96,7 @@ detector handles that part).
 
 ## Why it's feasible
 
-- The codebase is already clean, tested, and reproducible — a year of engineering is done.
+- The codebase is already clean, tested, and reproducible
 - The validity fixes that make results trustworthy are **already implemented**.
 - The experiment budget is sized to the actual hardware (one A4500 GPU).
 - Even a *negative* result is publishable here: "which of these popular imbalance tricks actually

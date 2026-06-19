@@ -107,7 +107,7 @@ python scripts/count_labels.py                     # dataset-stats drift gate (n
 python scripts/count_labels.py --from-sequences    #   …or count the pkls (pre-LMDB canary; same counts by 1:1 image)
 
 # Train / evaluate — config-first; override any field with --set section.field=value
-python scripts/train.py    --set model.model_type=full --set train.lr=5e-5
+python scripts/train.py    --set eval.model_type=full --set train.lr=5e-5  # model selector is eval.model_type (NOT model.*)
 python scripts/evaluate.py --split val  --checkpoint <best.pth>  # 1) tune+store thresholds on val (M2)
 python scripts/evaluate.py --split test --checkpoint <best.pth>  # 2) report at frozen val thresholds
 python scripts/report_distribution.py                            # M1 instrument: effective sampler draws
