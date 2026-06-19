@@ -1,0 +1,4 @@
+split,N,actions_pos,looks_pos,crosses_pos,actions_pos_rate,looks_pos_rate,crosses_pos_rate
+train,88214,38320,9266,2530,0.434398,0.10504,0.02868
+val,20490,8261,1376,569,0.403172,0.067155,0.02777
+test,69875,29489,6815,2140,0.422025,0.097531,0.030626

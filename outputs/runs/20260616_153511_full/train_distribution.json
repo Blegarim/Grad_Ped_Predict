@@ -1,0 +1,35 @@
+{
+  "n_samples": 131192,
+  "n_chunks": 27,
+  "use_weighted_sampler": true,
+  "sampler_powers": {
+    "crosses": 1.5,
+    "actions": 0.3,
+    "looks": 0.7
+  },
+  "use_class_weights": true,
+  "class_weights": {
+    "actions": [
+      0.8816,
+      1.1551
+    ],
+    "looks": [
+      0.7176,
+      1.6488
+    ],
+    "crosses": [
+      0.5852,
+      3.4342
+    ]
+  },
+  "base_rate": {
+    "actions": 0.432877,
+    "looks": 0.30325,
+    "crosses": 0.145596
+  },
+  "effective_rate": {
+    "actions": 0.672145,
+    "looks": 0.567103,
+    "crosses": 0.890332
+  }
+}
