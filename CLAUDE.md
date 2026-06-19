@@ -234,6 +234,27 @@ efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`
 - **Naming/style**: PascalCase classes, snake_case functions, UPPER_SNAKE_CASE constants, `_` prefix private;
   imports stdlib → third-party → local; type hints on signatures, functions ≤50 lines, lines ≤120 chars.
 
+### Skill Invocation Policy
+
+Skill *descriptions* are always in context (free to scan); only loading a `SKILL.md` *body* costs tokens —
+so gate on **invocation**. Don't sort the request into named tiers (that anchors on heavyweight examples
+and suppresses loading); score it continuously and trip on a **low, cost-aware** threshold (tuned eager).
+
+- **Benefit `B`** = sum of five signals, each 0–3 (so `B ∈ 0–15`): *match* (how directly the best skill's
+  description targets the ask), *method* (needs a procedure/checklist vs plain recall), *surface* (files /
+  components / decisions in play), *stakes* (cost of being wrong: read-only 0 … irreversible / training /
+  prod 3), *doubt* (how unsure I'd be doing it right unaided).
+- **Cost `C`** of the candidate skill: markdown-only repo skill ≈1; bundles scripts ≈2; spawns agents /
+  multi-step (`understand-*`, `ship`) ≈3.
+- **Load the single best skill when `B ≥ 3 + 2·(C−1)`** — cheap skills trip at `B≥3` (eager), agentic ones
+  only at `B≥7`, so a low bar never auto-fires an expensive graph build on a medium question. Below the
+  bar, answer directly. Load **multiple** skills (one per phase, as each begins) only when `B ≥ 11` and ≥2
+  distinct skills each clearly apply.
+- **Dial:** the base `3` is the eagerness knob — lower = more eager. **Tie-break** to the most specific /
+  project-local skill (the four repo skills above beat generic plugin equivalents); never reload an active
+  skill or load one that only restates what's already underway. `B` is a graded judgment, not literal
+  arithmetic — the numbers keep the call consistent and tuned eager.
+
 ### Doc-Sync Checklist
 
 When you change… update (in the same change):

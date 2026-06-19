@@ -39,8 +39,15 @@ htmlcov/
 /preprocessed_*/
 
 # --- Run artifacts (per-run output dirs, logs, generated figures) ---
-runs/
-outputs/
+# Ignore everything under outputs/, but DO track the lightweight, portable text
+# artifacts so runs can be compared/shared via git: index/train/eval CSV logs,
+# resolved_config.yaml snapshots, and thresholds/train_distribution JSON.
+# Heavy checkpoints (*.pth, ignored above) and figures (*.png) stay out of git.
+outputs/**
+!outputs/**/
+!outputs/**/*.csv
+!outputs/**/*.yaml
+!outputs/**/*.json
 plots/*.png
 *.xlsx
 *.log
