@@ -14,6 +14,17 @@ soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 > (the working setlist — see its Final attack order), under the thesis-level
 > [docs/RESEARCH_PLAN.md](docs/RESEARCH_PLAN.md); docs/PHASE_B_BACKLOG.md is superseded.
 
+## Execution Environment (two machines)
+
+**Training and evaluation run on a separate lab PC that holds the data; ~97% of coding happens on a
+personal PC with insufficient hardware for most tasks.** In this working copy, assume **no data or
+training trail is visible** — the only run artifacts present are the **CSV logs and JSON/YAML metadata**
+under `outputs/runs/{run_id}/`. LMDB stores, sequence pkls, PIE frames, checkpoints, and plots live only
+on the lab PC. Do **not** try to scan LMDBs, load checkpoints, or regenerate data here; instead write
+code/config the lab PC will run. **Notify the user when a step absolutely requires the data, checkpoints,
+or figures** (e.g. the M1 sampler sweep, a training run, an eval pass, a viz pass) so it can be run on
+the lab PC.
+
 ## Problem & Architecture
 
 Multimodal pedestrian behavior prediction on the **PIE dataset**. From a sequence of video frames the
