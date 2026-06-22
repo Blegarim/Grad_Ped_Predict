@@ -240,15 +240,53 @@ class Trainer:
         params = (p for p in self.model.parameters() if p.requires_grad)
         return torch.optim.Adam(params, lr=self.cfg.train.lr, weight_decay=self.cfg.train.weight_decay)
 
-    def _build_scheduler(self) -> torch.optim.lr_scheduler.ReduceLROnPlateau:
-        """``ReduceLROnPlateau(mode='min', ...)`` stepped on the val loss (OLD train.py:348-350)."""
-        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+    def _build_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler:
+        """LR schedule per ``train.lr_schedule``.
+
+        * ``"plateau"`` — ``ReduceLROnPlateau(mode='min', ...)`` stepped on the val loss (OLD
+          train.py:348-350), now honouring a ``train.lr_min`` floor (default 0.0 == legacy).
+        * ``"warmup_cosine"`` — linear warmup then cosine anneal to ``lr_min`` over ``num_epochs``,
+          stepped per epoch with no metric so the noisy val loss never controls the LR.
+        """
+        sched = self.cfg.train.lr_schedule
+        if sched == "plateau":
+            return torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode="min",
+                factor=self.cfg.train.sched_factor,
+                patience=self.cfg.train.sched_patience,
+                threshold=self.cfg.train.sched_threshold,
+                threshold_mode="rel",
+                min_lr=self.cfg.train.lr_min,
+            )
+        if sched == "warmup_cosine":
+            return self._build_warmup_cosine()
+        raise ValueError(
+            f"Unknown train.lr_schedule {sched!r}; expected 'plateau' or 'warmup_cosine'."
+        )
+
+    def _build_warmup_cosine(self) -> torch.optim.lr_scheduler.LRScheduler:
+        """Linear warmup (``warmup_epochs``) -> ``CosineAnnealingLR`` to ``lr_min``, peak = ``train.lr``.
+
+        Stepped once per epoch (no metric). ``T_max`` spans the post-warmup epochs so the cosine
+        reaches ``lr_min`` exactly at ``num_epochs`` — keep ``early_stop_patience`` large enough that
+        the run can traverse the full curve, else it stops before the low-LR refinement tail.
+        """
+        warmup = max(0, self.cfg.train.warmup_epochs)
+        total = max(self.cfg.train.num_epochs, warmup + 1)
+        cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=max(1, total - warmup), eta_min=self.cfg.train.lr_min
+        )
+        if warmup == 0:
+            return cosine
+        warmup_sched = torch.optim.lr_scheduler.LinearLR(
             self.optimizer,
-            mode="min",
-            factor=self.cfg.train.sched_factor,
-            patience=self.cfg.train.sched_patience,
-            threshold=self.cfg.train.sched_threshold,
-            threshold_mode="rel",
+            start_factor=min(max(self.cfg.train.warmup_start_factor, 1e-4), 1.0),
+            end_factor=1.0,
+            total_iters=warmup,
+        )
+        return torch.optim.lr_scheduler.SequentialLR(
+            self.optimizer, schedulers=[warmup_sched, cosine], milestones=[warmup]
         )
 
     # ----------------------------------------------------------------- per-batch / per-chunk
@@ -403,7 +441,10 @@ class Trainer:
                 val_loss, metrics = self.validate()
                 lr = self.optimizer.param_groups[0]["lr"]        # lr used during this epoch
                 epoch_time_s = time.perf_counter() - t0
-                self.scheduler.step(val_loss)                    # scheduler stays on val_loss (M8)
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    self.scheduler.step(val_loss)                # plateau: stays on val_loss (M8 D1)
+                else:
+                    self.scheduler.step()                        # warmup_cosine: deterministic per-epoch
                 self._log_epoch(epoch, train_loss, val_loss, metrics, lr, epoch_time_s)
                 selection = self._selection_value(val_loss, metrics)
                 if selection < self.best_selection:              # M8: cfg-selected scalar picks best.pth

@@ -288,8 +288,11 @@ So **everything below is reached through `--set`**, validated against the datacl
 | `sampler_powers` | `{crosses: 1.5, actions: 0.3, looks: 0.7}` | sampler intensity (dict) |
 | `sampler_min_weight` | `1e-6` | per-sample weight floor |
 | `grad_clip_max_norm` | `1.0` | |
-| `early_stop_patience` / `early_stop_min_delta` | `15` / `0.001` | |
-| `sched_factor` / `sched_patience` / `sched_threshold` | `0.5` / `2` / `1e-4` | `ReduceLROnPlateau` on val_loss |
+| `early_stop_patience` / `early_stop_min_delta` | `20` / `0.001` | patience wide enough for the cosine to finish |
+| `lr_schedule` | `warmup_cosine` | `warmup_cosine` (linear warmup → cosine to `lr_min`, deterministic) \| `plateau` (`ReduceLROnPlateau` on val_loss) |
+| `warmup_epochs` / `warmup_start_factor` | `1` / `0.1` | warmup_cosine: first epoch runs at `warmup_start_factor·lr`, peak from epoch 1 (`0` = no warmup) |
+| `lr_min` | `1e-6` | cosine `eta_min`; also the `ReduceLROnPlateau` floor under `lr_schedule=plateau` |
+| `sched_factor` / `sched_patience` / `sched_threshold` | `0.5` / `2` / `1e-4` | `ReduceLROnPlateau` knobs — **`lr_schedule=plateau` only** |
 | `chunk_preload_depth` | `3` | warm-ahead window |
 | `chunk_warm_ram_threshold` / `chunk_warm_mem_interval` | `96.0` / `1.0` | RAM gate before each warm spawn |
 | `chunk_warm_mem_timeout` | `null` | opt-in cap on the infinite RAM wait |

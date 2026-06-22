@@ -39,7 +39,13 @@ _TASKS = ("actions", "looks", "crosses")
 _CPU = torch.device("cpu")
 # The legacy oracle was captured with the per-sequence motion z-norm; pin it for value parity
 # (the A4 default is the new image-dimension norm — a deliberate behavior change, config-gated).
-_PARITY_CFG = dataclasses.replace(RootCfg(), model=ModelCfg(motion_norm="per_sequence"))
+# Also pin lr_schedule="plateau": the oracle was captured at a fixed lr (plateau leaves the initial
+# LR untouched), whereas the shipped default warmup_cosine warms the step-1 LR down via LinearLR.
+_PARITY_CFG = dataclasses.replace(
+    RootCfg(),
+    model=ModelCfg(motion_norm="per_sequence"),
+    train=dataclasses.replace(RootCfg().train, lr_schedule="plateau"),
+)
 
 # Post-step weight tensors are compared at a looser atol than the fixture's scalar ``tol`` (1e-6).
 # The legacy oracle was captured on a different CPU BLAS build; conv2d backward accumulates in a
@@ -170,8 +176,8 @@ def test_grad_clip_uses_config_bound(golden: dict, monkeypatch: pytest.MonkeyPat
 
 def test_scheduler_built_min_mode_and_earlystop_trips(golden: dict) -> None:
     model = _fresh_model(golden)
-    trainer = _trainer(golden, model)
-    # Trainer builds a min-mode plateau scheduler over its own optimizer (drives on val loss).
+    trainer = _trainer(golden, model)                # _PARITY_CFG pins lr_schedule="plateau"
+    # The "plateau" arm builds a min-mode ReduceLROnPlateau over its own optimizer (drives on val loss).
     assert isinstance(trainer.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau)
     assert trainer.scheduler.mode == "min"
     assert trainer.scheduler.optimizer is trainer.optimizer
@@ -180,6 +186,65 @@ def test_scheduler_built_min_mode_and_earlystop_trips(golden: dict) -> None:
     for val_loss in (1.0, 1.0, 1.0):                 # non-improving -> trips after `patience`
         es(val_loss)
     assert es.early_stop
+
+
+def test_default_schedule_is_warmup_cosine() -> None:
+    """The shipped default (RootCfg) is the warmup_cosine arm -> SequentialLR, not plateau."""
+    cfg = dataclasses.replace(RootCfg(), train=dataclasses.replace(RootCfg().train, use_class_weights=False))
+    trainer = Trainer(cfg, build_model(cfg), _CPU, _ListChunkProvider([], []))   # no scan (uniform loss)
+    assert cfg.train.lr_schedule == "warmup_cosine"
+    assert isinstance(trainer.scheduler, torch.optim.lr_scheduler.SequentialLR)
+
+
+def test_warmup_cosine_schedule_shape(golden: dict) -> None:
+    """lr_schedule=warmup_cosine builds a SequentialLR whose LR ramps up then anneals toward lr_min."""
+    import dataclasses
+
+    from pedpredict.config.schema import TrainCfg
+
+    train = dataclasses.replace(
+        TrainCfg(), lr_schedule="warmup_cosine", warmup_epochs=2, warmup_start_factor=0.1,
+        num_epochs=6, lr=1e-3, lr_min=1e-5,
+    )
+    cfg = dataclasses.replace(_PARITY_CFG, train=train)
+    trainer = Trainer(cfg, _fresh_model(golden), _CPU, _ListChunkProvider([], []),
+                      loss=_loss_from_golden(golden))
+
+    assert isinstance(trainer.scheduler, torch.optim.lr_scheduler.SequentialLR)
+    # No metric is passed (only ReduceLROnPlateau takes one); collect the LR used each epoch.
+    lrs = []
+    for _ in range(cfg.train.num_epochs):
+        lrs.append(trainer.optimizer.param_groups[0]["lr"])
+        trainer.scheduler.step()
+    # warmup (epochs 0,1) ramps up to the peak at epoch 2, then cosine descends.
+    assert lrs[0] < lrs[1] < lrs[2]
+    assert lrs[2] == pytest.approx(1e-3)             # peak == train.lr
+    assert lrs[2] > lrs[3] > lrs[4] > lrs[5]         # cosine anneal
+    assert min(lrs) >= cfg.train.lr_min - 1e-12
+
+
+def test_warmup_cosine_no_warmup_is_plain_cosine(golden: dict) -> None:
+    """warmup_epochs=0 skips LinearLR and yields a bare CosineAnnealingLR (no SequentialLR wrapper)."""
+    import dataclasses
+
+    from pedpredict.config.schema import TrainCfg
+
+    train = dataclasses.replace(TrainCfg(), lr_schedule="warmup_cosine", warmup_epochs=0)
+    cfg = dataclasses.replace(_PARITY_CFG, train=train)
+    trainer = Trainer(cfg, _fresh_model(golden), _CPU, _ListChunkProvider([], []),
+                      loss=_loss_from_golden(golden))
+    assert isinstance(trainer.scheduler, torch.optim.lr_scheduler.CosineAnnealingLR)
+
+
+def test_unknown_lr_schedule_raises(golden: dict) -> None:
+    import dataclasses
+
+    from pedpredict.config.schema import TrainCfg
+
+    cfg = dataclasses.replace(_PARITY_CFG, train=dataclasses.replace(TrainCfg(), lr_schedule="nope"))
+    with pytest.raises(ValueError, match="Unknown train.lr_schedule"):
+        Trainer(cfg, _fresh_model(golden), _CPU, _ListChunkProvider([], []),
+                loss=_loss_from_golden(golden))
 
 
 def test_selection_value_modes(golden: dict) -> None:

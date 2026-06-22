@@ -347,9 +347,13 @@ def test_build_trainer_with_resume(tmp_path: Path) -> None:
         ckpt_path,
     )
 
-    # Point runs_dir into tmp_path so build_trainer doesn't pollute cwd
+    # Point runs_dir into tmp_path so build_trainer doesn't pollute cwd. Pin lr_schedule="plateau"
+    # to match the ReduceLROnPlateau state saved above (resume needs the same scheduler type — the
+    # default is now warmup_cosine, whose SequentialLR state_dict is incompatible with a plateau one).
     new_paths = dataclasses.replace(RootCfg().paths, runs_dir=str(tmp_path / "runs"))
-    cfg = dataclasses.replace(RootCfg(), paths=new_paths)
+    cfg = dataclasses.replace(
+        RootCfg(), paths=new_paths, train=dataclasses.replace(RootCfg().train, lr_schedule="plateau")
+    )
     chunks = _ListChunkProvider([], [])
 
     trainer = build_trainer(cfg, chunks, device=_CPU, resume_from=ckpt_path)

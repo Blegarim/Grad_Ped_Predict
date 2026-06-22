@@ -199,7 +199,8 @@ class TrainCfg:
     use_amp: bool = True             # request; runtime-gated by CUDA availability in utils/amp.py (Q2)
     seed: int = 42                   # global RNG seed (M7) — set_seed() at the top of train/evaluate scripts
     # Scalar that picks best.pth + drives early stopping (M8): {"val_loss", "macro_f1", "crosses_f1"}.
-    # F1 metrics are maximized; the LR scheduler always stays on val_loss.
+    # F1 metrics are maximized; the LR scheduler stays on val_loss under lr_schedule="plateau"
+    # (lr_schedule="warmup_cosine" decouples the LR from val_loss entirely — see below).
     selection_metric: str = "macro_f1"
     loss_weight: dict[str, float] = field(
         default_factory=lambda: {"actions": 0.8, "looks": 0.8, "crosses": 1.2}
@@ -211,11 +212,20 @@ class TrainCfg:
     )
     sampler_min_weight: float = 1e-6   # floor for per-sample sampler weights (OLD build_sampler_weights)
     grad_clip_max_norm: float = 1.0    # clip_grad_norm_ bound (OLD train.py:158,163 literal — B1)
-    early_stop_patience: int = 15
+    early_stop_patience: int = 20      # wide enough for warmup_cosine to traverse its full curve
     early_stop_min_delta: float = 0.001
-    sched_factor: float = 0.5
+    sched_factor: float = 0.5          # ReduceLROnPlateau knobs (lr_schedule="plateau" only)
     sched_patience: int = 2
     sched_threshold: float = 1e-4
+    # LR schedule selector. "warmup_cosine" (default) = deterministic linear warmup -> cosine anneal
+    # to lr_min over num_epochs, stepped once per epoch with NO metric, so the noisy val_loss never
+    # controls the LR (it still drives selection/early-stop — relaxes schedule.yaml D1). The opt-in
+    # "plateau" arm = ReduceLROnPlateau on val_loss (legacy / golden-parity; sched_* apply and lr_min
+    # is the floor). lr_min is the cosine eta_min under "warmup_cosine".
+    lr_schedule: str = "warmup_cosine"
+    warmup_epochs: int = 1             # linear-warmup length in epochs (warmup_cosine only; 0 = none)
+    warmup_start_factor: float = 0.1   # first warmup epoch runs at warmup_start_factor * lr
+    lr_min: float = 1e-6               # cosine eta_min / plateau min_lr floor
     # chunk prefetch loader — OLD train.py:367-498 literals.
     chunk_preload_depth: int = 3            # OLD min(3, n) warm-ahead window
     chunk_warm_ram_threshold: float = 96.0  # OLD wait_for_memory(threshold=96)

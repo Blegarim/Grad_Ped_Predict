@@ -13,11 +13,17 @@ use_weighted_sampler: true
 sampler_powers: {crosses: 1.5, actions: 0.3, looks: 0.7}
 sampler_min_weight: 1.0e-6
 grad_clip_max_norm: 1.0
-early_stop_patience: 15
+early_stop_patience: 20   # wide enough for warmup_cosine to traverse its full curve before stopping
 early_stop_min_delta: 0.001
-sched_factor: 0.5
+sched_factor: 0.5         # ReduceLROnPlateau knobs (lr_schedule: plateau only)
 sched_patience: 2
 sched_threshold: 1.0e-4
+# LR schedule. Default "warmup_cosine": linear warmup tames the from-scratch ViT's epoch-1 blow-up,
+# then cosine glides lr 
+lr_schedule: warmup_cosine
+warmup_epochs: 1          # gentle first epoch at warmup_start_factor*lr, then peak from epoch 1
+warmup_start_factor: 0.1  # first warmup epoch runs at warmup_start_factor * lr (= 1e-5 at lr=1e-4)
+lr_min: 1.0e-6            # cosine eta_min (also the ReduceLROnPlateau floor when lr_schedule: plateau)
 # chunk prefetch loader — OLD train.py:367-498 literals.
 chunk_preload_depth: 3
 chunk_warm_ram_threshold: 96.0

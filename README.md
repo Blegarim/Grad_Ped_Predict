@@ -83,6 +83,8 @@ python scripts/make_sequences.py --benchmark     # TTE-protocol eval windows →
 python scripts/build_lmdb.py     --split val     # sequences → preprocessed_<split>/chunk_*.lmdb
 python scripts/build_lmdb.py     --split test_benchmark  # benchmark eval set → preprocessed_test_benchmark
 python scripts/build_lmdb_incremental.py --split train  # disk-bounded + resumable build (see setup.md)
+python scripts/balance_dataset.py                       # opt-in offline majority down-sample (default off)
+python scripts/augment_dataset.py                       # offline minority-class augmentation
 ```
 
 `build_lmdb` needs every frame a split references staged on disk; `build_lmdb_incremental` extracts only
@@ -94,6 +96,25 @@ vector is 9-dim — `(cx, cy, dx, dy, w, h, dw, dh, ego_speed)`, frame-0 deltas 
 `data.motion_dim` at read time — documented channel-by-channel in
 [data/transforms.py](src/pedpredict/data/transforms.py); the LMDB key/value schema (incl. `track_id`)
 lives in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py).
+
+## Train, evaluate, export
+
+Config-first — override any field with `--set section.field=value`. The model is chosen by
+`eval.model_type` (`full` | `motion_only` | `visual_only` | `vanilla_concat`), **not** `model.*`.
+
+```bash
+python scripts/train.py    --set eval.model_type=full --set train.lr=5e-5
+python scripts/evaluate.py --split val  --checkpoint <best.pth>   # tune + store val thresholds, then…
+python scripts/evaluate.py --split test --checkpoint <best.pth>   # report at the frozen val thresholds
+python scripts/report_distribution.py            # effective per-task sampler-draw distribution
+python scripts/count_labels.py                   # dataset-stats drift gate (nonzero exit on drift)
+python scripts/visualize.py    ...               # plots / qualitative panels
+python scripts/infer_video.py  ...               # needs [infer] (YOLO detect/track)
+python scripts/export_onnx.py  ...               # needs [export]; runs an onnxruntime parity check
+```
+
+Always evaluate `val` **before** `test`: thresholds are tuned on val and frozen for the test report, never
+tuned on test. See [CLAUDE.md](CLAUDE.md) for the full experimental-validity rules and imbalance policy.
 
 ## Install
 

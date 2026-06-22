@@ -2,6 +2,13 @@
 
 Guidance for Claude Code when working in this repository.
 
+> **Read this as broad context, not a changelog.** CLAUDE.md is both an orientation layer and a working
+> guideline — it carries enough of the project's shape, contracts, and conventions to brief a capable
+> engineer who has never seen the repo, and no more. Keep it live and reactive to *structural* change
+> (new contracts, moved modules, changed policy), but don't let it become a running log where every
+> incremental edit earns a line. Update stale facts in place; detail that is only true this week belongs
+> in a run dir or a `docs/` note, not here.
+
 `Grad_Ped_Predict` (graduate research) is a multimodal **pedestrian behavior prediction** project on the
 **PIE dataset**: from a short sequence of dashcam frames it jointly predicts three binary tasks per
 pedestrian — **actions** (walking/standing), **looks** (looking at traffic or not), **crosses** (will cross
@@ -27,10 +34,6 @@ the lab PC.
 
 ## Problem & Architecture
 
-Multimodal pedestrian behavior prediction on the **PIE dataset**. From a sequence of video frames the
-model jointly predicts three **binary** tasks: **actions** (walking/standing), **looks** (looking at
-traffic or not), **crosses** (will cross soon).
-
 ```
 context crop frames → ViT_Hierarchical  ──┐
                                            ├→ CrossAttentionModule → EnsembleModel → {actions, looks, crosses}
@@ -48,135 +51,66 @@ tight crop + motion → MotionEncoder    ───┘
 - **Unified `d_model = 128`** across ALL modules. Never change one module's dim without the others.
 - **Output dict keys**: `actions`, `looks`, `crosses_pooled`, `crosses_frame`, `temporal_weights`.
   Training & eval supervise **ONLY `crosses_frame`** (logsumexp-pooled over frames). `crosses_pooled` is a
-  **live-but-unsupervised** auxiliary head (`ModelCfg.emit_crosses_pooled=True` by default) — emitted and
-  kept ready to swap in for `crosses_frame`, but **never routed to loss/metrics**; set
-  `emit_crosses_pooled=false` to drop it (gating never perturbs the 4 supervised keys). `temporal_weights`
-  is `[B, T]` softmax from the pooling MLP (full model only).
+  **live-but-unsupervised** auxiliary head (`ModelCfg.emit_crosses_pooled=True`, default on) — kept ready
+  to swap in but **never routed to loss/metrics**; `emit_crosses_pooled=false` drops it without perturbing
+  the 4 supervised keys. `temporal_weights` is `[B, T]` softmax from the pooling MLP (full model only).
 
 ## Tech Stack
 
-- **Language/DL**: Python + PyTorch. AMP via `torch.amp.autocast('cuda')` + `GradScaler`; `cudnn.benchmark`,
-  TF32 / high matmul precision performance flags.
-- **Data store**: LMDB chunks (JPEG-encoded crops + pickled metadata). ImageNet normalization.
-- **Config + tracking (deliberately minimal)**: `yaml` config files → typed `dataclass` schema → repeatable
-  `--set section.field=value` CLI overrides (e.g. `--set train.lr=5e-5`). **No Hydra, no W&B.** Logging
-  stays **CSV**. No hardcoded paths in code — everything flows from `configs/paths.yaml`.
-  - **Run-dir convention**: one gitignored dir per run under `PathsCfg.runs_dir`
-    (`outputs/runs/{run_id}/`, `run_id = {YYYYMMDD_HHMMSS}_{model_type}[_{tag}]`) holding
-    `resolved_config.yaml` (config snapshot, incl. `train.seed`) + `train_log.csv` (per-epoch train+val) +
-    `train_distribution.json` (M1 instrument: effective per-task sampler-draw distribution) +
-    `thresholds.json` (M2: val-tuned decision thresholds, written by a `--split val` eval pass) +
-    `checkpoints/{best,last}.pth` + `plots/`. Test metrics → `eval_log.csv`. Cross-run comparison =
-    `outputs/runs/index.csv` (one row/run, `crosses_f1`-led; `rebuild_index` regenerates it). Schemas are
-    composed once: metric columns from `training/metrics.METRIC_COLUMNS`, run/index machinery in
-    `utils/logging.py`.
-- **Packaging**: `pyproject.toml`, src-layout install (`pip install -e .`), `ruff` lint + `pytest`.
-- **Export/bench**: ONNX (onnxruntime parity check), `fvcore` for FLOPs.
+Python + PyTorch (AMP, TF32, `cudnn.benchmark`); LMDB chunk store (JPEG crops + pickled meta, ImageNet
+norm at read time); typed `dataclass` configs with `--set section.field=value` overrides — **no Hydra, no
+W&B**, logging stays **CSV**, no hardcoded paths (all flow from `configs/paths.yaml`). ONNX + `fvcore`
+bench. Install, extras, and packaging: [README.md](README.md).
+
+**Run-dir convention** (the only run artifacts visible on the personal PC): one gitignored dir per run at
+`PathsCfg.runs_dir/{run_id}/` (`run_id = {YYYYMMDD_HHMMSS}_{model_type}[_{tag}]`) holding
+`resolved_config.yaml` (snapshot incl. `train.seed`), `train_log.csv` (per-epoch train+val),
+`train_distribution.json` (M1 sampler-draw distribution), `thresholds.json` (M2 val-tuned thresholds),
+`checkpoints/{best,last}.pth`, `plots/`; test metrics → `eval_log.csv`; cross-run table →
+`outputs/runs/index.csv` (`crosses_f1`-led, `rebuild_index` regenerates). Schema machinery: `utils/logging.py`
++ `training/metrics.METRIC_COLUMNS`.
 
 ## Repository Layout
 
-```
-src/pedpredict/            # installable package (pip install -e .)
-  config/   schema.py loader.py     # dataclass schema + yaml→dataclass→--set merge
-  paths.py
-  utils/    seed.py device.py amp.py memory.py logging.py
-  data/     pie_sequences.py lmdb_writer.py incremental.py balance.py augment.py lmdb_warm.py
-            lmdb_dataset.py transforms.py collate.py sampler.py stats.py
-  models/   vit.py geometry.py motion_encoder.py cross_attention.py ensemble.py
-            ablations.py heads.py registry.py   # typed model factory
-  losses/   multitask.py             # unified class-weight + per-task weighting
-  training/ trainer.py chunk_loader.py callbacks.py schedule.py metrics.py distribution.py
-  eval/     evaluate.py benchmark.py inference.py
-  viz/      plots.py qualitative.py
-  export/   onnx.py
-scripts/    # thin CLI wrappers, one job each
-  make_sequences.py build_lmdb.py build_lmdb_incremental.py balance_dataset.py augment_dataset.py count_labels.py
-  train.py evaluate.py report_distribution.py visualize.py infer_video.py export_onnx.py
-configs/    paths.yaml data.yaml model.yaml train.yaml schedule.yaml
-            eval.yaml balance.yaml augment.yaml export.yaml infer.yaml
-tests/      config · data shapes · lmdb roundtrip · model shapes · losses · metrics · sampler ·
-            golden outputs · trainer/eval/onnx · + fixtures/golden/ (captured legacy outputs)
-```
+The `src/pedpredict/` package tree, `scripts/` CLIs, and `configs/` are mapped in
+[README.md](README.md#repository-layout). What the tree doesn't show: `scripts/` are thin one-job CLI
+wrappers; models are built through the typed registry in `models/registry.py`; `tests/` pairs unit tests
+with **golden characterization tests** under `tests/fixtures/golden/` (captured legacy numerics — parity
+guardrails, not regenerable here).
 
 ## Commands
 
-Setup and the full CLI surface live in [README.md](README.md); the essentials:
-
-```bash
-# Setup — core + lint/test; add [infer] for video, [export] for ONNX
-pip install -e .[dev]
-
-# Data pipeline (offline → runtime)
-python scripts/make_sequences.py  --split all      # PIE → sequences_<split>.pkl + windowing stats json (M4)
-python scripts/make_sequences.py  --benchmark      # M5 TTE-protocol eval windows → sequences_test_benchmark.pkl
-python scripts/build_lmdb.py      --split val      # sequences → LMDB chunks (needs all of a split's frames)
-python scripts/build_lmdb.py      --split test_benchmark   # M5 eval set → preprocessed_test_benchmark
-python scripts/build_lmdb_incremental.py --split train  # disk-bounded, resumable: extract→crop→delete per video
-python scripts/balance_dataset.py                  # opt-in offline balance (default off)
-python scripts/augment_dataset.py                  # minority-class augmentation
-python scripts/count_labels.py                     # dataset-stats drift gate (nonzero on drift); scans base LMDBs
-python scripts/count_labels.py --from-sequences    #   …or count the pkls (pre-LMDB canary; same counts by 1:1 image)
-
-# Train / evaluate — config-first; override any field with --set section.field=value
-python scripts/train.py    --set eval.model_type=full --set train.lr=5e-5  # model selector is eval.model_type (NOT model.*)
-python scripts/evaluate.py --split val  --checkpoint <best.pth>  # 1) tune+store thresholds on val (M2)
-python scripts/evaluate.py --split test --checkpoint <best.pth>  # 2) report at frozen val thresholds
-python scripts/report_distribution.py                            # M1 instrument: effective sampler draws
-
-# Inference / export / viz
-python scripts/infer_video.py  ...                 # needs [infer] (YOLO detect/track)
-python scripts/export_onnx.py  ...                 # needs [export]; runs onnxruntime parity
-python scripts/visualize.py    ...
-
-# Gate (must pass)
-ruff check .
-pytest -m "not slow"
-```
+Setup, the data pipeline, training/eval, viz, and export are all in [README.md](README.md) — that is the
+full CLI surface. The data-layer contracts and experimental-validity rules that govern *how* to run them
+are below. The gate that must pass before any change lands: `ruff check .` and `pytest -m "not slow"`.
 
 ## Data Pipeline
 
-**LMDB schema v2 (written contract)** — keys reset **per chunk** (`<key>` = sample index within the chunk):
-- `<key>_meta` (pickle): `motions[T,9]`, `actions`, `looks`, `crosses`, `track_id` (+ `tte`, benchmark
-  chunks only; no `bboxes`)
-- per-frame `<key>_<t>_tight` and `<key>_<t>_context` JPEG blobs (stored **un-normalized** `[0,1]·255`;
-  ImageNet normalize is applied at read time, not by the writer)
+Offline → runtime: PIE → sequence windows (`make_sequences`) → LMDB chunks (`build_lmdb`) → offline
+balance/augment → runtime `LMDBChunkDataset` + collate. Sequence-gen params (`seq_len`, `stride`,
+`future_offset`, `context_scale`, …) live in `configs/data.yaml`; the **LMDB schema v2** key/value contract
+is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim motion channel table in
+[data/transforms.py](src/pedpredict/data/transforms.py). Crops are stored un-normalized (ImageNet norm at
+read time); consumers slice motions to `data.motion_dim` (8 = no ego, 9 = with ego).
 
-Stages (offline → runtime): PIE → sequence generation (sliding windows `seq_len=20`, `stride=3`,
-`future_offset=30`, `tol=2`; filter #2 drops windows with any crossing during observation; **M4 censor
-filter** drops windows whose future window is not fully observed — counted per split in
-`sequences_<split>_stats.json`) → crop/motion extraction + LMDB writer (`context_scale=3.0`,
-`jpeg_quality=90`, `chunk_size=5000`) → offline balance/split → offline augmentation (minority classes)
-→ runtime `LMDBChunkDataset` (per-process env keyed on pid; slices motions to `data.motion_dim`) + collate.
-
-**v2 labeling contract (hole audit M3/M4/M5/M6/M9 — deliberate departures from v1/legacy):**
-- **M3**: `actions`/`looks` = pedestrian **state at the last observed frame** (`signal[end-1]`);
-  ONLY `crosses` is a future label (`any()` over the fully-observed future window).
-- **M4**: right-censored windows (truncated future) are **dropped, not labeled 0**.
-- **M6**: every record/meta carries `track_id` (PIE pedestrian id) for eval-side track aggregation.
-- **M9 + A4 (motion v2)**: the stored motion vector is **9-dim** `(cx, cy, dx, dy, w, h, dw, dh, ego_speed)`
-  (`MOTION_STORE_DIM`, channel table in `data/transforms.compute_motion`): frame-0 deltas are **true
-  zeros** (legacy raw-size quirk removed); `ego_speed` = PIE OBD km/h. **Store wide, slice narrow**:
-  consumers read `data.motion_dim` (8 = no ego, 9 = with ego — the M9 ablation is two configs over one
-  dataset). The normalization choice is a **runtime flag** `model.motion_norm`
-  (`image` = fixed frame-dimension scale, default; `per_sequence` = legacy z-norm, the A4 ablation arm
-  pinned by the golden-parity tests).
-- **M5**: a separate **benchmark-protocol eval set** (test split only): TTE-sampled windows
-  (`benchmark_obs_len=16` ending 30–60 frames before the PIE `crossing_point`), `crosses` labeled by the
-  crossing **event**; records carry `tte`. Built via `make_sequences.py --benchmark` +
-  `build_lmdb.py --split test_benchmark` → `preprocessed_test_benchmark`.
-- `crosses` raw labels `{-1,0,1}` are clamped to `{0,1}` (at sequence generation; the writer does not re-clamp).
-- `context_scale` is a single uniform **3.0** across data + benchmark (kept config-flexible for ablation).
-- `horizontal_flip` augmentation negates **index 2 (dx)** AND reflects **index 0 (cx)** about
-  `data.source_width` (A4 fix); ego (idx 8) is flip-invariant. The indices must match the channel
-  definition or augmented data corrupts silently.
+**v2 labeling contract — deliberate departures from v1/legacy; do not "fix" these as bugs.** Full rationale
+in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
+- **M3** — `actions`/`looks` label the **state at the last observed frame**, not the future; only `crosses`
+  is a future label (`any()` over the fully-observed future window).
+- **M4** — right-censored windows (truncated future) are **dropped, not labeled 0**.
+- **M5** — a separate TTE **benchmark** eval set (test split) labels `crosses` by the crossing *event* and
+  carries `tte`; built via `make_sequences.py --benchmark` → `preprocessed_test_benchmark`.
+- **M6** — every meta carries `track_id` for eval-side track aggregation.
+- **M9 / A4** — motion is stored **9-dim** (`MOTION_STORE_DIM`), frame-0 deltas true zeros; normalization is
+  a runtime flag `model.motion_norm` (`image` default | `per_sequence` legacy/A4 arm, golden-pinned).
+  `horizontal_flip` **must** negate `dx` (idx 2) and reflect `cx` (idx 0) about `data.source_width`, or
+  augmented data corrupts silently.
 
 ### Dataset Statistics
 
-⚠️ **STALE — v1 numbers.** The v2 relabel (M3 state-at-end, M4 censor filter) changes N and all
-positive rates; both are expected to **drop** (`looks` hardest). The table and the
-`pie_sequences_counts.json` fixture MUST be re-pinned from the v2 regen (`make_sequences.py` prints the
-per-split window stats incl. the thesis-reportable censored count) before any v2 LMDB build is trusted —
-execution checklist: [setup.md](setup.md) (steps 3–4).
+⚠️ **STALE — v1 numbers.** The v2 relabel (M3 state-at-end, M4 censor filter) drops N and all positive
+rates (`looks` hardest). The table and the `pie_sequences_counts.json` fixture MUST be re-pinned from the
+v2 regen before any v2 LMDB build is trusted — execution checklist: [setup.md](setup.md) (steps 3–4).
 
 Positive-class rates in the generated sequences (v1, superseded):
 
@@ -186,10 +120,10 @@ Positive-class rates in the generated sequences (v1, superseded):
 | val   | 22,665 | 41.8% | 11.9% | 2.5% |
 | test  | 76,048 | 43.5% | 15.8% | 2.8% |
 
-`crosses` is severely imbalanced (~37:1); `looks` moderately (~5:1); `actions` roughly balanced.
-Aggregate accuracy is misleading on `crosses` — rely on F1/AUC/recall. **If sequence generation params or
-PIE annotations change, re-run label counting and update this table in the same change.** This table is the
-data-layer drift check (`scripts/count_labels.py` exits nonzero on drift).
+`crosses` is severely imbalanced (~37:1); `looks` moderately (~5:1); `actions` roughly balanced. Aggregate
+accuracy is misleading on `crosses` — rely on F1/AUC/recall. This table is the data-layer drift check
+(`scripts/count_labels.py` exits nonzero on drift); re-run it and update the table in the same change as
+any sequence-gen / PIE-annotation change.
 
 ## Imbalance Policy (single source of truth)
 
@@ -211,9 +145,8 @@ scan feeds 2 + 3 only; offline balance scans the sequence pkls (a separate offli
 `train.use_weighted_sampler`, `train.use_class_weights` — the lever combination is the RQ3 ablation axis.
 **Never toggle blind:** the M1 instrument (`training/distribution.py`, auto-written to every run dir as
 `train_distribution.json`; standalone via `scripts/report_distribution.py`) reports the *effective*
-per-task positive rate of sampler draws vs. the stored base rate — under the current default stack the
-`crosses` training distribution is wildly above the 2.8% deployment rate, which is exactly what the
-instrument exists to expose.
+per-task positive rate of sampler draws vs. the stored base rate — under the default stack the `crosses`
+training distribution sits wildly above the 2.8% deployment rate, the very gap the instrument exposes.
 
 ## Evaluation
 
@@ -233,8 +166,10 @@ efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`
 - **Every run is seeded** (`train.seed`, default 42; in the config snapshot). Multi-seed protocol:
   screen with 1 seed, confirm finalists with 3, report mean±std.
 - **Model selection + early stopping read `train.selection_metric`** (default `macro_f1`, maximized;
-  options `val_loss`, `crosses_f1`) — the LR scheduler stays on `val_loss`. `best_val_loss` in
-  checkpoints/index = the val loss at the *selected* best epoch.
+  options `val_loss`, `crosses_f1`). The LR follows `train.lr_schedule`: default `warmup_cosine`
+  (deterministic linear-warmup→cosine to `lr_min`, decoupled from val_loss) or `plateau`
+  (`ReduceLROnPlateau` on `val_loss`, the legacy arm). `best_val_loss` in checkpoints/index = the val
+  loss at the *selected* best epoch.
 
 ## Working Conventions
 
@@ -247,24 +182,20 @@ efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`
 
 ### Skill Invocation Policy
 
-Skill *descriptions* are always in context (free to scan); only loading a `SKILL.md` *body* costs tokens —
-so gate on **invocation**. Don't sort the request into named tiers (that anchors on heavyweight examples
-and suppresses loading); score it continuously and trip on a **low, cost-aware** threshold (tuned eager).
+Skill *descriptions* are always in context (free to scan); only loading a `SKILL.md` *body* costs tokens,
+so gate on **invocation**, scored continuously on a low, cost-aware threshold (don't sort into named tiers
+— that anchors on heavyweight examples and suppresses loading):
 
-- **Benefit `B`** = sum of five signals, each 0–3 (so `B ∈ 0–15`): *match* (how directly the best skill's
-  description targets the ask), *method* (needs a procedure/checklist vs plain recall), *surface* (files /
-  components / decisions in play), *stakes* (cost of being wrong: read-only 0 … irreversible / training /
-  prod 3), *doubt* (how unsure I'd be doing it right unaided).
-- **Cost `C`** of the candidate skill: markdown-only repo skill ≈1; bundles scripts ≈2; spawns agents /
-  multi-step (`understand-*`, `ship`) ≈3.
+- **Benefit `B`** (0–15) = sum of five 0–3 signals: *match* (how directly the best skill targets the ask),
+  *method* (needs a procedure vs plain recall), *surface* (files/decisions in play), *stakes* (read-only 0
+  … irreversible/training/prod 3), *doubt* (how unsure I'd be unaided).
+- **Cost `C`**: markdown-only repo skill ≈1; bundles scripts ≈2; spawns agents / multi-step
+  (`understand-*`, `ship`) ≈3.
 - **Load the single best skill when `B ≥ 3 + 2·(C−1)`** — cheap skills trip at `B≥3` (eager), agentic ones
-  only at `B≥7`, so a low bar never auto-fires an expensive graph build on a medium question. Below the
-  bar, answer directly. Load **multiple** skills (one per phase, as each begins) only when `B ≥ 11` and ≥2
-  distinct skills each clearly apply.
-- **Dial:** the base `3` is the eagerness knob — lower = more eager. **Tie-break** to the most specific /
-  project-local skill (the four repo skills above beat generic plugin equivalents); never reload an active
-  skill or load one that only restates what's already underway. `B` is a graded judgment, not literal
-  arithmetic — the numbers keep the call consistent and tuned eager.
+  at `B≥7`. Load **multiple** (one per phase) only when `B ≥ 11` and ≥2 skills clearly apply; below the
+  bar, answer directly.
+- **Dial:** base `3` is the eagerness knob (lower = more eager). Tie-break to the most specific /
+  project-local skill; never reload an active skill. `B` is a graded judgment, not literal arithmetic.
 
 ### Doc-Sync Checklist
 
@@ -276,6 +207,6 @@ When you change… update (in the same change):
 | Output-dict keys / head wiring | Architecture output-keys note + `heads.py`/`ensemble.py` docstrings |
 | Imbalance levers (balance / sampler / loss weights) | Imbalance Policy section — all three levers together |
 | `d_model` / module dims | Architecture table (CLAUDE.md + README) — never one module alone |
-| Add / move / remove a `src/` module or `scripts/` CLI | Repository Layout + Commands (CLAUDE.md) + README layout |
+| Add / move / remove a `src/` module or `scripts/` CLI | README layout + README command list (+ the orientation note in CLAUDE.md if a whole subsystem moves) |
 | Config schema field / default | `configs/*.yaml` + schema docstrings; Config note if the CLI surface changes |
 | New extra / dependency | README Install extras |
