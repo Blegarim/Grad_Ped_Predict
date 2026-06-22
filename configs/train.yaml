@@ -8,9 +8,9 @@ use_amp: true            # request; AND-gated by CUDA availability at runtime
 seed: 42                 # global RNG seed (M7); logged via the run-dir config snapshot
 selection_metric: macro_f1   # best-ckpt + early-stop scalar (M8): val_loss | macro_f1 | crosses_f1
 loss_weight: {actions: 0.8, looks: 0.8, crosses: 1.2}
-use_class_weights: true  # imbalance lever 3 (M1): inverse-frequency CE class weights
+use_class_weights: false # imbalance lever 3 (M1): inverse-frequency CE class weights — OFF by default (run #2 canonical)
 use_weighted_sampler: true
-sampler_powers: {crosses: 1.5, actions: 0.3, looks: 0.7}
+sampler_powers: {crosses: 0.5, actions: 0.3, looks: 0.3}  # tuned down (run #2): ~26% effective crosses vs 2.8% base
 sampler_min_weight: 1.0e-6
 grad_clip_max_norm: 1.0
 early_stop_patience: 20   # wide enough for warmup_cosine to traverse its full curve before stopping

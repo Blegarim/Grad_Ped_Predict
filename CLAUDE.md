@@ -130,13 +130,16 @@ any sequence-gen / PIE-annotation change.
 Three levers exist and must be documented as ONE coherent policy, not three accidents:
 1. **Offline balance** (`data/balance.py`) — constraint-solved `cross=0` down-sampling.
 2. **Online sampler** (`data/sampler.py`) — `WeightedRandomSampler`, per-task powers
-   (`crosses^1.5 · actions^0.3 · looks^0.7`).
-3. **Loss class weights** (`losses/multitask.py`) — inverse-frequency CE weights + per-task scalar
-   `loss_weight={actions:0.8, looks:0.8, crosses:1.2}`.
+   (`crosses^0.5 · actions^0.3 · looks^0.3`, tuned down — run #2 canonical).
+3. **Loss class weights** (`losses/multitask.py`) — inverse-frequency CE weights (gated by
+   `use_class_weights`) + always-on per-task scalar `loss_weight={actions:0.8, looks:0.8, crosses:1.2}`.
 
 A **single LMDB metadata scan** produces both class frequencies (for loss) and per-sample sampler weights.
 
-**Default:** levers **2 + 3 are ON** (both in `TrainCfg`), layered on offline **augmentation**. Lever
+**Default (run #2 canonical):** lever **2 (sampler) is ON but tuned down** to `crosses^0.5` and lever
+**3's inverse-frequency CE weights are OFF** (`use_class_weights=false`; the per-task scalar `loss_weight`
+still applies), layered on offline **augmentation** — this keeps the effective `crosses` training rate at
+~26% (vs the 89% the old `crosses^1.5` + class-weights stack produced). Lever
 **1 (offline balance) is OPT-IN, `BalanceCfg.enabled=false`** — the majority-downsample *alternative* to
 augmentation, for ablation; when enabled, relax 2/3 so the levers don't triple-stack. The single metadata
 scan feeds 2 + 3 only; offline balance scans the sequence pkls (a separate offline artifact), not the LMDB.
@@ -145,8 +148,9 @@ scan feeds 2 + 3 only; offline balance scans the sequence pkls (a separate offli
 `train.use_weighted_sampler`, `train.use_class_weights` — the lever combination is the RQ3 ablation axis.
 **Never toggle blind:** the M1 instrument (`training/distribution.py`, auto-written to every run dir as
 `train_distribution.json`; standalone via `scripts/report_distribution.py`) reports the *effective*
-per-task positive rate of sampler draws vs. the stored base rate — under the default stack the `crosses`
-training distribution sits wildly above the 2.8% deployment rate, the very gap the instrument exposes.
+per-task positive rate of sampler draws vs. the stored base rate — under the tuned-down default stack the
+`crosses` training distribution sits at ~26%, still well above the 2.8% deployment rate (the gap the
+instrument exposes), but far below the ~89% the old aggressive stack produced.
 
 ## Evaluation
 

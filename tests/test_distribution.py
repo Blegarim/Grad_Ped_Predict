@@ -60,7 +60,10 @@ def test_write_distribution_report(tmp_path) -> None:
     p = tmp_path / "c0.lmdb"
     _write_label_lmdb(p, [(1, 0, 1), (0, 1, 0)])
     run_dir = tmp_path / "run"
-    path = write_distribution_report(run_dir, [p], TrainCfg())
+    # Set both lever flags explicitly so this checks the report mirrors the config,
+    # not whatever the current TrainCfg defaults happen to be.
+    cfg = dataclasses.replace(TrainCfg(), use_weighted_sampler=True, use_class_weights=True)
+    path = write_distribution_report(run_dir, [p], cfg)
     assert path == run_dir / DISTRIBUTION_FILENAME
     data = json.loads(path.read_text(encoding="utf-8"))
     assert set(data["base_rate"]) == {"actions", "looks", "crosses"}
