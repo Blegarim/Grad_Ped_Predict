@@ -28,17 +28,27 @@ import torch
 import torch.nn as nn
 
 from pedpredict.config import ModelCfg, RootCfg
-from pedpredict.models.ablations import MotionOnlyModel, VanillaConcatModel, VisualOnlyModel
+from pedpredict.models.ablations import (
+    KinematicsOnlyModel,
+    PedLocalModel,
+    VanillaConcatModel,
+    VisualOnlyModel,
+)
 from pedpredict.models.ensemble import EnsembleModel
 
 LogitsDict = dict[str, torch.Tensor]
 
 
 class ModelType(str, Enum):
-    """The four model variants selected via config / CLI (replaces stringly dispatch, B10)."""
+    """The model variants selected via config / CLI (replaces stringly dispatch, B10).
+
+    ``ped_local`` is the renamed legacy ``motion_only`` (A6: it reads the tight crop, so it is
+    pedestrian-local, not motion-only); ``kinematics_only`` is the NEW pixel-free baseline (M9.1).
+    """
 
     FULL = "full"
-    MOTION_ONLY = "motion_only"
+    PED_LOCAL = "ped_local"
+    KINEMATICS_ONLY = "kinematics_only"
     VISUAL_ONLY = "visual_only"
     VANILLA_CONCAT = "vanilla_concat"
 
@@ -54,21 +64,25 @@ class ModelType(str, Enum):
             raise ValueError(f"Unknown model type: {value!r}. Choose from: {valid}") from None
 
 
-ModelTypeLike = ModelType | Literal["full", "motion_only", "visual_only", "vanilla_concat"]
+ModelTypeLike = ModelType | Literal[
+    "full", "ped_local", "kinematics_only", "visual_only", "vanilla_concat"
+]
 
 # Which inputs each type consumes (documentation + the source of truth for forward_model + tests).
 MODEL_INPUT_SIGNATURE: dict[ModelType, tuple[str, ...]] = {
     ModelType.FULL: ("images_tight", "images_context", "motions"),
     ModelType.VANILLA_CONCAT: ("images_tight", "images_context", "motions"),
-    ModelType.MOTION_ONLY: ("motions", "images_tight"),
+    ModelType.PED_LOCAL: ("motions", "images_tight"),
+    ModelType.KINEMATICS_ONLY: ("motions",),
     ModelType.VISUAL_ONLY: ("images_context",),
 }
 
 # Per-type builder: every ``from_config`` takes the uniform ``(ModelCfg, img_size)`` so the factory is one
-# loop. ``img_size`` is ignored by motion_only (resolution-agnostic) but kept for signature regularity.
+# loop. ``img_size`` is ignored by the pixel-free / motion-side types but kept for signature regularity.
 _BUILDERS: dict[ModelType, Callable[[ModelCfg, int], nn.Module]] = {
     ModelType.FULL: EnsembleModel.from_config,
-    ModelType.MOTION_ONLY: MotionOnlyModel.from_config,
+    ModelType.PED_LOCAL: PedLocalModel.from_config,
+    ModelType.KINEMATICS_ONLY: KinematicsOnlyModel.from_config,
     ModelType.VISUAL_ONLY: VisualOnlyModel.from_config,
     ModelType.VANILLA_CONCAT: VanillaConcatModel.from_config,
 }
@@ -76,7 +90,8 @@ _BUILDERS: dict[ModelType, Callable[[ModelCfg, int], nn.Module]] = {
 # Fallback type resolution for a model not built through build_model (e.g. loaded from a raw class).
 _TYPE_BY_CLASS: dict[type[nn.Module], ModelType] = {
     EnsembleModel: ModelType.FULL,
-    MotionOnlyModel: ModelType.MOTION_ONLY,
+    PedLocalModel: ModelType.PED_LOCAL,
+    KinematicsOnlyModel: ModelType.KINEMATICS_ONLY,
     VisualOnlyModel: ModelType.VISUAL_ONLY,
     VanillaConcatModel: ModelType.VANILLA_CONCAT,
 }
@@ -128,8 +143,10 @@ def forward_model(
         raise ValueError(f"return_feats=True is only supported for {ModelType.FULL.value!r} (got {mt.value!r}).")
     if mt is ModelType.VANILLA_CONCAT:
         return model(images_tight, images_context, motions)
-    if mt is ModelType.MOTION_ONLY:
+    if mt is ModelType.PED_LOCAL:
         return model(motions, images_tight)
+    if mt is ModelType.KINEMATICS_ONLY:
+        return model(motions)
     if mt is ModelType.VISUAL_ONLY:
         return model(images_context)
     raise ValueError(f"Unhandled model type: {mt!r}")  # unreachable (coerce validated mt)

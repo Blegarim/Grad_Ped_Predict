@@ -31,8 +31,8 @@ tight crop + motion → MotionEncoder    ───┘
 | `EnsembleModel` | Wires the branches (LayerNorm before fusion); ablations swap or drop a branch. |
 
 A unified `d_model = 128` is shared across every module, and models are selected through a typed registry
-(`full`, `motion_only`, `visual_only`, `vanilla_concat`). The output-dict contract, the severe `crosses`
-class imbalance, and the single imbalance policy are documented in [CLAUDE.md](CLAUDE.md).
+(`full`, `ped_local`, `kinematics_only`, `visual_only`, `vanilla_concat`). The output-dict contract, the
+severe `crosses` class imbalance, and the single imbalance policy are documented in [CLAUDE.md](CLAUDE.md).
 
 ## Repository layout
 
@@ -100,7 +100,8 @@ lives in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py).
 ## Train, evaluate, export
 
 Config-first — override any field with `--set section.field=value`. The model is chosen by
-`eval.model_type` (`full` | `motion_only` | `visual_only` | `vanilla_concat`), **not** `model.*`.
+`eval.model_type` (`full` | `ped_local` | `kinematics_only` | `visual_only` | `vanilla_concat`), **not**
+`model.*`.
 
 ```bash
 python scripts/train.py    --set eval.model_type=full --set train.lr=5e-5

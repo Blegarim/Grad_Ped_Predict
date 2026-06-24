@@ -189,6 +189,10 @@ def test_predictions_none_when_not_requested(metrics_golden: dict) -> None:
 # --------------------------------------------------------------------------- real models (ensemble.pt)
 
 
+# ``ped_local`` is the renamed legacy ``motion_only``; its golden is captured under the OLD key.
+_GOLDEN_KEY: dict[str, str] = {"ped_local": "motion_only"}
+
+
 def _build_loaded(entry: dict, model_type: str) -> nn.Module:
     model = build_model(RootCfg(), model_type)
     model.load_state_dict(entry["state_dict"], strict=True)   # B2: strict, no forward
@@ -218,8 +222,8 @@ def test_temporal_weights_collected_full_model(ensemble_golden: dict) -> None:
 
 
 def test_temporal_weights_none_for_ablations(ensemble_golden: dict) -> None:
-    for model_type in ("motion_only", "visual_only", "vanilla_concat"):
-        entry = ensemble_golden[model_type]
+    for model_type in ("ped_local", "visual_only", "vanilla_concat"):
+        entry = ensemble_golden[_GOLDEN_KEY.get(model_type, model_type)]
         model = _build_loaded(entry, model_type)
         inputs = entry["inputs"]
         n = inputs["images_tight"].shape[0]
@@ -229,8 +233,8 @@ def test_temporal_weights_none_for_ablations(ensemble_golden: dict) -> None:
 
 
 def test_runs_for_all_four_model_types(ensemble_golden: dict) -> None:
-    for model_type in ("full", "motion_only", "visual_only", "vanilla_concat"):
-        entry = ensemble_golden[model_type]
+    for model_type in ("full", "ped_local", "visual_only", "vanilla_concat"):
+        entry = ensemble_golden[_GOLDEN_KEY.get(model_type, model_type)]
         model = _build_loaded(entry, model_type)
         inputs = entry["inputs"]
         n = inputs["images_tight"].shape[0]

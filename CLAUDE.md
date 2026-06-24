@@ -46,7 +46,7 @@ tight crop + motion → MotionEncoder    ───┘
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + fusion + GRU + learned pos-encoding + MultiheadAttention. In-forward motion norm is config-gated: `model.motion_norm` = `image` (fixed frame-dim scale, default) \| `per_sequence` (legacy z-norm, A4 ablation arm). Outputs `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → pooling MLP → softmax temporal weights → per-task classifier heads. |
 | `EnsembleModel` | Wires all components; applies **LayerNorm before fusion**; `return_feats` path used by viz. |
-| Ablations | `MotionOnlyModel`, `VisualOnlyModel`, `VanillaConcatModel` (concat instead of cross-attention); same output-dict format. |
+| Ablations | `PedLocalModel` (tight-crop CNN + bbox kinematics, no scene context — legacy `motion_only`, renamed per A6), `KinematicsOnlyModel` (NEW, pixel-free bbox-kinematics baseline, M9.1), `VisualOnlyModel`, `VanillaConcatModel` (concat instead of cross-attention); same output-dict format. |
 
 - **Unified `d_model = 128`** across ALL modules. Never change one module's dim without the others.
 - **Output dict keys**: `actions`, `looks`, `crosses_pooled`, `crosses_frame`, `temporal_weights`.
@@ -164,8 +164,12 @@ instrument exposes), but far below the ~89% the old aggressive stack produced.
 Report **Accuracy, F1, AUC, Precision, Recall** (per task + macro-F1), logged to CSV. Also report
 efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`. A single
 `MetricAccumulator` is shared by training-validation and test (no divergence). Degenerate cases use
-`zero_division=0`; AUC needs softmax probabilities. Model types: `full`, `motion_only`, `visual_only`,
-`vanilla_concat` — selected via the typed registry, not raw strings.
+`zero_division=0`; AUC needs softmax probabilities. Model types: `full`, `ped_local` (legacy
+`motion_only`, renamed per A6 — it reads the tight crop), `kinematics_only` (pixel-free baseline, M9.1),
+`visual_only`, `vanilla_concat` — selected via the typed registry, not raw strings. **Single-task**
+(crosses-only) is not a model type but a config recipe: zero the disabled tasks in *both* imbalance-aware
+levers — `--set train.loss_weight.actions=0 train.loss_weight.looks=0 train.sampler_powers.actions=0
+train.sampler_powers.looks=0` (the loss honors a 0 weight; the dead heads still print metrics, harmless).
 
 **Experimental-validity rules (M2/M7/M8 — non-negotiable):**
 - **Thresholds are tuned on val, never test.** `evaluate.py --split val` sweeps per-task F1-optimal

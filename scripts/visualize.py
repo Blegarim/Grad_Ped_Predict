@@ -15,7 +15,7 @@ Usage:
     python scripts/visualize.py --run-dir outputs/runs/<run_id> --only loss,f1
 
     # cross-run ablation bars (written to outputs/runs/ablation/ by default)
-    python scripts/visualize.py --ablation full=outputs/runs/A/eval_log.csv,motion_only=.../eval_log.csv
+    python scripts/visualize.py --ablation full=outputs/runs/A/eval_log.csv,ped_local=.../eval_log.csv
     python scripts/visualize.py --ablation-from-index
 
     # qualitative videos (GT + comparison + attention)

@@ -122,13 +122,13 @@ def test_load_eval_row_empty_raises(tmp_path: Path) -> None:
 def test_load_ablation_metrics_no_summary_parsing(tmp_path: Path) -> None:
     """The OLD ``_parse_summary_table`` text-scraping is unnecessary: columns are read directly."""
     logs = {}
-    for name, f1, auc in (("full", 0.6, 0.8), ("motion_only", 0.4, 0.7)):
+    for name, f1, auc in (("full", 0.6, 0.8), ("ped_local", 0.4, 0.7)):
         p = tmp_path / f"{name}.csv"
         _write_eval_log(p, name, f1, auc)
         logs[name] = p
     abl = load_ablation_metrics(logs)
     assert abl["full"]["crosses_f1"] == pytest.approx(0.6)
-    assert abl["motion_only"]["actions_auc"] == pytest.approx(0.7)
+    assert abl["ped_local"]["actions_auc"] == pytest.approx(0.7)
 
 
 # --------------------------------------------------------------------------- pure figures (smoke)
@@ -163,7 +163,7 @@ def test_figure_pr_and_threshold_smoke() -> None:
 def test_figure_ablation_bars_counts() -> None:
     abl = {
         "full": {f"{t}_f1": 0.6 for t in _TASKS},
-        "motion_only": {f"{t}_f1": 0.4 for t in _TASKS},
+        "ped_local": {f"{t}_f1": 0.4 for t in _TASKS},
     }
     fig = figure_ablation_bars(abl, "f1", "F1")
     ax = fig.axes[0]
@@ -210,7 +210,7 @@ def test_generate_run_figures_only_subset(tmp_path: Path) -> None:
 
 def test_generate_ablation_figures(tmp_path: Path) -> None:
     logs = {}
-    for name in ("full", "motion_only"):
+    for name in ("full", "ped_local"):
         p = tmp_path / f"{name}.csv"
         _write_eval_log(p, name, f1=0.5, auc=0.7)
         logs[name] = p

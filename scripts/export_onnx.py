@@ -8,7 +8,7 @@ knobs live in ``ExportCfg`` (configs/export.yaml); the model type is read from
 Usage::
 
     python scripts/export_onnx.py --checkpoint outputs/runs/<run>/checkpoints/best.pth
-    python scripts/export_onnx.py --checkpoint best.pth eval.model_type=motion_only
+    python scripts/export_onnx.py --checkpoint best.pth eval.model_type=ped_local
     python scripts/export_onnx.py --checkpoint best.pth export.output_dir=deploy/onnx
 
 Steps: load config → build model → load weights (strict) → export ONNX →
@@ -46,7 +46,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "overrides", nargs="*",
-        help="Dotted config overrides, e.g. eval.model_type=motion_only export.opset=18.",
+        help="Dotted config overrides, e.g. eval.model_type=ped_local export.opset=18.",
     )
     return p.parse_args(argv)
 

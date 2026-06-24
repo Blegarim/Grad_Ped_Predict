@@ -13,7 +13,7 @@ Usage:
         --checkpoint outputs/runs/<run_id>/checkpoints/best.pth      # tune + store thresholds
     python scripts/evaluate.py --split test \
         --checkpoint outputs/runs/<run_id>/checkpoints/best.pth      # report at frozen thresholds
-    python scripts/evaluate.py --set eval.model_type=motion_only \
+    python scripts/evaluate.py --set eval.model_type=ped_local \
         --checkpoint <path> --save-predictions --save-temporal-weights
 """
 

@@ -78,7 +78,8 @@ _COLOR_MACRO = "#9467bd"
 HEAD_COLORS: dict[str, str] = {"actions": "#1f77b4", "looks": "#ff7f0e", "crosses": "#2ca02c"}
 ABLATION_COLORS: dict[str, str] = {
     "full": "#1f77b4",
-    "motion_only": "#ff7f0e",
+    "ped_local": "#ff7f0e",
+    "kinematics_only": "#8c564b",
     "visual_only": "#2ca02c",
     "vanilla_concat": "#d62728",
 }

@@ -41,13 +41,13 @@ def _fast_cfg() -> RootCfg:
 
 def test_count_params_matches_manual() -> None:
     cfg = _fast_cfg()
-    model = build_model(cfg, "motion_only")
+    model = build_model(cfg, "ped_local")
     assert count_params(model) == sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def test_benchmark_result_finite_on_cpu() -> None:
-    result = benchmark_model(_fast_cfg(), "motion_only", device=_CPU)
-    assert result.model_type == "motion_only"
+    result = benchmark_model(_fast_cfg(), "ped_local", device=_CPU)
+    assert result.model_type == "ped_local"
     assert result.params > 0
     assert result.latency_ms_per_frame > 0 and math.isfinite(result.latency_ms_per_frame)
     assert result.fps > 0 and math.isfinite(result.fps)
@@ -73,9 +73,9 @@ def test_measure_efficiency_matches_eval_columns() -> None:
 def test_run_benchmark_writes_csv(tmp_path: Path) -> None:
     cfg = _fast_cfg()
     csv_path = tmp_path / "benchmark.csv"
-    results = run_benchmark(cfg, ["motion_only", "visual_only"], device=_CPU, csv_path=csv_path)
+    results = run_benchmark(cfg, ["ped_local", "visual_only"], device=_CPU, csv_path=csv_path)
 
-    assert [r.model_type for r in results] == ["motion_only", "visual_only"]
+    assert [r.model_type for r in results] == ["ped_local", "visual_only"]
     rows = csv_path.read_text(encoding="utf-8").strip().splitlines()
     assert rows[0] == ",".join(BENCHMARK_COLUMNS)           # header == schema
     assert len(rows) == 3                                   # header + 2 model rows

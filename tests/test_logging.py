@@ -74,8 +74,8 @@ def test_index_columns_are_stable_and_lead_with_crosses() -> None:
 
 
 def test_make_run_id_timestamp_first() -> None:
-    rid = make_run_id("motion_only", "two phase/exp", now=_NOW)
-    assert rid == "20260606_010203_motion_only_two_phase_exp"
+    rid = make_run_id("ped_local", "two phase/exp", now=_NOW)
+    assert rid == "20260606_010203_ped_local_two_phase_exp"
     assert " " not in rid and "/" not in rid
 
 
@@ -171,7 +171,7 @@ def test_append_index_row_header_once_and_monotonic(tmp_path) -> None:
 def test_rebuild_index_reconstructs_from_run_dirs(tmp_path) -> None:
     runs_root = tmp_path / "runs"
     # Two runs, each with a config snapshot + a 2-epoch train_log.csv (best = lower val_loss).
-    for model_type, best_val in (("full", 0.20), ("motion_only", 0.50)):
+    for model_type, best_val in (("full", 0.20), ("ped_local", 0.50)):
         cfg = _cfg(runs_root, model_type=model_type)
         run = init_run(cfg, tag="t", now=_NOW)
         logger = run.train_logger(TRAIN_LOG_COLUMNS)
@@ -183,7 +183,7 @@ def test_rebuild_index_reconstructs_from_run_dirs(tmp_path) -> None:
     rebuilt = rebuild_index(runs_root)
     assert rebuilt == runs_root / INDEX_FILENAME
     rows = {r["model_type"]: r for r in read_index(runs_root)}
-    assert set(rows) == {"full", "motion_only"}
+    assert set(rows) == {"full", "ped_local"}
     assert rows["full"]["tag"] == "t"
     assert int(rows["full"]["epochs_run"]) == 2
     assert int(rows["full"]["best_epoch"]) == 2          # epoch with the min val_loss

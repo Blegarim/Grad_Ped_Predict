@@ -38,7 +38,12 @@ import onnx  # noqa: E402  (an [export] dep; present iff ort is present)
 _ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "ensemble.pt"
 
 _ALL_TYPES = list(ModelType)
-_ABLATION_TYPES = [ModelType.MOTION_ONLY, ModelType.VISUAL_ONLY, ModelType.VANILLA_CONCAT]
+_ABLATION_TYPES = [
+    ModelType.PED_LOCAL,
+    ModelType.KINEMATICS_ONLY,
+    ModelType.VISUAL_ONLY,
+    ModelType.VANILLA_CONCAT,
+]
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────

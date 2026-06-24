@@ -94,7 +94,7 @@ class _VanillaConcatWrapper(nn.Module):
         return tuple(out[k] for k in self.output_keys)
 
 
-class _MotionOnlyWrapper(nn.Module):
+class _PedLocalWrapper(nn.Module):
     def __init__(self, model: nn.Module, output_keys: tuple[str, ...]) -> None:
         super().__init__()
         self.model = model
@@ -106,6 +106,17 @@ class _MotionOnlyWrapper(nn.Module):
         images_tight: torch.Tensor,
     ) -> tuple[torch.Tensor, ...]:
         out: dict[str, torch.Tensor] = self.model(motions, images_tight)
+        return tuple(out[k] for k in self.output_keys)
+
+
+class _KinematicsOnlyWrapper(nn.Module):
+    def __init__(self, model: nn.Module, output_keys: tuple[str, ...]) -> None:
+        super().__init__()
+        self.model = model
+        self.output_keys = output_keys
+
+    def forward(self, motions: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        out: dict[str, torch.Tensor] = self.model(motions)
         return tuple(out[k] for k in self.output_keys)
 
 
@@ -138,8 +149,10 @@ def _make_wrapper(model: nn.Module, model_type: ModelType, output_keys: tuple[st
         return _FullWrapper(model, output_keys)
     if model_type is ModelType.VANILLA_CONCAT:
         return _VanillaConcatWrapper(model, output_keys)
-    if model_type is ModelType.MOTION_ONLY:
-        return _MotionOnlyWrapper(model, output_keys)
+    if model_type is ModelType.PED_LOCAL:
+        return _PedLocalWrapper(model, output_keys)
+    if model_type is ModelType.KINEMATICS_ONLY:
+        return _KinematicsOnlyWrapper(model, output_keys)
     if model_type is ModelType.VISUAL_ONLY:
         return _VisualOnlyWrapper(model, output_keys)
     raise ValueError(f"Unhandled model type: {model_type!r}")  # unreachable; coerce validated
@@ -165,8 +178,10 @@ def _make_dummy_inputs(
     motions = torch.randn(B, T, mdim, generator=gen)
     if model_type in (ModelType.FULL, ModelType.VANILLA_CONCAT):
         return (tight, context, motions)
-    if model_type is ModelType.MOTION_ONLY:
+    if model_type is ModelType.PED_LOCAL:
         return (motions, tight)
+    if model_type is ModelType.KINEMATICS_ONLY:
+        return (motions,)
     if model_type is ModelType.VISUAL_ONLY:
         return (context,)
     raise ValueError(f"Unhandled model type: {model_type!r}")  # unreachable

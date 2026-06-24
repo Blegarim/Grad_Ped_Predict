@@ -131,7 +131,7 @@ def test_make_run_id_format() -> None:
     rid = make_run_id("full", "lrsched")
     assert re.fullmatch(r"\d{8}_\d{6}_full_lrsched", rid)
     # empty tag -> no trailing underscore
-    assert re.fullmatch(r"\d{8}_\d{6}_motion_only", make_run_id("motion_only"))
+    assert re.fullmatch(r"\d{8}_\d{6}_ped_local", make_run_id("ped_local"))
     # unsafe tag characters collapse to underscores
     assert " " not in make_run_id("full", "two phase/run")
     assert "/" not in make_run_id("full", "two phase/run")

@@ -17,7 +17,13 @@ import torch
 import torch.nn as nn
 
 from pedpredict.config import DataCfg, ModelCfg, RootCfg
-from pedpredict.models.ablations import MotionOnlyModel, VanillaConcatModel, VisualOnlyModel
+from pedpredict.models.ablations import (
+    KinematicsEncoder,
+    KinematicsOnlyModel,
+    PedLocalModel,
+    VanillaConcatModel,
+    VisualOnlyModel,
+)
 from pedpredict.models.cross_attention import CrossAttentionModule
 from pedpredict.models.ensemble import EnsembleModel
 from pedpredict.models.geometry import feature_map_size
@@ -365,7 +371,16 @@ def test_frame_pool_reduce_modes() -> None:
 # =========================================================================== Prompt 2.4 — Ensemble + registry
 
 _FULL_KEYS = {"actions", "looks", "crosses_pooled", "crosses_frame", "temporal_weights"}
-_ABLATION_TYPES = (ModelType.MOTION_ONLY, ModelType.VISUAL_ONLY, ModelType.VANILLA_CONCAT)
+# Golden-pinned ablations (each has a legacy parity reference in ensemble.pt). ``kinematics_only`` is a
+# NEW pixel-free model (M9.1) with no legacy equivalent, so it is covered by shape tests, not the golden.
+_ABLATION_TYPES = (ModelType.PED_LOCAL, ModelType.VISUAL_ONLY, ModelType.VANILLA_CONCAT)
+# ``ped_local`` is the renamed legacy ``motion_only``; its golden numerics are pinned under the OLD key.
+_GOLDEN_KEY: dict[ModelType, str] = {ModelType.PED_LOCAL: "motion_only"}
+
+
+def _golden_entry(golden: dict, mt: ModelType) -> dict:
+    """Look up an entry, translating renamed types to their legacy capture key (ped_local -> motion_only)."""
+    return golden[_GOLDEN_KEY.get(mt, mt.value)]
 
 
 @pytest.fixture(scope="module")
@@ -438,7 +453,8 @@ def test_ensemble_return_feats_path(ensemble_golden: dict) -> None:
 
 def test_modeltype_coerce_valid_and_invalid() -> None:
     assert ModelType.coerce("full") is ModelType.FULL
-    assert ModelType.coerce(ModelType.MOTION_ONLY) is ModelType.MOTION_ONLY
+    assert ModelType.coerce(ModelType.PED_LOCAL) is ModelType.PED_LOCAL
+    assert ModelType.coerce("kinematics_only") is ModelType.KINEMATICS_ONLY
     with pytest.raises(ValueError, match="Unknown model type: 'ful'"):
         ModelType.coerce("ful")  # B10: a typo is a clear error, not a silent wrong-branch
 
@@ -461,15 +477,16 @@ def test_build_model_defaults_to_eval_model_type() -> None:
 
 
 _ABLATION_CLASS = {
-    ModelType.MOTION_ONLY: MotionOnlyModel,
+    ModelType.PED_LOCAL: PedLocalModel,
+    ModelType.KINEMATICS_ONLY: KinematicsOnlyModel,
     ModelType.VISUAL_ONLY: VisualOnlyModel,
     ModelType.VANILLA_CONCAT: VanillaConcatModel,
 }
 
 
-@pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
+@pytest.mark.parametrize("mt", list(_ABLATION_CLASS), ids=lambda m: m.value)
 def test_build_model_ablations(mt: ModelType) -> None:
-    """Prompt 2.5: ablation classes now build through the registry to their concrete types (B10)."""
+    """Prompt 2.5 (+ M9.1 kinematics_only): ablation classes build through the registry (B10)."""
     model = build_model(RootCfg(), mt)
     assert isinstance(model, _ABLATION_CLASS[mt])
     assert model.model_type is mt
@@ -521,7 +538,7 @@ _ABLATION_KEYS_ON = {"actions", "looks", "crosses_frame", "crosses_pooled"}
 _ABLATION_KEYS_OFF = {"actions", "looks", "crosses_frame"}
 # Per-type registry forward call, from the collate triple (images_tight, images_context, motions).
 _ABLATION_FORWARD = {
-    ModelType.MOTION_ONLY: lambda m, ti, ctx, mo: m(mo, ti),
+    ModelType.PED_LOCAL: lambda m, ti, ctx, mo: m(mo, ti),
     ModelType.VISUAL_ONLY: lambda m, ti, ctx, mo: m(ctx),
     ModelType.VANILLA_CONCAT: lambda m, ti, ctx, mo: m(ti, ctx, mo),
 }
@@ -543,8 +560,8 @@ def _rebuild_ablation_with_gate(mt: ModelType, ref: nn.Module, emit: bool) -> nn
         "frame_pool": cfg.frame_pool,
         "emit_crosses_pooled": emit,
     }
-    if mt is ModelType.MOTION_ONLY:
-        model = MotionOnlyModel(motion_enc=ref.motion_enc, **kw)
+    if mt is ModelType.PED_LOCAL:
+        model = PedLocalModel(motion_enc=ref.motion_enc, **kw)
     elif mt is ModelType.VISUAL_ONLY:
         model = VisualOnlyModel(vit=ref.vit, **kw)
     else:
@@ -559,7 +576,7 @@ def _rebuild_ablation_with_gate(mt: ModelType, ref: nn.Module, emit: bool) -> nn
 @pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
 def test_golden_ablation_parity(ensemble_golden: dict, mt: ModelType) -> None:
     """Each new ablation loads its OLD state_dict (strict=True) and reproduces every golden key (eval)."""
-    entry = ensemble_golden[mt.value]
+    entry = _golden_entry(ensemble_golden, mt)
     model = _build_ablation(mt, entry)
     model.load_state_dict(entry["state_dict"], strict=True)
     model.eval()
@@ -576,7 +593,7 @@ def test_golden_ablation_parity(ensemble_golden: dict, mt: ModelType) -> None:
 @pytest.mark.parametrize("mt", _ABLATION_TYPES, ids=lambda m: m.value)
 def test_strict_load_ablation_no_missing_unexpected(ensemble_golden: dict, mt: ModelType) -> None:
     """OLD ablation state_dict loads strict with zero missing/unexpected keys and NO forward (eager, 2.1)."""
-    entry = ensemble_golden[mt.value]
+    entry = _golden_entry(ensemble_golden, mt)
     model = _build_ablation(mt, entry)  # never forward first
     missing, unexpected = model.load_state_dict(entry["state_dict"], strict=False)
     assert not missing, f"missing keys: {missing}"
@@ -607,7 +624,43 @@ def test_ablation_emit_flag_gate(mt: ModelType) -> None:
         torch.testing.assert_close(out_on[key], out_off[key])
 
 
-# --------------------------------------------------------------------------- consolidated: all four types
+# --------------------------------------------------------------------------- M9.1 kinematics-only (pixel-free)
+
+
+def test_kinematics_only_is_pixel_free_and_shapes() -> None:
+    """KinematicsOnlyModel forwards from motions ALONE (no tight/context tensors) -> the contract keys."""
+    cfg = ModelCfg()
+    model = build_model(RootCfg(), ModelType.KINEMATICS_ONLY).eval()
+    assert isinstance(model, KinematicsOnlyModel)
+    # Signature is motions-only; forward_model must not require pixel tensors.
+    assert MODEL_INPUT_SIGNATURE[ModelType.KINEMATICS_ONLY] == ("motions",)
+    motions = torch.randn(2, 3, cfg.motion_dim)
+    with torch.no_grad():
+        out = forward_model(model, None, None, motions)  # tight/context unused for this type
+    assert set(out) == _ABLATION_KEYS_ON
+    assert out["crosses_frame"].shape == (2, cfg.num_classes["crosses"])
+    assert "temporal_weights" not in out
+
+
+def test_kinematics_only_emit_gate() -> None:
+    """emit_crosses_pooled toggles ONLY crosses_pooled for the pixel-free model; other keys unperturbed."""
+    cfg = ModelCfg()
+    enc = KinematicsEncoder.from_config(cfg)
+    kw = dict(d_model=cfg.d_model, num_classes_dict=dict(cfg.num_classes), dropout=cfg.head_dropout)
+    on = KinematicsOnlyModel(kinematics_enc=enc, emit_crosses_pooled=True, **kw).eval()
+    off = KinematicsOnlyModel(kinematics_enc=enc, emit_crosses_pooled=False, **kw)
+    off.load_state_dict(on.state_dict(), strict=True)
+    off.eval()
+    motions = torch.randn(2, 3, cfg.motion_dim)
+    with torch.no_grad():
+        out_on, out_off = on(motions), off(motions)
+    assert set(out_on) == _ABLATION_KEYS_ON
+    assert set(out_off) == _ABLATION_KEYS_OFF
+    for key in _ABLATION_KEYS_OFF:
+        torch.testing.assert_close(out_on[key], out_off[key])
+
+
+# --------------------------------------------------------------------------- consolidated: all model types
 
 
 @pytest.mark.parametrize("mt", list(ModelType), ids=lambda m: m.value)

@@ -10,10 +10,10 @@ from __future__ import annotations
 import dataclasses
 
 from pedpredict.config import build_argparser, load_config
+from pedpredict.data.sampler import LabelScanCache
 from pedpredict.paths import resolve_paths
 from pedpredict.training.chunk_loader import gather_lmdb_chunks
 from pedpredict.training.distribution import effective_distribution
-from pedpredict.data.sampler import LabelScanCache
 
 
 def main() -> int:
