@@ -108,17 +108,24 @@ in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
 
 ### Dataset Statistics
 
-⚠️ **STALE — v1 numbers.** The v2 relabel (M3 state-at-end, M4 censor filter) drops N and all positive
-rates (`looks` hardest). The table and the `pie_sequences_counts.json` fixture MUST be re-pinned from the
-v2 regen before any v2 LMDB build is trusted — execution checklist: [setup.md](setup.md) (steps 3–4).
-
-Positive-class rates in the generated sequences (v1, superseded):
-
+(.venv) D:\Grad_Ped_Predict>python scripts/count_labels.py
 | Split | N | actions=1 | looks=1 | crosses=1 |
 |---|---|---|---|---|
-| train | 95,684 | 45.3% | 17.1% | 2.6% |
-| val   | 22,665 | 41.8% | 11.9% | 2.5% |
-| test  | 76,048 | 43.5% | 15.8% | 2.8% |
+| train | 88214 | 43.4% | 10.5% | 2.9% |
+| val | 20490 | 40.3% | 6.7% | 2.8% |
+| test | 69875 | 42.2% | 9.8% | 3.1% |
+
+Wrote D:\Grad_Ped_Predict\training_log\label_count.csv
+Label-count drift vs documented table:
+  [train] N drift: got 88214, expected 95684
+  [train] actions=1 drift: got 38320, expected 43310
+  [train] looks=1 drift: got 9266, expected 16394
+  [val] N drift: got 20490, expected 22665
+  [val] actions=1 drift: got 8261, expected 9483
+  [val] looks=1 drift: got 1376, expected 2688
+  [test] N drift: got 69875, expected 76048
+  [test] actions=1 drift: got 29489, expected 33068
+  [test] looks=1 drift: got 6815, expected 12013
 
 `crosses` is severely imbalanced (~37:1); `looks` moderately (~5:1); `actions` roughly balanced. Aggregate
 accuracy is misleading on `crosses` — rely on F1/AUC/recall. This table is the data-layer drift check
