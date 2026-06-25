@@ -28,3 +28,4 @@ cross_attn_num_heads: 4        # get_model passes num_heads=4 (NOT the class def
 use_frame_crosses: true
 frame_pool: logsumexp          # {logsumexp, max, mean}
 emit_crosses_pooled: true      # B4: live-but-unsupervised auxiliary head (kept ready to swap in)
+fusion_residual: false         # A3/RQ2: add motion query residual at fusion (off = legacy parity)

@@ -143,6 +143,10 @@ class ModelCfg:
     # (dead param). Here it is LIVE-but-unsupervised (default on): emitted as an auxiliary diagnostic kept
     # ready to swap in for crosses_frame, never fed to the loss. See docs/archive/MIGRATION.md (2.3) / CLAUDE.md.
     emit_crosses_pooled: bool = True
+    # A3 / RQ2 fusion lever (default off = legacy parity). When True the cross-attention adds a residual
+    # from the motion query: fused = attn_output + motion_feats, so motion CONTENT reaches the heads (not
+    # just motion-as-attention-mask). The first rung of the RQ2 fusion grid; off-path keeps golden parity.
+    fusion_residual: bool = False
 
     def vit_kwargs(self) -> dict:
         """Reproduce OLD ``vit_args_config()`` — values as lists (parity surface)."""

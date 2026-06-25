@@ -31,6 +31,7 @@ from pedpredict.models.heads import (
     build_crosses_frame_head,
     build_pool_mlp,
     build_task_classifiers,
+    emit_task_logits,
     frame_pool_reduce,
     temporal_attention_pool,
 )
@@ -333,6 +334,31 @@ def test_cross_attn_heads_from_config() -> None:
     """get_model wired num_heads=4 (NOT the legacy class default 8); config must reproduce that."""
     model = CrossAttentionModule.from_config(ModelCfg())
     assert model.cross_attn.num_heads == 4
+
+
+def test_fusion_residual_default_off_and_adds_motion_query() -> None:
+    """A3/RQ2: default off == MHA output alone (parity); on == that + the motion query, shared weights."""
+    cfg = ModelCfg()
+    assert cfg.fusion_residual is False  # default preserves legacy parity (golden-pinned elsewhere)
+    off = CrossAttentionModule.from_config(cfg).eval()
+    on = CrossAttentionModule.from_config(ModelCfg(fusion_residual=True))
+    on.load_state_dict(off.state_dict(), strict=True)  # same params (residual adds no weights)
+    on.eval()
+    b, t = 2, 5
+    motion, image = torch.randn(b, t, cfg.d_model), torch.randn(b, t, cfg.d_model)
+    with torch.no_grad():
+        attn, _ = off.cross_attn(query=motion, key=image, value=image)
+        out_off, out_on = off(motion, image), on(motion, image)
+    # The pre-pool feature differs by exactly the motion query -> the crosses_frame logits must move.
+    assert not torch.allclose(out_off["crosses_frame"], out_on["crosses_frame"])
+    # Sanity: feeding (attn + motion) through the OFF module reproduces the ON output (residual == +query).
+    with torch.no_grad():
+        ref = emit_task_logits(
+            attn + motion, off.pool_mlp, off.classifier, off.crosses_frame_head,
+            frame_pool=off.frame_pool, use_frame_crosses=off.use_frame_crosses,
+            emit_crosses_pooled=off.emit_crosses_pooled, emit_temporal_weights=True,
+        )
+    torch.testing.assert_close(out_on["crosses_frame"], ref["crosses_frame"])
 
 
 # --------------------------------------------------------------------------- heads.py in isolation

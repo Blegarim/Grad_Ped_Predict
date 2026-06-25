@@ -26,6 +26,15 @@ Other intentional change:
 
 The task heads + pooling/reduction helpers live in ``heads.py`` (shared with the ablations, Prompt 2.5).
 Attribute names mirror the legacy module verbatim so an OLD ``state_dict`` loads ``strict=True``.
+
+A3 / RQ2 fusion lever:
+
+* **``fusion_residual``** (default ``False`` = legacy parity). The legacy fusion fed the heads
+  ``attn_output`` alone — a weighted sum of *image* values, so motion entered only as the attention
+  pattern, never as content (audit A3, confirmed not a migration bug). With ``fusion_residual=True`` the
+  module adds the motion query back: ``fused = attn_output + motion_feats``. It adds **no parameters**, so
+  an OLD ``state_dict`` still loads ``strict=True`` either way; the off-path keeps exact golden parity.
+  This is the first rung of the RQ2 fusion grid, ablated against the hub like every other spoke.
 """
 
 from __future__ import annotations
@@ -58,6 +67,7 @@ class CrossAttentionModule(nn.Module):
         use_frame_crosses: bool = True,
         frame_pool: FramePool = "logsumexp",
         emit_crosses_pooled: bool = True,
+        fusion_residual: bool = False,
     ) -> None:
         super().__init__()
         if num_classes_dict is None:
@@ -73,6 +83,7 @@ class CrossAttentionModule(nn.Module):
         self.use_frame_crosses = use_frame_crosses
         self.frame_pool: FramePool = frame_pool
         self.emit_crosses_pooled = emit_crosses_pooled
+        self.fusion_residual = fusion_residual
 
         # Heads built via heads.py so the keys match legacy 1:1 (pool_mlp / classifier / crosses_frame_head).
         self.pool_mlp = build_pool_mlp(d_model)
@@ -81,8 +92,12 @@ class CrossAttentionModule(nn.Module):
 
     @classmethod
     def from_config(cls, cfg: ModelCfg) -> CrossAttentionModule:
-        """Build from ``ModelCfg`` (``cross_kwargs()`` == OLD ``get_model()`` wiring) + the B4 gate."""
-        return cls(**cfg.cross_kwargs(), emit_crosses_pooled=cfg.emit_crosses_pooled)
+        """Build from ``ModelCfg`` (``cross_kwargs()`` == OLD ``get_model()`` wiring) + the B4 / A3 gates."""
+        return cls(
+            **cfg.cross_kwargs(),
+            emit_crosses_pooled=cfg.emit_crosses_pooled,
+            fusion_residual=cfg.fusion_residual,
+        )
 
     def forward(self, motion_feats: torch.Tensor, image_feats: torch.Tensor) -> dict[str, torch.Tensor]:
         """``motion_feats``/``image_feats`` ``[B, T, D]`` -> per-task logits dict (see module docstring)."""
@@ -92,9 +107,13 @@ class CrossAttentionModule(nn.Module):
             value=image_feats,
         )  # [B, T, D]
 
+        # A3 / RQ2: optionally add the motion query back so motion CONTENT reaches the heads, not just
+        # motion-as-attention-mask. Default off = legacy parity (MHA output alone).
+        fused = attn_output + motion_feats if self.fusion_residual else attn_output
+
         # Shared output-contract block (heads.emit_task_logits) — the full model emits temporal_weights.
         return emit_task_logits(
-            attn_output,
+            fused,
             self.pool_mlp,
             self.classifier,
             self.crosses_frame_head,
