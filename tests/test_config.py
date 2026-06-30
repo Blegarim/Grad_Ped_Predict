@@ -31,6 +31,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _CONFIG_DIR = _REPO_ROOT / "configs"
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "legacy_config.json"
 
+# The live ViT default is the A1 redesign; the legacy schedule (dimension collapse + 2x2 windows)
+# is pinned here so the byte-for-byte legacy-config parity guard survives the default change
+# (mirrors how motion_norm="per_sequence" / fusion_residual=False pin other legacy arms).
+_LEGACY_VIT = dict(
+    stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
+    head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
+)
+
 
 @pytest.fixture(scope="module")
 def legacy() -> dict:
@@ -42,7 +50,8 @@ def legacy() -> dict:
 
 
 def test_vit_kwargs_parity(legacy: dict) -> None:
-    assert ModelCfg().vit_kwargs() == legacy["vit"]
+    # The A1 default departs from legacy; pin the legacy schedule to keep the parity guard.
+    assert ModelCfg(**_LEGACY_VIT).vit_kwargs() == legacy["vit"]
 
 
 def test_motion_kwargs_parity(legacy: dict) -> None:
@@ -121,7 +130,7 @@ def test_unknown_section_override_raises() -> None:
 
 
 def test_validation_head_divisibility() -> None:
-    """stage_dims[i] must be divisible by head_nums[i] (36 % 5 != 0)."""
+    """stage_dims[i] must be divisible by head_nums[i] (default stage_dims[0]=48; 48 % 5 != 0)."""
     with pytest.raises(ConfigError):
         load_config(_CONFIG_DIR, overrides=["model.head_nums=[5,2,16,2]"])
 
@@ -192,7 +201,7 @@ def test_validation_num_classes_keys() -> None:
 def test_validation_vit_window_tiling() -> None:
     """Prompt 2.1: a context resolution that doesn't tile a stage window is rejected.
 
-    225 -> stem 57 (57 % 8 != 0 at stage 0) is not tileable by window 8.
+    225 -> stem 57 (57 % 7 != 0 at stage 0) is not tileable by the default window 7.
     """
     with pytest.raises(ConfigError):
         load_config(_CONFIG_DIR, overrides=["data.read_context_height=225", "data.read_context_width=225"])

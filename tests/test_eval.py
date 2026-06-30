@@ -46,6 +46,12 @@ _ENSEMBLE_FX = _FIXTURES / "ensemble.pt"
 _TASKS = ("actions", "looks", "crosses")
 _CPU = torch.device("cpu")
 _TOL = 1e-6
+# Legacy ViT schedule (the A1 redesign is the live default); pinned so the ensemble.pt goldens,
+# captured with the OLD schedule, strict-load into the rebuilt models.
+_LEGACY_VIT = dict(
+    stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
+    head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
+)
 
 
 @pytest.fixture(scope="module")
@@ -194,9 +200,10 @@ _GOLDEN_KEY: dict[str, str] = {"ped_local": "motion_only"}
 
 
 def _build_loaded(entry: dict, model_type: str) -> nn.Module:
-    # The ensemble.pt goldens were captured with the legacy no-residual fusion; pin fusion_residual=False
-    # so the loaded full model reproduces the captured outputs (the shipped default is now True — A3).
-    cfg = dataclasses.replace(RootCfg(), model=ModelCfg(fusion_residual=False))
+    # The ensemble.pt goldens were captured with the legacy no-residual fusion AND the legacy ViT
+    # schedule; pin fusion_residual=False (A3) so the loaded full model reproduces the captured
+    # outputs, and **_LEGACY_VIT (A1) so the visual-path state_dict keeps its param layout.
+    cfg = dataclasses.replace(RootCfg(), model=ModelCfg(fusion_residual=False, **_LEGACY_VIT))
     model = build_model(cfg, model_type)
     model.load_state_dict(entry["state_dict"], strict=True)   # B2: strict, no forward
     return model.eval()

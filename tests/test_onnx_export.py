@@ -37,6 +37,13 @@ import onnx  # noqa: E402  (an [export] dep; present iff ort is present)
 
 _ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "ensemble.pt"
 
+# ensemble.pt was captured with the legacy ViT schedule; pin it so the OLD state_dict strict-loads
+# under the A1 redesign default (random-init parity tests use the shipped default schedule).
+_LEGACY_VIT = dict(
+    stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
+    head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
+)
+
 _ALL_TYPES = list(ModelType)
 _ABLATION_TYPES = [
     ModelType.PED_LOCAL,
@@ -167,7 +174,7 @@ def test_onnx_parity_golden_weights(ensemble_golden: dict, tmp_path: Path) -> No
 
     entry = ensemble_golden["full"]
     cfg = RootCfg()
-    model = EnsembleModel.from_config(ModelCfg(), img_size=entry["img_size"])
+    model = EnsembleModel.from_config(ModelCfg(**_LEGACY_VIT), img_size=entry["img_size"])
     model.load_state_dict(entry["state_dict"], strict=True)
     model.eval()
     model.model_type = ModelType.FULL  # set intrinsic type (normally done by build_model)

@@ -37,6 +37,13 @@ from pedpredict.training.callbacks import EarlyStopping
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "trainer_step.pt"
 _TASKS = ("actions", "looks", "crosses")
 _CPU = torch.device("cpu")
+# The legacy oracle was captured with the OLD ViT schedule; pin it so the full-model state_dict
+# (golden["init_state"]) keeps its param layout under the A1 default (shape parity, like the
+# motion_norm / fusion_residual pins below).
+_LEGACY_VIT = dict(
+    stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
+    head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
+)
 # The legacy oracle was captured with the per-sequence motion z-norm; pin it for value parity
 # (the A4 default is the new image-dimension norm — a deliberate behavior change, config-gated).
 # Also pin lr_schedule="plateau": the oracle was captured at a fixed lr (plateau leaves the initial
@@ -46,7 +53,7 @@ _CPU = torch.device("cpu")
 # accum_steps=1 pins per-batch stepping (the legacy oracle stepped every batch; the shipped default is 8).
 _PARITY_CFG = dataclasses.replace(
     RootCfg(),
-    model=ModelCfg(motion_norm="per_sequence", fusion_residual=False),
+    model=ModelCfg(motion_norm="per_sequence", fusion_residual=False, **_LEGACY_VIT),
     train=dataclasses.replace(RootCfg().train, lr_schedule="plateau", accum_steps=1),
 )
 
@@ -155,7 +162,7 @@ def test_gradient_accumulation_matches_manual_accumulate(golden: dict) -> None:
     # Dropout-free model so both paths are deterministic regardless of train()/eval() (params unchanged).
     nodrop = ModelCfg(
         motion_norm="per_sequence", dropout=0.0, attn_dropout=0.0, proj_dropout=0.0,
-        drop_path=0.0, motion_dropout=0.0, head_dropout=0.0,
+        drop_path=0.0, motion_dropout=0.0, head_dropout=0.0, **_LEGACY_VIT,
     )
     batches = list(golden["train_batches"])
     n = len(batches)

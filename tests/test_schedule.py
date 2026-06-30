@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from pedpredict.config.schema import PhaseCfg, RootCfg, ScheduleCfg, TrainCfg
+from pedpredict.config.schema import ModelCfg, PhaseCfg, RootCfg, ScheduleCfg, TrainCfg
 from pedpredict.losses.multitask import MultiTaskLoss
 from pedpredict.models.registry import build_model
 from pedpredict.training import (
@@ -35,6 +35,14 @@ from pedpredict.training.schedule import _TRAINABLE_SUBSTRINGS, PhaseResult
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "trainer_step.pt"
 _CPU = torch.device("cpu")
 _TASKS = ("actions", "looks", "crosses")
+# trainer_step.pt's init_state is a legacy full model (OLD ViT schedule). The A1 redesign is now
+# the default, so build every model that loads (or round-trips a checkpoint of) that state from a
+# legacy-ViT-pinned config — otherwise strict load fails on the changed param shapes.
+_LEGACY_VIT = dict(
+    stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
+    head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
+)
+_LEGACY_ROOT = dataclasses.replace(RootCfg(), model=ModelCfg(**_LEGACY_VIT))
 
 
 # --------------------------------------------------------------------------- shared helpers
@@ -69,7 +77,7 @@ def _loss(golden: dict) -> MultiTaskLoss:
 
 
 def _model(golden: dict) -> torch.nn.Module:
-    m = build_model(RootCfg())
+    m = build_model(_LEGACY_ROOT)  # legacy ViT schedule: matches golden["init_state"]'s param layout
     m.load_state_dict(golden["init_state"])
     return m
 
@@ -451,8 +459,8 @@ def test_checkpoint_manager_load_restores_state(golden: dict, tmp_path: Path) ->
     mgr.save_best(trainer_a, epoch=2, val_loss=0.77)
     assert mgr.best_path() is not None
 
-    # Load into a fresh set of components
-    model_b = build_model(RootCfg())
+    # Load into a fresh set of components (legacy ViT: matches the saved checkpoint's param shapes)
+    model_b = build_model(_LEGACY_ROOT)
     optimizer_b = torch.optim.Adam(model_b.parameters(), lr=1e-3)
     from pedpredict.utils.amp import make_grad_scaler
     scaler_b = make_grad_scaler(enabled=False)
@@ -517,7 +525,7 @@ def test_save_load_continue_equivalence(golden: dict, tmp_path: Path) -> None:
 
     # Resume into epoch 2: load checkpoint, then run remaining epochs via fit()
     assert mgr.last_path() is not None
-    model_i2 = build_model(RootCfg())
+    model_i2 = build_model(_LEGACY_ROOT)  # legacy ViT: matches the saved checkpoint's param shapes
     cfg_2 = dataclasses.replace(RootCfg(), train=dataclasses.replace(TrainCfg(), num_epochs=2))
     chunks_i2 = _ListChunkProvider([train_batches], [val_batches])
     mgr2 = _mgr(tmp_path / "ckpts2")

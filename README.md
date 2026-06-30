@@ -25,7 +25,7 @@ tight crop + motion → MotionEncoder    ───┘
 
 | Component | Role |
 |---|---|
-| `ViT_Hierarchical` | Hierarchical windowed-attention ViT over context crops → `[B, T, d_model]`. |
+| `ViT_Hierarchical` | Hierarchical windowed-attention ViT over context crops (A1 monotonic stage schedule `[48,96,192,384]`, 7×7 windows) → `[B, T, d_model]`. |
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + GRU + attention → `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → temporal pooling → per-task heads. |
 | `EnsembleModel` | Wires the branches (LayerNorm before fusion); ablations swap or drop a branch. |

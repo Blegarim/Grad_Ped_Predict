@@ -1,4 +1,5 @@
-# ModelCfg — mirrors OLD config.py (vit_args_config / motion_enc_args_config) EXACTLY.
+# ModelCfg. The motion block mirrors OLD config.py (motion_enc_args_config) EXACTLY; the ViT
+# stage schedule is the A1 redesign (legacy schedule golden-pinned, not the live default).
 d_model: 128
 in_channels: 3
 motion_dim: 8            # must equal data.motion_dim (validated)
@@ -8,10 +9,13 @@ motion_dim: 8            # must equal data.motion_dim (validated)
 motion_norm: image
 motion_norm_image_size: [1920, 1080]   # (W, H); must equal data.source_width/height (validated)
 ego_speed_scale: 50.0    # km/h scale for the ego channel under image norm
-stage_dims: [36, 36, 288, 36]
-layer_nums: [2, 4, 5, 7]
-head_nums:  [2, 2, 16, 2]
-window_size: [8, 4, 2, null]
+# A1 redesign: monotonic hierarchical schedule (was [36,36,288,36] + 2x2 windows — dimension
+# collapse + tiny receptive field). dim/head = 24 each; feature maps 56/28/14/7 at img 224 all
+# divide by 7 (8/4/2/1 windows), last stage global. The legacy schedule is golden-pinned in tests.
+stage_dims: [48, 96, 192, 384]
+layer_nums: [2, 2, 6, 2]
+head_nums:  [2, 4, 8, 16]
+window_size: [7, 7, 7, null]
 mlp_ratio:  [4, 4, 4, 4]
 drop_path: 0.15
 attn_dropout: 0.15

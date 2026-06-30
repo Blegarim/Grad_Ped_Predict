@@ -261,10 +261,10 @@ So **everything below is reached through `--set`**, validated against the datacl
 | `motion_norm` | `image` | `image` (fixed frame-dim scale) \| `per_sequence` (legacy z-norm, A4 arm) |
 | `motion_norm_image_size` | `[1920, 1080]` | must equal `(data.source_width, source_height)` |
 | `ego_speed_scale` | `50.0` | km/h scale for ego channel under `image` norm |
-| `stage_dims` | `[36, 36, 288, 36]` | ViT (lengths of the 5 stage lists must match) |
-| `layer_nums` | `[2, 4, 5, 7]` | |
-| `head_nums` | `[2, 2, 16, 2]` | each `stage_dims[i]` must divide by `head_nums[i]` |
-| `window_size` | `[8, 4, 2, null]` | `null` = global window |
+| `stage_dims` | `[48, 96, 192, 384]` | ViT — A1 monotonic schedule (lengths of the 5 stage lists must match) |
+| `layer_nums` | `[2, 2, 6, 2]` | depth weighted to the 14×14 stage |
+| `head_nums` | `[2, 4, 8, 16]` | each `stage_dims[i]` must divide by `head_nums[i]` (dim/head = 24 each) |
+| `window_size` | `[7, 7, 7, null]` | real 7×7 windows; `null` = global window (last stage) |
 | `mlp_ratio` | `[4, 4, 4, 4]` | |
 | `drop_path` / `attn_dropout` / `proj_dropout` / `dropout` | `0.15` | ViT dropouts |
 | `motion_hidden_dim` | `168` | must divide by `motion_num_heads` |

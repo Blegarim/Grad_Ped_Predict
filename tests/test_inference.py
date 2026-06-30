@@ -65,11 +65,15 @@ def _legacy_windows(bboxes, seq_len):
 
 
 def _fast_cfg() -> RootCfg:
-    """Small geometry so a full-model CPU forward stays cheap (mirrors test_benchmark)."""
+    """Small geometry so a full-model CPU forward stays cheap (mirrors test_benchmark).
+
+    Context is 112 — the smallest square that tiles the A1 default 7x7 windows (28/14/7/4);
+    tight crops stay 64 for the motion path.
+    """
     return dataclasses.replace(
         RootCfg(),
         data=dataclasses.replace(
-            DataCfg(), img_height=64, img_width=64, read_context_height=64, read_context_width=64,
+            DataCfg(), img_height=64, img_width=64, read_context_height=112, read_context_width=112,
             seq_len=4, max_seq_len=4,
         ),
     )

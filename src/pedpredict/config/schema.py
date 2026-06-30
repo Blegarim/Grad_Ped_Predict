@@ -115,11 +115,15 @@ class ModelCfg:
     motion_norm: str = "image"
     motion_norm_image_size: tuple[int, int] = (1920, 1080)  # (W, H); must equal data.source_width/height
     ego_speed_scale: float = 50.0    # km/h scale for the ego channel under "image" norm (PIE OBD speed)
-    # ViT — mirror config.vit_args_config() EXACTLY
-    stage_dims: tuple[int, ...] = (36, 36, 288, 36)
-    layer_nums: tuple[int, ...] = (2, 4, 5, 7)
-    head_nums: tuple[int, ...] = (2, 2, 16, 2)
-    window_size: tuple[int | None, ...] = (8, 4, 2, None)
+    # ViT stage schedule — A1 redesign (NOT the legacy config.vit_args_config()). Monotonic
+    # increasing dims with real 7x7 windows; the old [36,36,288,36] + [8,4,2,None] schedule
+    # (dimension collapse + 2x2 windows) is golden-pinned in tests, not the live default.
+    # Invariants (enforced by validate_config): dim % heads == 0 (here dim/head = 24 each) and
+    # every stage's feature map at read_context=224 (56/28/14/7) tiles its window (8/4/2/1).
+    stage_dims: tuple[int, ...] = (48, 96, 192, 384)
+    layer_nums: tuple[int, ...] = (2, 2, 6, 2)
+    head_nums: tuple[int, ...] = (2, 4, 8, 16)
+    window_size: tuple[int | None, ...] = (7, 7, 7, None)
     mlp_ratio: tuple[int, ...] = (4, 4, 4, 4)
     drop_path: float = 0.15
     attn_dropout: float = 0.15

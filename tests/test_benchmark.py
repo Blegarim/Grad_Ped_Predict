@@ -28,11 +28,15 @@ _CPU = torch.device("cpu")
 
 
 def _fast_cfg() -> RootCfg:
-    """Small resolution + 1-warmup/2-trial timing so a CPU benchmark forward is cheap."""
+    """Small resolution + 1-warmup/2-trial timing so a CPU benchmark forward is cheap.
+
+    Context is 112 (not 64): it is the smallest square that tiles the A1 default 7x7 windows
+    (stem 28 -> 14 -> 7 -> 4, all % 7 == 0); tight crops stay 64 for the motion path.
+    """
     return dataclasses.replace(
         RootCfg(),
         data=dataclasses.replace(
-            DataCfg(), img_height=64, img_width=64, read_context_height=64, read_context_width=64,
+            DataCfg(), img_height=64, img_width=64, read_context_height=112, read_context_width=112,
             max_seq_len=2,
         ),
         eval=dataclasses.replace(EvalCfg(), bench_batch_size=1, bench_warmup=1, latency_trials=2),

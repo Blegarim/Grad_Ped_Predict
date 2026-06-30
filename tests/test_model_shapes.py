@@ -49,6 +49,14 @@ _MOTION_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "mot
 _CROSS_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "cross_attention.pt"
 _ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "ensemble.pt"
 
+# The shipped ViT default is the A1 redesign; the ensemble/ablation goldens were captured with the
+# legacy schedule, so any ModelCfg that strict-loads them must pin it (mirrors motion_norm=
+# "per_sequence" / fusion_residual=False). The vit.pt golden builds from its own stored vit_kwargs.
+_LEGACY_VIT = dict(
+    stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
+    head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
+)
+
 
 @pytest.fixture(scope="module")
 def golden() -> dict:
@@ -91,7 +99,7 @@ def test_global_table_exists_at_init() -> None:
     cfg = ModelCfg()
     model = ViT_Hierarchical.from_config(cfg, img_size=224)
     last = model.stages[-1]["block"][0].attn
-    # global window at 224 is 7x7 -> table (2*7-1)^2 = 169 rows, head_nums[-1]=2 cols
+    # global window at 224 is 7x7 -> table (2*7-1)^2 = 169 rows, head_nums[-1] cols (A1 default: 16)
     assert tuple(last.relative_position_bias_table.shape) == (169, cfg.head_nums[-1])
     assert tuple(last.relative_position_index.shape) == (49, 49)
 
@@ -140,13 +148,15 @@ def test_from_config_output_shape() -> None:
 
 def test_rebuild_position_bias_changes_global_window() -> None:
     """Explicit resolution change rebuilds the global table to the new feature-map size; forward runs."""
-    model = ViT_Hierarchical.from_config(ModelCfg(), img_size=224).eval()
-    model.rebuild_position_bias(128)
-    # 128 -> stem 32 -> 16 -> 8 -> 4; global window 4x4 -> table (2*4-1)^2 = 49 rows
+    cfg = ModelCfg()
+    model = ViT_Hierarchical.from_config(cfg, img_size=224).eval()
+    # 112 (half res) re-tiles the A1 default 7x7 windows: stem 28 -> 14 -> 7 -> 4 (28/14/7 all % 7 == 0).
+    model.rebuild_position_bias(112)
+    # global (last) window is 4x4 -> table (2*4-1)^2 = 49 rows, head_nums[-1] cols
     last = model.stages[-1]["block"][0].attn
-    assert tuple(last.relative_position_bias_table.shape) == (49, 2)
+    assert tuple(last.relative_position_bias_table.shape) == (49, cfg.head_nums[-1])
     with torch.no_grad():
-        out = model(torch.randn(1, 2, 3, 128, 128))
+        out = model(torch.randn(1, 2, 3, 112, 112))
     assert out.shape == (1, 2, 128)
 
 
@@ -439,7 +449,8 @@ def test_golden_ensemble_full_parity(ensemble_golden: dict) -> None:
     """
     entry = ensemble_golden["full"]
     model = EnsembleModel.from_config(
-        ModelCfg(motion_norm="per_sequence", fusion_residual=False), img_size=entry["img_size"]
+        ModelCfg(motion_norm="per_sequence", fusion_residual=False, **_LEGACY_VIT),
+        img_size=entry["img_size"],
     )
     model.load_state_dict(entry["state_dict"], strict=True)
     model.eval()
@@ -454,7 +465,9 @@ def test_golden_ensemble_full_parity(ensemble_golden: dict) -> None:
 def test_strict_load_ensemble_full_no_missing_unexpected(ensemble_golden: dict) -> None:
     """The OLD full state_dict loads strict with zero missing/unexpected keys and NO forward (eager ViT, 2.1)."""
     entry = ensemble_golden["full"]
-    model = EnsembleModel.from_config(ModelCfg(), img_size=entry["img_size"])  # never forward first
+    model = EnsembleModel.from_config(  # never forward first
+        ModelCfg(**_LEGACY_VIT), img_size=entry["img_size"]
+    )
     missing, unexpected = model.load_state_dict(entry["state_dict"], strict=False)
     assert not missing, f"missing keys: {missing}"
     assert not unexpected, f"unexpected keys: {unexpected}"
@@ -464,7 +477,7 @@ def test_strict_load_ensemble_full_no_missing_unexpected(ensemble_golden: dict) 
 def test_ensemble_return_feats_path(ensemble_golden: dict) -> None:
     """return_feats yields the post-LayerNorm fusion features (the viz path, 6.2) alongside the logits."""
     entry = ensemble_golden["full"]
-    model = EnsembleModel.from_config(ModelCfg(), img_size=entry["img_size"])
+    model = EnsembleModel.from_config(ModelCfg(**_LEGACY_VIT), img_size=entry["img_size"])
     model.load_state_dict(entry["state_dict"], strict=True)
     model.eval()
     with torch.no_grad():
@@ -577,8 +590,11 @@ _ABLATION_FORWARD = {
 
 
 def _build_ablation(mt: ModelType, entry: dict) -> nn.Module:
-    # per-sequence norm: the legacy capture's motion normalization (A4 parity pin)
-    return _ABLATION_CLASS[mt].from_config(ModelCfg(motion_norm="per_sequence"), entry["img_size"])
+    # per-sequence norm: the legacy capture's motion normalization (A4 parity pin); _LEGACY_VIT pins
+    # the legacy ViT schedule for the visual-path ablations (inert for ped_local, which has no ViT).
+    return _ABLATION_CLASS[mt].from_config(
+        ModelCfg(motion_norm="per_sequence", **_LEGACY_VIT), entry["img_size"]
+    )
 
 
 def _rebuild_ablation_with_gate(mt: ModelType, ref: nn.Module, emit: bool) -> nn.Module:
