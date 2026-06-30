@@ -62,6 +62,7 @@ __all__ = [
     "figure_per_head_f1_curves",
     "figure_pr_curves",
     "figure_f1_threshold",
+    "figure_reliability",
     "figure_ablation_bars",
     "figure_temporal_attention",
     "save_figure",
@@ -89,6 +90,7 @@ LOSS_CURVES_PNG = "loss_curves.png"
 PER_HEAD_F1_PNG = "per_head_f1_curves.png"
 PR_CURVES_PNG = "pr_curves.png"
 F1_THRESHOLD_PNG = "f1_threshold.png"
+RELIABILITY_PNG = "reliability.png"
 ABLATION_F1_PNG = "ablation_f1.png"
 ABLATION_AUC_PNG = "ablation_auc.png"
 TEMPORAL_ATTENTION_PNG = "temporal_attention.png"
@@ -277,6 +279,46 @@ def figure_f1_threshold(
         ax.set_ylim(-0.02, 1.02)
         ax.grid(True, alpha=0.3)
         ax.set_title(task.capitalize(), fontsize=10)
+    fig.tight_layout()
+    return fig
+
+
+def figure_reliability(
+    predictions: Mapping[str, np.ndarray],
+    tasks: Sequence[str] = TASKS,
+    *,
+    n_bins: int = 15,
+) -> Figure:
+    """Per-task reliability diagram (observed positive frequency vs predicted prob) + ECE (M10/RQ6).
+
+    Self-contained binning (this layer stays NPZ-driven, like ``figure_pr_curves``); the matching
+    array-level helpers live in ``eval.calibration``. A curve below the diagonal = over-confident
+    (the expected M1 symptom: the imbalance stack inflates ``crosses`` probabilities).
+    """
+    fig, axes = plt.subplots(1, len(tasks), figsize=(14, 4))
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    for ax, task in zip(np.atleast_1d(axes), tasks, strict=True):
+        y_true = predictions[f"{task}_true"].astype(float)
+        y_prob = predictions[f"{task}_prob_1"].astype(float)
+        idx = np.clip(np.digitize(y_prob, edges[1:-1]), 0, n_bins - 1)
+        centers, accs, ece, n = [], [], 0.0, max(len(y_true), 1)
+        for b in range(n_bins):
+            mask = idx == b
+            c = int(mask.sum())
+            if c:
+                conf, acc = float(y_prob[mask].mean()), float(y_true[mask].mean())
+                centers.append(conf)
+                accs.append(acc)
+                ece += c / n * abs(acc - conf)
+        ax.plot([0, 1], [0, 1], ls="--", color="gray", lw=1, label="perfect")
+        ax.plot(centers, accs, "o-", color=HEAD_COLORS[task], lw=1.5, ms=4)
+        ax.set_xlabel("Predicted P(positive)")
+        ax.set_ylabel("Observed frequency")
+        ax.set_xlim(-0.02, 1.02)
+        ax.set_ylim(-0.02, 1.02)
+        ax.grid(True, alpha=0.3)
+        ax.set_title(f"{task.capitalize()}  ECE={ece:.3f}", fontsize=10)
+        ax.legend(fontsize=7, frameon=False, loc="upper left")
     fig.tight_layout()
     return fig
 

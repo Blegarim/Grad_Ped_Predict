@@ -29,6 +29,7 @@ from pedpredict.viz.plots import (
     figure_loss_curves,
     figure_per_head_f1_curves,
     figure_pr_curves,
+    figure_reliability,
     figure_temporal_attention,
     generate_ablation_figures,
     generate_run_figures,
@@ -155,7 +156,7 @@ def test_figure_per_head_f1_lines() -> None:
 
 def test_figure_pr_and_threshold_smoke() -> None:
     preds = _make_predictions(300)
-    for fig in (figure_pr_curves(preds), figure_f1_threshold(preds)):
+    for fig in (figure_pr_curves(preds), figure_f1_threshold(preds), figure_reliability(preds)):
         assert isinstance(fig, Figure)
         assert len(fig.axes) == len(_TASKS)
 

@@ -25,7 +25,7 @@ import torch
 
 from pedpredict.config.schema import ModelCfg, RootCfg
 from pedpredict.losses.multitask import MultiTaskLoss
-from pedpredict.models.registry import build_model
+from pedpredict.models.registry import build_model, forward_model
 from pedpredict.training import (
     TRAIN_LOG_COLUMNS,
     EpochResult,
@@ -41,10 +41,13 @@ _CPU = torch.device("cpu")
 # (the A4 default is the new image-dimension norm — a deliberate behavior change, config-gated).
 # Also pin lr_schedule="plateau": the oracle was captured at a fixed lr (plateau leaves the initial
 # LR untouched), whereas the shipped default warmup_cosine warms the step-1 LR down via LinearLR.
+# fusion_residual=False pins the legacy no-residual fusion the oracle was captured with (the shipped
+# default is now True — the A3 fix; the False arm stays golden-pinned, like motion_norm="per_sequence").
+# accum_steps=1 pins per-batch stepping (the legacy oracle stepped every batch; the shipped default is 8).
 _PARITY_CFG = dataclasses.replace(
     RootCfg(),
-    model=ModelCfg(motion_norm="per_sequence"),
-    train=dataclasses.replace(RootCfg().train, lr_schedule="plateau"),
+    model=ModelCfg(motion_norm="per_sequence", fusion_residual=False),
+    train=dataclasses.replace(RootCfg().train, lr_schedule="plateau", accum_steps=1),
 )
 
 # Post-step weight tensors are compared at a looser atol than the fixture's scalar ``tol`` (1e-6).
@@ -115,6 +118,77 @@ def test_train_step_matches_legacy_oracle(golden: dict) -> None:
     new_state = model.state_dict()
     for key, ref in golden["expected"]["post_step_state"].items():
         torch.testing.assert_close(new_state[key], ref, atol=_WEIGHT_PARITY_ATOL, rtol=0)
+
+
+def test_gradient_accumulation_steps_optimizer_every_n(golden: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """accum_steps=N steps the optimizer once per N micro-batches (+ a flush for any remainder)."""
+    batches = list(golden["train_batches"])
+    m = len(batches)
+    for accum in (1, 2, 3):
+        model = _fresh_model(golden)
+        cfg = dataclasses.replace(
+            _PARITY_CFG, train=dataclasses.replace(_PARITY_CFG.train, accum_steps=accum)
+        )
+        trainer = Trainer(cfg, model, _CPU, _ListChunkProvider([], []), loss=_loss_from_golden(golden))
+        n_steps = 0
+        real_step = trainer.optimizer.step
+
+        def _counting(*a: object, _real=real_step, **k: object) -> object:
+            nonlocal n_steps
+            n_steps += 1
+            return _real(*a, **k)
+
+        monkeypatch.setattr(trainer.optimizer, "step", _counting)
+        torch.manual_seed(golden["step_seed"])
+        trainer.train_chunk(batches)
+        expected = m // accum + (1 if m % accum else 0)        # ceil(m / accum): full groups + flush
+        assert n_steps == expected, f"accum={accum}: {n_steps} steps, expected {expected}"
+        assert all(torch.isfinite(p).all() for p in model.parameters())
+
+
+def test_gradient_accumulation_matches_manual_accumulate(golden: dict) -> None:
+    """One accum_steps=N step == hand-rolled: N losses/N backward into one zero_grad, then one step.
+
+    Dropout/drop-path are zeroed so the forward is deterministic (no RNG to sync between the two paths);
+    this isolates the accumulation *math* — that the averaged grad over N micro-batches drives one step.
+    """
+    # Dropout-free model so both paths are deterministic regardless of train()/eval() (params unchanged).
+    nodrop = ModelCfg(
+        motion_norm="per_sequence", dropout=0.0, attn_dropout=0.0, proj_dropout=0.0,
+        drop_path=0.0, motion_dropout=0.0, head_dropout=0.0,
+    )
+    batches = list(golden["train_batches"])
+    n = len(batches)
+
+    def _fresh_nodrop() -> torch.nn.Module:
+        cfg = dataclasses.replace(_PARITY_CFG, model=nodrop)
+        model = build_model(cfg)
+        model.load_state_dict(golden["init_state"])      # dropout has no params -> state_dict matches
+        return model
+
+    # (a) Trainer with accum_steps == n: exactly one optimizer step over the whole chunk.
+    model_a = _fresh_nodrop()
+    cfg_a = dataclasses.replace(_PARITY_CFG, model=nodrop,
+                                train=dataclasses.replace(_PARITY_CFG.train, accum_steps=n))
+    trainer = Trainer(cfg_a, model_a, _CPU, _ListChunkProvider([], []), loss=_loss_from_golden(golden))
+    trainer.train_chunk(batches)
+
+    # (b) Hand-rolled reference: N losses/N backward into one zero_grad, then one clip+step.
+    model_b = _fresh_nodrop()
+    loss_fn = _loss_from_golden(golden)
+    opt = torch.optim.Adam(model_b.parameters(), lr=_PARITY_CFG.train.lr,
+                           weight_decay=_PARITY_CFG.train.weight_decay)
+    model_b.train()
+    opt.zero_grad(set_to_none=True)
+    for tight, ctx, motion, labels in batches:
+        lab = {k: v.long() for k, v in labels.items()}
+        lab["crosses"] = torch.clamp(lab["crosses"], 0, 1)
+        (loss_fn(forward_model(model_b, tight, ctx, motion), lab).total / n).backward()
+    torch.nn.utils.clip_grad_norm_(model_b.parameters(), _PARITY_CFG.train.grad_clip_max_norm)
+    opt.step()
+
+    for (ka, pa), (_, pb) in zip(model_a.state_dict().items(), model_b.state_dict().items(), strict=True):
+        torch.testing.assert_close(pa, pb, atol=1e-6, rtol=0, msg=f"{ka} mismatch")
 
 
 def test_validate_matches_legacy_oracle(golden: dict) -> None:

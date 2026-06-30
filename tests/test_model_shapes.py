@@ -300,7 +300,10 @@ def test_cross_attention_emit_flag_default_on() -> None:
     image = torch.randn(2, 5, cfg.d_model)
 
     on = CrossAttentionModule.from_config(cfg).eval()
-    off = CrossAttentionModule(**cfg.cross_kwargs(), emit_crosses_pooled=False)
+    # Match on's fusion_residual so ONLY the emit gate differs (constructor default is the legacy False).
+    off = CrossAttentionModule(
+        **cfg.cross_kwargs(), emit_crosses_pooled=False, fusion_residual=cfg.fusion_residual
+    )
     off.load_state_dict(on.state_dict(), strict=True)  # same weights
     off.eval()
 
@@ -336,14 +339,14 @@ def test_cross_attn_heads_from_config() -> None:
     assert model.cross_attn.num_heads == 4
 
 
-def test_fusion_residual_default_off_and_adds_motion_query() -> None:
-    """A3/RQ2: default off == MHA output alone (parity); on == that + the motion query, shared weights."""
+def test_fusion_residual_default_on_and_adds_motion_query() -> None:
+    """A3/RQ2: default ON == MHA output + motion query; OFF (ablation) == MHA output alone, same weights."""
     cfg = ModelCfg()
-    assert cfg.fusion_residual is False  # default preserves legacy parity (golden-pinned elsewhere)
-    off = CrossAttentionModule.from_config(cfg).eval()
-    on = CrossAttentionModule.from_config(ModelCfg(fusion_residual=True))
-    on.load_state_dict(off.state_dict(), strict=True)  # same params (residual adds no weights)
-    on.eval()
+    assert cfg.fusion_residual is True  # project standard (the A3 fix); False is the golden-pinned ablation
+    on = CrossAttentionModule.from_config(cfg).eval()
+    off = CrossAttentionModule.from_config(ModelCfg(fusion_residual=False))
+    off.load_state_dict(on.state_dict(), strict=True)  # same params (residual adds no weights)
+    off.eval()
     b, t = 2, 5
     motion, image = torch.randn(b, t, cfg.d_model), torch.randn(b, t, cfg.d_model)
     with torch.no_grad():
@@ -351,14 +354,15 @@ def test_fusion_residual_default_off_and_adds_motion_query() -> None:
         out_off, out_on = off(motion, image), on(motion, image)
     # The pre-pool feature differs by exactly the motion query -> the crosses_frame logits must move.
     assert not torch.allclose(out_off["crosses_frame"], out_on["crosses_frame"])
-    # Sanity: feeding (attn + motion) through the OFF module reproduces the ON output (residual == +query).
+    # OFF reproduces MHA-output-alone; ON reproduces (attn + motion query) fed through the heads.
     with torch.no_grad():
-        ref = emit_task_logits(
+        ref_on = emit_task_logits(
             attn + motion, off.pool_mlp, off.classifier, off.crosses_frame_head,
             frame_pool=off.frame_pool, use_frame_crosses=off.use_frame_crosses,
             emit_crosses_pooled=off.emit_crosses_pooled, emit_temporal_weights=True,
         )
-    torch.testing.assert_close(out_on["crosses_frame"], ref["crosses_frame"])
+    torch.testing.assert_close(out_on["crosses_frame"], ref_on["crosses_frame"])
+    torch.testing.assert_close(out_off["crosses_frame"], off(motion, image)["crosses_frame"])
 
 
 # --------------------------------------------------------------------------- heads.py in isolation
@@ -434,7 +438,9 @@ def test_golden_ensemble_full_parity(ensemble_golden: dict) -> None:
     Pinned to the legacy per-sequence motion norm (see test_golden_motion_parity).
     """
     entry = ensemble_golden["full"]
-    model = EnsembleModel.from_config(ModelCfg(motion_norm="per_sequence"), img_size=entry["img_size"])
+    model = EnsembleModel.from_config(
+        ModelCfg(motion_norm="per_sequence", fusion_residual=False), img_size=entry["img_size"]
+    )
     model.load_state_dict(entry["state_dict"], strict=True)
     model.eval()
     with torch.no_grad():

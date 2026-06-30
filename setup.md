@@ -126,8 +126,9 @@ Storage-limited staging order (all of a split's sets must be present together to
 | 3 | set01, 02, 04 | `build_lmdb_incremental.py --split train` | (auto, per chunk) |
 
 ## 5. Augmentation (default-ON imbalance lever)
-The default imbalance policy is augmentation + online sampler + loss weights; the trainer unions
-`preprocessed_train` with `preprocessed_train_aug`, so this dir must exist:
+The default imbalance policy is augmentation + online sampler (tuned down) + the per-task loss scalar
+(`loss_weight`); inverse-frequency CE class weights are **OFF by default** (`use_class_weights=false`, run
+#2 canonical). The trainer unions `preprocessed_train` with `preprocessed_train_aug`, so this dir must exist:
 ```powershell
 python scripts/augment_dataset.py      # augment.enabled defaults true; oversamples crosses/looks → preprocessed_train_aug
 ```
@@ -145,8 +146,9 @@ python scripts/balance_dataset.py --split train --set balance.enabled=true
 python scripts/train.py --set eval.model_type=full
 ```
 `full` is the default, so the bare `python scripts/train.py` trains the full model; the ablation arms are
-`--set eval.model_type=motion_only|visual_only|vanilla_concat`. **The model selector lives in the `eval`
-section, not `model`** — `--set model.model_type=...` raises `Unknown field 'model_type'`.
+`--set eval.model_type=ped_local|kinematics_only|visual_only|vanilla_concat` (`ped_local` is the renamed
+legacy `motion_only`; `kinematics_only` is the pixel-free baseline). **The model selector lives in the
+`eval` section, not `model`** — `--set model.model_type=...` raises `Unknown field 'model_type'`.
 Writes `outputs/runs/{timestamp}_full/` with `resolved_config.yaml` (incl. the seed), `train_log.csv`,
 `train_distribution.json`, `checkpoints/{best,last}.pth`, `plots/`. Override anything inline, e.g.
 `--set train.lr=5e-5` — see the [override reference](#appendix--config-override-reference---set) below.
@@ -270,6 +272,7 @@ So **everything below is reached through `--set`**, validated against the datacl
 | `head_dropout` | `0.1` | classifier + cross-attn dropout |
 | `num_classes` | `{actions: 2, looks: 2, crosses: 2}` | dict — keys fixed to the 3 tasks |
 | `cross_attn_num_heads` | `4` | must divide `d_model` |
+| `fusion_residual` | `true` | A3/RQ2: add motion-query residual at fusion so motion *content* reaches the heads; `false` = no-residual ablation |
 | `use_frame_crosses` | `true` | |
 | `frame_pool` | `logsumexp` | `logsumexp` \| `max` \| `mean` |
 | `emit_crosses_pooled` | `true` | live-but-unsupervised aux head; `false` drops it |
@@ -279,13 +282,14 @@ So **everything below is reached through `--set`**, validated against the datacl
 |---|---|---|
 | `lr` / `weight_decay` | `1e-4` / `1e-5` | Adam |
 | `batch_size` / `num_epochs` / `num_workers` | `4` / `30` / `4` | |
+| `accum_steps` | `8` | gradient accumulation — effective batch = `batch_size·accum_steps` = 32 (tames small-batch grad noise); `1` = per-batch |
 | `use_amp` | `true` | request; runtime-gated by CUDA |
 | `seed` | `42` | global RNG seed (M7) |
 | `selection_metric` | `macro_f1` | `val_loss` \| `macro_f1` \| `crosses_f1` (best.pth + early stop) |
 | `loss_weight` | `{actions: 0.8, looks: 0.8, crosses: 1.2}` | per-task loss scalar (dict) |
-| `use_class_weights` | `true` | **imbalance lever 3** — inverse-freq CE weights |
+| `use_class_weights` | `false` | **imbalance lever 3** — inverse-freq CE weights (run #2 canonical: OFF) |
 | `use_weighted_sampler` | `true` | **imbalance lever 2** — `WeightedRandomSampler` |
-| `sampler_powers` | `{crosses: 1.5, actions: 0.3, looks: 0.7}` | sampler intensity (dict) |
+| `sampler_powers` | `{crosses: 0.5, actions: 0.3, looks: 0.3}` | sampler intensity (dict); run #2 tuned down → ~26% effective crosses |
 | `sampler_min_weight` | `1e-6` | per-sample weight floor |
 | `grad_clip_max_norm` | `1.0` | |
 | `early_stop_patience` / `early_stop_min_delta` | `20` / `0.001` | patience wide enough for the cosine to finish |
@@ -303,7 +307,7 @@ So **everything below is reached through `--set`**, validated against the datacl
 | Field | Default | Note |
 |---|---|---|
 | `batch_size` / `num_workers` | `16` / `4` | |
-| `model_type` | `full` | **THE model selector** — `full` \| `motion_only` \| `visual_only` \| `vanilla_concat` |
+| `model_type` | `full` | **THE model selector** — `full` \| `ped_local` \| `kinematics_only` \| `visual_only` \| `vanilla_concat` |
 | `bench_batch_size` / `bench_warmup` / `latency_trials` | `1` / `10` / `50` | efficiency benchmark knobs |
 | `threshold_sweep_lo` / `threshold_sweep_hi` / `threshold_sweep_step` | `0.10` / `0.90` / `0.05` | val F1-threshold sweep |
 

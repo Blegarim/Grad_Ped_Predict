@@ -352,6 +352,8 @@ def validate_config(root: RootCfg) -> None:
         )
 
     # online sampler invariants
+    if t.accum_steps < 1:
+        raise ConfigError(f"train.accum_steps must be >= 1; got {t.accum_steps}")
     if t.sampler_min_weight <= 0.0:
         raise ConfigError(f"train.sampler_min_weight must be > 0; got {t.sampler_min_weight}")
     if set(t.sampler_powers) != _TASK_KEYS:

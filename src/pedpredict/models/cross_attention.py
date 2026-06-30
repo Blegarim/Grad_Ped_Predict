@@ -29,12 +29,12 @@ Attribute names mirror the legacy module verbatim so an OLD ``state_dict`` loads
 
 A3 / RQ2 fusion lever:
 
-* **``fusion_residual``** (default ``False`` = legacy parity). The legacy fusion fed the heads
+* **``fusion_residual``** (default ``True`` = project standard). The legacy fusion fed the heads
   ``attn_output`` alone — a weighted sum of *image* values, so motion entered only as the attention
-  pattern, never as content (audit A3, confirmed not a migration bug). With ``fusion_residual=True`` the
-  module adds the motion query back: ``fused = attn_output + motion_feats``. It adds **no parameters**, so
-  an OLD ``state_dict`` still loads ``strict=True`` either way; the off-path keeps exact golden parity.
-  This is the first rung of the RQ2 fusion grid, ablated against the hub like every other spoke.
+  pattern, never as content (audit A3 — an undergrad oversight, not a design). The default now adds the
+  motion query back: ``fused = attn_output + motion_feats``, so motion content reaches the heads. It adds
+  **no parameters**, so an OLD ``state_dict`` still loads ``strict=True`` either way. ``fusion_residual=False``
+  is the explicitly-flagged A3 ablation (the no-residual arm); the goldens pin it for legacy parity.
 """
 
 from __future__ import annotations

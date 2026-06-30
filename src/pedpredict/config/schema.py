@@ -143,10 +143,12 @@ class ModelCfg:
     # (dead param). Here it is LIVE-but-unsupervised (default on): emitted as an auxiliary diagnostic kept
     # ready to swap in for crosses_frame, never fed to the loss. See docs/archive/MIGRATION.md (2.3) / CLAUDE.md.
     emit_crosses_pooled: bool = True
-    # A3 / RQ2 fusion lever (default off = legacy parity). When True the cross-attention adds a residual
-    # from the motion query: fused = attn_output + motion_feats, so motion CONTENT reaches the heads (not
-    # just motion-as-attention-mask). The first rung of the RQ2 fusion grid; off-path keeps golden parity.
-    fusion_residual: bool = False
+    # A3 / RQ2 fusion lever. When True the cross-attention adds a residual from the motion query:
+    # fused = attn_output + motion_feats, so motion CONTENT reaches the heads (not just
+    # motion-as-attention-mask). Default True is the project standard (the no-residual legacy fusion was
+    # an undergrad oversight, not a design); the False arm is the explicitly-flagged A3 ablation, and the
+    # goldens pin it (like motion_norm="per_sequence") so legacy parity stays testable.
+    fusion_residual: bool = True
 
     def vit_kwargs(self) -> dict:
         """Reproduce OLD ``vit_args_config()`` — values as lists (parity surface)."""
@@ -198,6 +200,12 @@ class TrainCfg:
     lr: float = 1e-4
     weight_decay: float = 1e-5
     batch_size: int = 4
+    # Gradient accumulation: step the optimizer every accum_steps micro-batches (effective batch =
+    # batch_size * accum_steps). Same VRAM, less gradient noise — tames the small-batch val_loss thrash.
+    # Default 8 (effective batch 32) is the project standard; accum_steps=1 is per-batch stepping (legacy
+    # behavior, pinned in the golden-parity trainer test). Accumulation is per-chunk (any remainder
+    # micro-batches flush at the chunk boundary), so it never crosses chunk loaders.
+    accum_steps: int = 8
     num_epochs: int = 30
     num_workers: int = 4
     use_amp: bool = True             # request; runtime-gated by CUDA availability in utils/amp.py (Q2)

@@ -2,6 +2,9 @@
 lr: 1.0e-4
 weight_decay: 1.0e-5
 batch_size: 4
+accum_steps: 8           # effective batch = batch_size*accum_steps = 32 (tames small-batch grad noise).
+                         # NOTE: larger effective batch can take a higher lr (linear-scaling rule); lr kept
+                         # conservative at 1e-4 — revisit if convergence is slow.
 num_epochs: 30
 num_workers: 4
 use_amp: true            # request; AND-gated by CUDA availability at runtime

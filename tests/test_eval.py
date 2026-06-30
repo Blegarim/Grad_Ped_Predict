@@ -27,7 +27,7 @@ import torch
 from PIL import Image
 from torch import nn
 
-from pedpredict.config import DataCfg, EvalCfg, PathsCfg, RootCfg, TrainCfg
+from pedpredict.config import DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, TrainCfg
 from pedpredict.data.lmdb_writer import write_dataset_chunks
 from pedpredict.eval.evaluate import (
     EVAL_LOG_COLUMNS,
@@ -194,7 +194,10 @@ _GOLDEN_KEY: dict[str, str] = {"ped_local": "motion_only"}
 
 
 def _build_loaded(entry: dict, model_type: str) -> nn.Module:
-    model = build_model(RootCfg(), model_type)
+    # The ensemble.pt goldens were captured with the legacy no-residual fusion; pin fusion_residual=False
+    # so the loaded full model reproduces the captured outputs (the shipped default is now True — A3).
+    cfg = dataclasses.replace(RootCfg(), model=ModelCfg(fusion_residual=False))
+    model = build_model(cfg, model_type)
     model.load_state_dict(entry["state_dict"], strict=True)   # B2: strict, no forward
     return model.eval()
 

@@ -192,6 +192,7 @@ class Trainer:
         self.pin = device.type == "cuda"
         self.scaler = make_grad_scaler(self.use_amp)
         self.clip_max_norm = cfg.train.grad_clip_max_norm
+        self.accum_steps = max(1, cfg.train.accum_steps)   # effective batch = batch_size * accum_steps
 
         self.scan_cache = scan_cache if scan_cache is not None else LabelScanCache()
         self.loss = loss if loss is not None else self._build_loss()
@@ -301,27 +302,42 @@ class Trainer:
         labels["crosses"] = torch.clamp(labels["crosses"], 0, 1)  # in-contract == 1.6 clamp_cross
         return images_tight, images_context, motions, labels
 
-    def _step_batch(self, batch: Batch) -> torch.Tensor:
-        """One optimizer step (OLD train_one_chunk body). Returns the detached weighted total loss."""
+    def _forward_backward(self, batch: Batch) -> torch.Tensor:
+        """Forward + (scaled) backward for one micro-batch; accumulates grad, does NOT step.
+
+        The loss is divided by ``accum_steps`` so the accumulated gradient equals the mean over the
+        effective batch (matches a single ``batch_size*accum_steps`` step). Returns the detached
+        *undivided* weighted total loss, so per-batch loss logging is unchanged by accumulation.
+        """
         images_tight, images_context, motions, labels = self._move_batch(batch)
-        self.optimizer.zero_grad(set_to_none=True)
         with autocast_ctx(self.use_amp):
             outputs = forward_model(self.model, images_tight, images_context, motions)
             total = self.loss(outputs, labels).total
+        scaled = total / self.accum_steps
         if self.use_amp:
-            self.scaler.scale(total).backward()
+            self.scaler.scale(scaled).backward()
+        else:
+            scaled.backward()
+        return total.detach()
+
+    def _optimizer_step(self) -> None:
+        """Apply one optimizer step over the accumulated gradients (unscale->clip->step->update->zero)."""
+        if self.use_amp:
             self.scaler.unscale_(self.optimizer)
             clip_grad_norm_(self.model.parameters(), self.clip_max_norm)
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
-            total.backward()
             clip_grad_norm_(self.model.parameters(), self.clip_max_norm)
             self.optimizer.step()
-        return total.detach()
+        self.optimizer.zero_grad(set_to_none=True)
 
     def train_chunk(self, loader: DataLoader, *, progress: tqdm | None = None) -> tuple[float, int]:
         """Train over one chunk's loader. Returns ``(loss_sum, n_batches)`` (OLD train_one_chunk).
+
+        Gradient accumulation (``train.accum_steps``) steps the optimizer every ``accum_steps``
+        micro-batches; any remainder flushes at the chunk boundary, so accumulation never crosses
+        chunk loaders. With ``accum_steps=1`` this is the original per-batch step.
 
         Q4: the per-batch loss is accumulated ON-DEVICE (float64, so the sum matches the legacy
         python-float accumulation) and synced to the host ONCE per chunk — the old per-batch
@@ -329,14 +345,21 @@ class Trainer:
         chunk, not per batch. ``progress`` (optional) is the shared per-epoch bar, ticked per batch.
         """
         self.model.train()
+        self.optimizer.zero_grad(set_to_none=True)
         loss_sum_t: torch.Tensor | None = None
         n_batches = 0
+        micro = 0
         for batch in loader:
-            total = self._step_batch(batch)
+            total = self._forward_backward(batch)
+            micro += 1
+            if micro % self.accum_steps == 0:
+                self._optimizer_step()
             loss_sum_t = total.double() if loss_sum_t is None else loss_sum_t + total.double()
             n_batches += 1
             if progress is not None:
                 progress.update(1)
+        if micro % self.accum_steps != 0:        # flush the partial accumulation group at chunk end
+            self._optimizer_step()
         loss_sum = float(loss_sum_t) if loss_sum_t is not None else 0.0
         if progress is not None and n_batches:
             progress.set_postfix(loss=loss_sum / n_batches)

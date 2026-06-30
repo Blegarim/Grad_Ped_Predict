@@ -207,11 +207,12 @@ is tested; the grid is never searched.
   imbalance-policy recommendation.
 
 ### WP2 — Architecture spokes (months 5–8, RQ1, RQ2)
-- **Backbone study (RQ1):** a desk study ranking TinyViT-5M / PVTv2-B0 / MobileViT-S / FastViT-T8 /
-  DeiT-Tiny on timm pretrained availability, resolution fit, hierarchical/windowed structure,
-  params/FLOPs at matched budget, A4500 latency, and drop-in cleanliness → a design note naming a
-  primary + fallback → the swap, compared to the hub. The v1 ViT's 36→288→36 collapse and 2×2 windows
-  are the written motivation.
+- **Backbone study (RQ1):** the desk study is **done** — [BACKBONE_STUDY.md](BACKBONE_STUDY.md) ranks the
+  candidates against the installed `timm`, with the drop-in contract and picks: **TinyViT-5M** (primary,
+  param-matched, 224 res-match, 22k-distilled), **PVTv2-B0** (non-window diversity), and **TinyViT-21M**
+  (~20M punch-above for the RQ5 Pareto; FastViT-SA12 latency fallback). Implementation (a thin timm
+  wrapper + `model.vit_backbone`) is pending confirmation. The v1 ViT's 36→288→36 collapse, 2×2 windows,
+  and context-crop mean-pool dilution are the written motivation.
 - **Fusion grid (RQ2):** the flagged motion residual (`model.fusion_residual`), query/key swap,
   bidirectional + concat, against `vanilla_concat` — each a single-axis spoke. If `vanilla_concat`
   matches or beats `full`, the no-residual finding is the explanation, a publishable observation.
