@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 from pedpredict.config import build_argparser, load_config
-from pedpredict.paths import resolve_paths
+from pedpredict.paths import protocol_lmdb_dirs, resolve_paths
 from pedpredict.training.chunk_loader import ChunkPrefetcher, gather_lmdb_chunks
 from pedpredict.training.schedule import run_phase_schedule
 from pedpredict.training.trainer import build_trainer
@@ -43,7 +43,8 @@ def _build_chunk_builders(cfg, *, device, scan_cache):
     aug train dirs); ``balanced`` points at the opt-in ``lmdb_train_balanced`` dirs.
     """
     resolved = resolve_paths(cfg.paths)
-    val_paths = gather_lmdb_chunks([resolved.lmdb_val])
+    _, val_dir, _ = protocol_lmdb_dirs(resolved, cfg.data.protocol)
+    val_paths = gather_lmdb_chunks([val_dir])
     balanced_dirs = [
         d if d.is_absolute() else resolved.root / d
         for d in (Path(p) for p in cfg.paths.lmdb_train_balanced)
@@ -94,7 +95,8 @@ def main(argv=None) -> int:
         # train.use_class_weights=false (M1 lever-3 off-switch) -> uniform weights, no scan.
         scan_cache = LabelScanCache()
         resolved = resolve_paths(cfg.paths)
-        augmented_paths = gather_lmdb_chunks(resolved.lmdb_train)
+        train_dirs, _, _ = protocol_lmdb_dirs(resolved, cfg.data.protocol)
+        augmented_paths = gather_lmdb_chunks(train_dirs)
         if cfg.train.use_class_weights:
             counts = scan_cache.aggregate_counts(augmented_paths)
             class_weights = class_weights_ce(counts, device=device)

@@ -200,9 +200,8 @@ _GOLDEN_KEY: dict[str, str] = {"ped_local": "motion_only"}
 
 
 def _build_loaded(entry: dict, model_type: str) -> nn.Module:
-    # The ensemble.pt goldens were captured with the legacy no-residual fusion AND the legacy ViT
-    # schedule; pin fusion_residual=False (A3) so the loaded full model reproduces the captured
-    # outputs, and **_LEGACY_VIT (A1) so the visual-path state_dict keeps its param layout.
+    # ensemble.pt was captured with legacy fusion (A3) + legacy ViT (A1); pin both so the loaded model
+    # reproduces the captured outputs and the state_dict shapes match.
     cfg = dataclasses.replace(RootCfg(), model=ModelCfg(fusion_residual=False, **_LEGACY_VIT))
     model = build_model(cfg, model_type)
     model.load_state_dict(entry["state_dict"], strict=True)   # B2: strict, no forward

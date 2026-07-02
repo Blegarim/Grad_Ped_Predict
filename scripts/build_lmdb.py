@@ -7,6 +7,8 @@ Thin wrapper: load config -> resolve paths -> read ``<sequences_dir>/sequences_<
     python scripts/build_lmdb.py --split val
     python scripts/build_lmdb.py --split all --set data.context_scale=3.0
     python scripts/build_lmdb.py --split test_benchmark      # M5 TTE-protocol eval set
+    python scripts/build_lmdb.py --split train_benchmark     # anchored-protocol train (S1 pivot)
+    python scripts/build_lmdb.py --split val_benchmark       # anchored-protocol val
     python scripts/build_lmdb.py --split train --pkl data/sequences/sequences_train_aug.pkl \
         --out-dir preprocessed_train_aug
 """
@@ -21,15 +23,21 @@ from pedpredict.data.pie_sequences import load_sequences
 from pedpredict.paths import ResolvedPaths, resolve_paths
 
 _SPLITS = ("train", "val", "test")
-_EXTRA_SPLITS = ("test_benchmark",)  # explicit-only (excluded from --split all)
+# explicit-only (excluded from --split all): M5 anchored eval + S1 anchored train/val.
+_EXTRA_SPLITS = ("test_benchmark", "train_benchmark", "val_benchmark")
 
 
 def _out_dir_for(split: str, paths: ResolvedPaths) -> Path:
-    """Map a split to its configured LMDB dir (train -> first dir; balanced/aug variants in 1.3/1.4)."""
+    """Map a split to its configured LMDB dir (train -> first dir; balanced/aug variants in 1.3/1.4;
+    ``*_benchmark`` -> the anchored-protocol dirs consumed under ``data.protocol=anchored``)."""
     if split == "train":
         return paths.lmdb_train[0]
     if split == "test_benchmark":
         return paths.lmdb_test_benchmark
+    if split == "train_benchmark":
+        return paths.lmdb_train_benchmark[0]
+    if split == "val_benchmark":
+        return paths.lmdb_val_benchmark
     return paths.lmdb_val if split == "val" else paths.lmdb_test
 
 

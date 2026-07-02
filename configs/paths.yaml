@@ -6,6 +6,8 @@ lmdb_train_balanced: [preprocessed_train_balanced]
 lmdb_val: preprocessed_val
 lmdb_test: preprocessed_test
 lmdb_test_benchmark: preprocessed_test_benchmark  # M5 TTE-protocol eval set (test split only)
+lmdb_train_benchmark: [preprocessed_train_benchmark]  # anchored-protocol train (data.protocol=anchored)
+lmdb_val_benchmark: preprocessed_val_benchmark        # anchored-protocol val (data.protocol=anchored)
 log_dir: training_log            # legacy flat dirs (kept for reading OLD artifacts)
 ckpt_dir: best_model_outputs     # legacy flat dirs
 run_ckpt_dir: model_outputs      # legacy flat dirs

@@ -55,7 +55,7 @@ from pedpredict.data.collate import build_collate
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
 from pedpredict.data.lmdb_warm import WarmResult, warm_lmdb_chunk
 from pedpredict.data.sampler import LabelScanCache, build_weighted_sampler
-from pedpredict.paths import resolve_paths
+from pedpredict.paths import protocol_lmdb_dirs, resolve_paths
 from pedpredict.utils.memory import wait_for_memory
 
 # ``warm_lmdb_chunk`` lives in the torch-free ``data.lmdb_warm`` so ``spawn``ed warm children don't import
@@ -290,10 +290,13 @@ class ChunkPrefetcher:
 
     @classmethod
     def from_config(cls, cfg: RootCfg, **kwargs: object) -> ChunkPrefetcher:
-        """Gather train (base + opt-in aug) and val chunks from ``paths.yaml`` (replaces OLD gather_chunks)."""
+        """Gather train (base + opt-in aug) and val chunks for the active ``data.protocol`` — streaming
+        uses the standard dirs (base+aug), anchored uses the single Kotseruba benchmark train dir (no
+        aug). Replaces OLD ``gather_chunks``."""
         resolved = resolve_paths(cfg.paths)
-        train = gather_lmdb_chunks(resolved.lmdb_train)
-        val = gather_lmdb_chunks([resolved.lmdb_val])
+        train_dirs, val_dir, _ = protocol_lmdb_dirs(resolved, cfg.data.protocol)
+        train = gather_lmdb_chunks(train_dirs)
+        val = gather_lmdb_chunks([val_dir])
         return cls(cfg, train, val, **kwargs)  # type: ignore[arg-type]
 
     # ----------------------------------------------------------------- ChunkProvider surface

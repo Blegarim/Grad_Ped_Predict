@@ -46,7 +46,7 @@ from pedpredict.data.collate import build_collate
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
 from pedpredict.losses.multitask import TASKS
 from pedpredict.models.registry import ModelType, build_model, forward_model
-from pedpredict.paths import resolve_paths
+from pedpredict.paths import protocol_lmdb_dirs, resolve_paths
 from pedpredict.training.chunk_loader import gather_lmdb_chunks
 from pedpredict.training.metrics import METRIC_COLUMNS, MetricAccumulator, MetricResult
 from pedpredict.utils.amp import autocast_ctx, resolve_amp
@@ -308,9 +308,11 @@ def _eval_chunk_loaders(cfg: RootCfg, chunk_paths: list[str], device: torch.devi
 
 
 def _split_chunk_paths(cfg: RootCfg, split: str) -> list[str]:
-    """Resolve the LMDB chunk paths for ``split`` ('test' | 'val') from ``paths.yaml``."""
+    """Resolve the LMDB chunk paths for ``split`` ('test' | 'val') under the active ``data.protocol``
+    ('streaming' -> standard dirs | 'anchored' -> Kotseruba benchmark dirs)."""
     resolved = resolve_paths(cfg.paths)
-    folder = resolved.lmdb_test if split == "test" else resolved.lmdb_val
+    _, val_dir, test_dir = protocol_lmdb_dirs(resolved, cfg.data.protocol)
+    folder = test_dir if split == "test" else val_dir
     return gather_lmdb_chunks([folder])
 
 

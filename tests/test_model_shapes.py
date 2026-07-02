@@ -49,9 +49,8 @@ _MOTION_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "mot
 _CROSS_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "cross_attention.pt"
 _ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "ensemble.pt"
 
-# The shipped ViT default is the A1 redesign; the ensemble/ablation goldens were captured with the
-# legacy schedule, so any ModelCfg that strict-loads them must pin it (mirrors motion_norm=
-# "per_sequence" / fusion_residual=False). The vit.pt golden builds from its own stored vit_kwargs.
+# Legacy ViT schedule (default is now the A1 redesign); pinned wherever a ModelCfg strict-loads the
+# ensemble/ablation goldens, which were captured with it. (vit.pt builds from its own stored kwargs.)
 _LEGACY_VIT = dict(
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],

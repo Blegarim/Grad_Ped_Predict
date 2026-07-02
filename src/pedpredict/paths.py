@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .config.schema import PathsCfg
 
-__all__ = ["find_project_root", "ResolvedPaths", "resolve_paths"]
+__all__ = ["find_project_root", "ResolvedPaths", "resolve_paths", "protocol_lmdb_dirs"]
 
 _ROOT_MARKER = "pyproject.toml"
 
@@ -51,6 +51,8 @@ class ResolvedPaths:
     lmdb_val: Path
     lmdb_test: Path
     lmdb_test_benchmark: Path
+    lmdb_train_benchmark: tuple[Path, ...]
+    lmdb_val_benchmark: Path
     log_dir: Path
     ckpt_dir: Path
     run_ckpt_dir: Path
@@ -68,8 +70,25 @@ def resolve_paths(cfg: PathsCfg, root: Path | None = None) -> ResolvedPaths:
         lmdb_val=_resolve_one(base, cfg.lmdb_val),
         lmdb_test=_resolve_one(base, cfg.lmdb_test),
         lmdb_test_benchmark=_resolve_one(base, cfg.lmdb_test_benchmark),
+        lmdb_train_benchmark=tuple(_resolve_one(base, p) for p in cfg.lmdb_train_benchmark),
+        lmdb_val_benchmark=_resolve_one(base, cfg.lmdb_val_benchmark),
         log_dir=_resolve_one(base, cfg.log_dir),
         ckpt_dir=_resolve_one(base, cfg.ckpt_dir),
         run_ckpt_dir=_resolve_one(base, cfg.run_ckpt_dir),
         runs_dir=_resolve_one(base, cfg.runs_dir),
     )
+
+
+def protocol_lmdb_dirs(resolved: ResolvedPaths, protocol: str) -> tuple[tuple[Path, ...], Path, Path]:
+    """The ``(train_dirs, val_dir, test_dir)`` LMDBs for ``protocol`` — the single switch behind the
+    cross-protocol matrix (S1 pivot).
+
+    ``"streaming"`` -> the standard dense-window v2 dirs (the ~37:1 deployment distribution);
+    ``"anchored"`` -> the Kotseruba benchmark dirs (~2.5:1). Any other value falls back to streaming;
+    :func:`~pedpredict.config.loader.validate_config` rejects unknown protocols upstream, so the
+    fallback is defensive only. Field names never lie — the anchored branch reads the ``*_benchmark``
+    dirs explicitly rather than shadowing ``lmdb_train``/``lmdb_val``/``lmdb_test``.
+    """
+    if protocol == "anchored":
+        return resolved.lmdb_train_benchmark, resolved.lmdb_val_benchmark, resolved.lmdb_test_benchmark
+    return resolved.lmdb_train, resolved.lmdb_val, resolved.lmdb_test

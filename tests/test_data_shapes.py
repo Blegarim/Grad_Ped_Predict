@@ -124,6 +124,44 @@ def test_clamp_to_binary_value_mapping() -> None:
     assert clamp_to_binary([-1, 0, 1, 1, -1, 0]) == [0, 0, 1, 1, 0, 0]
 
 
+# --------------------------------------------------------------------------- S1 streaming-onset annotation
+
+
+def test_onset_genuine_non_crosser() -> None:
+    """A track that never crosses: onset_offset=-1, track_crosses=0, future_observed=n-end."""
+    recs = _window(_track(8))  # all-zero crosses; start=0 only (censor drops the rest)
+    assert len(recs) == 1
+    assert (recs[0]["onset_offset"], recs[0]["track_crosses"]) == (-1, 0)
+    assert recs[0]["future_observed"] == 4  # n=8, end=4
+
+
+def test_onset_offset_positive_within_horizon() -> None:
+    """Crossing in the canonical future window -> onset_offset = frames from end to onset."""
+    recs = _window(_track(8, crosses=[0, 0, 0, 0, 0, 1, 0, 0]))  # onset at idx 5
+    assert len(recs) == 1
+    assert recs[0]["crosses"] == 1
+    assert recs[0]["onset_offset"] == 1  # end=4 -> onset 5
+    assert recs[0]["track_crosses"] == 1
+
+
+def test_onset_hard_temporal_negative() -> None:
+    """crosses==0 but onset beyond the canonical window (>= future_offset+tol) = a HARD negative."""
+    recs = _window(_track(9, crosses=[0, 0, 0, 0, 0, 0, 0, 0, 1]))  # onset at idx 8
+    assert len(recs) == 1
+    assert recs[0]["crosses"] == 0        # onset outside [end, end+future_offset+tol) = [4, 8)
+    assert recs[0]["onset_offset"] == 4   # end=4 -> onset 8; equals future_offset+tol (=4)
+    assert recs[0]["track_crosses"] == 1  # will cross -> hard temporal negative, not genuine
+    assert recs[0]["future_observed"] == 5  # n=9, end=4
+
+
+def test_onset_already_crossed_negative() -> None:
+    """Crossing BEFORE the window (filter #2 spares later windows): track_crosses=1, onset_offset=-1."""
+    recs = _window(_track(12, crosses=[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))
+    assert [r["onset_offset"] for r in recs] == [-1, -1]  # ends 6 and 8, no future crossing
+    assert all(r["track_crosses"] == 1 for r in recs)     # distinguishes from a genuine non-crosser
+    assert all(r["crosses"] == 0 for r in recs)
+
+
 # --------------------------------------------------------------------------- M6 track_id + M9 ego_speed
 
 

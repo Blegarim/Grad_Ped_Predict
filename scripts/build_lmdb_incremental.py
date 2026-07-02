@@ -9,6 +9,8 @@ sequence pkl must already exist (``make_sequences.py`` — annotations only, tin
     # finish a crashed train build — a short (mid-write) final chunk is detected and refused (C2),
     # so delete the partial chunk dir the error names, then re-run:
     python scripts/build_lmdb_incremental.py --split train
+    # anchored-protocol train (S1 pivot) — same disk-bounded extraction, reads sequences_train_benchmark.pkl:
+    python scripts/build_lmdb_incremental.py --split train_benchmark
     # explicit resume / fresh start / keep frames for inspection:
     python scripts/build_lmdb_incremental.py --split train --start-idx 20000 --keep-frames
 """
@@ -31,18 +33,27 @@ from pedpredict.data.pie_sequences import load_sequences
 from pedpredict.paths import ResolvedPaths, resolve_paths
 
 _SPLITS = ("train", "val", "test")
+# explicit-only anchored-protocol splits (S1 pivot); train_benchmark is the disk-bounded use case.
+_EXTRA_SPLITS = ("train_benchmark", "val_benchmark", "test_benchmark")
 
 
 def _out_dir_for(split: str, paths: ResolvedPaths) -> Path:
-    """Split -> its configured LMDB dir (mirrors build_lmdb.py; train -> first unioned dir)."""
+    """Split -> its configured LMDB dir (mirrors build_lmdb.py; train -> first unioned dir;
+    ``*_benchmark`` -> the anchored-protocol dirs)."""
     if split == "train":
         return paths.lmdb_train[0]
+    if split == "train_benchmark":
+        return paths.lmdb_train_benchmark[0]
+    if split == "val_benchmark":
+        return paths.lmdb_val_benchmark
+    if split == "test_benchmark":
+        return paths.lmdb_test_benchmark
     return paths.lmdb_val if split == "val" else paths.lmdb_test
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_argparser()
-    parser.add_argument("--split", choices=_SPLITS, default="train")
+    parser.add_argument("--split", choices=(*_SPLITS, *_EXTRA_SPLITS), default="train")
     parser.add_argument("--pkl", default=None, help="Override the input sequence pickle path.")
     parser.add_argument("--out-dir", default=None, help="Override the output LMDB directory.")
     parser.add_argument("--start-idx", type=int, default=None, help="Resume index (default: auto-detect).")

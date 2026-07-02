@@ -37,9 +37,7 @@ from pedpredict.training.callbacks import EarlyStopping
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "trainer_step.pt"
 _TASKS = ("actions", "looks", "crosses")
 _CPU = torch.device("cpu")
-# The legacy oracle was captured with the OLD ViT schedule; pin it so the full-model state_dict
-# (golden["init_state"]) keeps its param layout under the A1 default (shape parity, like the
-# motion_norm / fusion_residual pins below).
+# Legacy ViT schedule: pin so golden["init_state"] keeps its param layout under the A1 default.
 _LEGACY_VIT = dict(
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],

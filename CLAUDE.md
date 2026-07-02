@@ -17,9 +17,18 @@ soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 > The project began as a behavior-preserving rebuild of an undergraduate thesis. That history — the legacy
 > reference repo, the phase plan, and the resolved band-aid inventory — is archived under
 > [`docs/archive/`](docs/archive/) and in the `legacy-archive` git tag; it is no longer load-bearing.
-> The research phase is driven by the answered hole audit, [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md)
-> (the working setlist — see its Final attack order), under the thesis-level
-> [docs/RESEARCH_PLAN.md](docs/RESEARCH_PLAN.md); docs/PHASE_B_BACKLOG.md is superseded.
+
+> **Thesis direction (July 2026 pivot — read this before RESEARCH_PLAN).** The thesis spine is now
+> **online detection of pedestrian crossing-onset**: the standard PIE protocol is event-anchored (~2.5:1)
+> and hides the deployed streaming case (~37:1, full of "will-cross-soon" hard negatives); the
+> contribution is to re-evaluate under a streaming protocol and **decompose** the anchored→streaming
+> performance gap into a recalibration-fixable part and a residual hard-negative part. Crucially, the
+> existing dense-sliding-window pipeline **is** that streaming formulation, so the codebase stands — the
+> architecture / imbalance / calibration work (the old RQs, [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md),
+> [docs/RESEARCH_PLAN.md](docs/RESEARCH_PLAN.md)) is retained as **supporting** studies, not the thesis
+> structure. The brief is [docs/project-context-streaming-crossing-onset.md](docs/project-context-streaming-crossing-onset.md)
+> and the execution plan is [docs/streaming-onset-plan.md](docs/streaming-onset-plan.md). HOLE_AUDIT's
+> Final attack order still governs the data/engineering steps; docs/PHASE_B_BACKLOG.md is superseded.
 
 ## Execution Environment (two machines)
 
@@ -98,13 +107,23 @@ in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
 - **M3** — `actions`/`looks` label the **state at the last observed frame**, not the future; only `crosses`
   is a future label (`any()` over the fully-observed future window).
 - **M4** — right-censored windows (truncated future) are **dropped, not labeled 0**.
-- **M5** — a separate TTE **benchmark** eval set (test split) labels `crosses` by the crossing *event* and
-  carries `tte`; built via `make_sequences.py --benchmark` → `preprocessed_test_benchmark`.
+- **M5** — a separate TTE **benchmark** (anchored-protocol) set labels `crosses` by the crossing *event*
+  and carries `tte`; built via `make_sequences.py --benchmark --split {train,val,test}` +
+  `build_lmdb[_incremental].py --split {train,val,test}_benchmark` → `preprocessed_{split}_benchmark`.
+  Which set train/eval read is the runtime switch **`data.protocol`** (`streaming` default = standard v2
+  LMDBs, ~37:1 | `anchored` = benchmark LMDBs, ~2.5:1), resolved once in `paths.protocol_lmdb_dirs` and
+  honored by train.py / `ChunkPrefetcher` / `evaluate.py` — this is the **cross-protocol-matrix axis**
+  (train × test over {anchored, streaming}); see [setup.md §9](setup.md).
 - **M6** — every meta carries `track_id` for eval-side track aggregation.
 - **M9 / A4** — motion is stored **9-dim** (`MOTION_STORE_DIM`), frame-0 deltas true zeros; normalization is
   a runtime flag `model.motion_norm` (`image` default | `per_sequence` legacy/A4 arm, golden-pinned).
   `horizontal_flip` **must** negate `dx` (idx 2) and reflect `cx` (idx 0) about `data.source_width`, or
   augmented data corrupts silently.
+- **S1 (streaming pivot)** — each standard `SequenceRecord` also carries pure per-window onset annotation:
+  `onset_offset` (frames from end-of-obs to the first future crossing; `-1` if none), `future_observed`
+  (`n − end`), and `track_crosses` (track ever crosses). These do **not** change the `crosses` label or
+  which windows are emitted — they let eval re-label at any horizon H and type the streaming negatives
+  (genuine / hard-temporal / already-crossed). See [docs/streaming-onset-plan.md](docs/streaming-onset-plan.md).
 
 ### Dataset Statistics
 

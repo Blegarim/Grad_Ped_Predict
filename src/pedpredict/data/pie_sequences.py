@@ -25,6 +25,10 @@ v2 labeling contract (hole audit, deliberate behavior changes vs the v1/legacy w
 * **M5** -- benchmark mode emits fixed-TTE windows (obs ``benchmark_obs_len`` ending
   ``benchmark_tte_min..benchmark_tte_max`` frames before ``crossing_point``), labeled by the
   event-level ``activities`` flag — the externally-comparable protocol (Kotseruba et al. WACV 2021).
+* **S1** -- each standard record also carries streaming-onset annotation (``onset_offset``,
+  ``future_observed``, ``track_crosses``): pure per-window functions that let eval re-label the window
+  at any anticipation horizon H and type the streaming negatives (genuine / hard-temporal / censored),
+  WITHOUT changing the ``crosses`` label or the emitted-window population. See :class:`SequenceRecord`.
 """
 
 from __future__ import annotations
@@ -61,6 +65,19 @@ class SequenceRecord(TypedDict):
     ``actions``/``looks`` = state at the last observed frame (M3); ``crosses`` = any crossing in the
     fully-observed future window (M4 guarantees it is never truncated). ``track_id`` is the PIE
     pedestrian id (M6); ``ego_speed`` is per-frame OBD speed in km/h over the observation (M9).
+
+    Streaming-onset annotation (S1) — pure per-window functions carried for eval-time re-labeling and
+    negative typing; they do NOT change ``crosses`` or which windows are emitted:
+
+    * ``onset_offset`` -- frames from the end of observation to the first future crossing frame
+      (``next_cross - end``); ``-1`` if the pedestrian never crosses again within the observed track.
+      The horizon-H streaming label is ``0 <= onset_offset < H``; a window with ``crosses == 0`` but
+      ``onset_offset >= future_offset + tol`` is a hard temporal negative at the canonical horizon.
+    * ``future_observed`` -- frames of future actually observed after the window (``n - end``). A window
+      is usable for horizon H only if ``future_observed >= H`` or a crossing was already seen
+      (``onset_offset >= 0``); otherwise it is H-censored. Guards the H-sweep against right-censoring.
+    * ``track_crosses`` -- 1 if the track has any crossing frame at all (before OR after the window),
+      separating a genuine non-crosser (``0``) from a will-cross / already-crossed negative.
     """
 
     images: list[str]
@@ -70,6 +87,9 @@ class SequenceRecord(TypedDict):
     actions: int
     looks: int
     crosses: int
+    onset_offset: int
+    future_observed: int
+    track_crosses: int
 
 
 class BenchmarkRecord(SequenceRecord, total=False):
@@ -179,6 +199,28 @@ def _label_window(
     }
 
 
+def _next_crossing_index(crosses: Sequence[int], n: int) -> list[int]:
+    """For each frame ``i`` in ``[0, n]``, the first crossing index at or after ``i`` (``n`` if none).
+
+    One backward pass so :func:`window_track` reads each window's onset in O(1) (S1). ``crosses`` must
+    already be clamped to ``{0, 1}``.
+    """
+    nxt = [n] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        nxt[i] = i if crosses[i] == 1 else nxt[i + 1]
+    return nxt
+
+
+def _onset_fields(next_cross: Sequence[int], n: int, end: int, track_crosses: int) -> dict[str, int]:
+    """S1 streaming-onset annotation for the window ending at ``end`` (see :class:`SequenceRecord`)."""
+    onset = next_cross[end]
+    return {
+        "onset_offset": onset - end if onset < n else -1,
+        "future_observed": n - end,
+        "track_crosses": track_crosses,
+    }
+
+
 def window_track(
     images: Sequence[str],
     bboxes: Sequence[Sequence[float]],
@@ -206,6 +248,8 @@ def window_track(
         if stats is not None:
             stats.short_tracks += 1
         return records
+    track_crosses = int(any(crosses))
+    next_cross = _next_crossing_index(crosses, n)
     for start in range(0, n - cfg.seq_len + 1, cfg.stride):
         end = start + cfg.seq_len
         if any(crosses[start:end]):  # filter #2: pedestrian crosses during observation
@@ -223,6 +267,7 @@ def window_track(
                 "track_id": track_id,
                 "ego_speed": [float(v) for v in ego_speed[start:end]],
                 **_label_window(actions, looks, crosses, end, cfg),
+                **_onset_fields(next_cross, n, end, track_crosses),
             }
         )
         if stats is not None:

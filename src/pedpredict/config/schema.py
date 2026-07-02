@@ -17,10 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# v2 stored-motion contract (A4/M9): the writer ALWAYS stores the full vector — 8 bbox-derived
-# channels (frame-0 deltas are true zeros, not the legacy raw-size quirk) + 1 ego-speed channel.
-# Runtime consumers slice to ``data.motion_dim`` ("store wide, slice narrow"), so with-ego and
-# without-ego are two configs over ONE dataset. Channel semantics live in transforms.compute_motion.
+# v2 motion contract (A4/M9): writer stores all 9 channels; runtime slices to data.motion_dim
+# ("store wide, slice narrow"). Channel semantics in transforms.compute_motion.
 MOTION_STORE_DIM: int = 9
 MOTION_CHANNELS: tuple[str, ...] = ("cx", "cy", "dx", "dy", "w", "h", "dw", "dh", "ego_speed")
 
@@ -36,6 +34,10 @@ class PathsCfg:
     lmdb_val: str = "preprocessed_val"
     lmdb_test: str = "preprocessed_test"
     lmdb_test_benchmark: str = "preprocessed_test_benchmark"  # M5 TTE-protocol eval set (test split only)
+    # Anchored-protocol train/val (S1 pivot): built from make_sequences.py --benchmark --split {train,val};
+    # selected together with lmdb_test_benchmark when data.protocol="anchored" (paths.protocol_lmdb_dirs).
+    lmdb_train_benchmark: tuple[str, ...] = ("preprocessed_train_benchmark",)
+    lmdb_val_benchmark: str = "preprocessed_val_benchmark"
     log_dir: str = "training_log"          # legacy flat dirs (kept for reading OLD artifacts)
     ckpt_dir: str = "best_model_outputs"   # legacy flat dirs
     run_ckpt_dir: str = "model_outputs"    # legacy flat dirs
@@ -48,25 +50,20 @@ class DataCfg:
 
     # B7: magic constants relocated from scripts/train_utils.py
     max_seq_len: int = 20            # was train_utils.MAX_SEQ_LEN
-    # CONSUMED motion channels (model input width). The v2 writer always stores MOTION_STORE_DIM (9)
-    # channels; the runtime dataset slices to this. 8 = no ego-speed, 9 = with ego-speed (M9 ablation).
+    # consumed motion width, sliced from the 9 stored. 8 = no ego-speed, 9 = with (M9 ablation).
     motion_dim: int = 8
-    # PIE source-frame pixel dims — used by flip augmentation (cx reflection, A4) and cross-checked
-    # against model.motion_norm_image_size (the runtime image-dimension motion normalization).
+    # PIE source-frame pixel dims — flip augmentation (A4) + cross-checked vs model.motion_norm_image_size.
     source_width: int = 1920
     source_height: int = 1080
     img_height: int = 128            # write+read tight size; also read-tight model input
     img_width: int = 128
-    # read-time context model input (OLD train.py:362 Resize((224,224))) — distinct from the write-time
-    # context size (img_*  * context_scale = 384); stored 384 crops are re-decoded and shrunk to this.
+    # read-time context input (224); distinct from the stored 384 crop (img_* * context_scale).
     read_context_height: int = 224
     read_context_width: int = 224
     context_scale: float = 3.0       # context crop = scale * tight bbox (uniform 3.0; flex for ablation)
     jpeg_quality: int = 90
     chunk_size: int = 5000           # Q4: canonical 5000 (OLD main() default was 4500); does not affect parity
-    # LMDB map_size (lmdb_writer.compute_map_size). C3: Windows PRE-ALLOCATES the file at map_size and
-    # the OLD heuristic reserved ~3x the real payload (~2-3 GB JPEG per 5000-sample chunk), so the
-    # default is now an explicit 4 GiB. Too small fails LOUDLY (lmdb.MapFullError); None -> heuristic.
+    # LMDB map_size (C3): explicit 4 GiB (Windows pre-allocates the file). None -> heuristic.
     lmdb_map_size_bytes: int | None = 4 * 1024**3
     lmdb_map_size_floor_gib: float = 4.0     # heuristic floor (OLD: 4 * 1024**3); used when bytes is None
     lmdb_map_size_safety: float = 1.5        # heuristic safety multiplier; used when bytes is None
@@ -78,13 +75,16 @@ class DataCfg:
     stride: int = 3
     future_offset: int = 30
     tol: int = 2
-    # M5 benchmark-protocol eval set (test split only): fixed-TTE windows relative to the PIE
-    # crossing_point, labeled by the crossing EVENT (attributes['crossing'] > 0), à la
-    # Kotseruba et al. WACV 2021. Sampling stride = round(obs_len * (1 - overlap)).
+    # M5 benchmark eval set (test split): fixed-TTE windows around the PIE crossing_point, labeled by
+    # the crossing event (Kotseruba et al. WACV 2021). Sampling stride = round(obs_len * (1 - overlap)).
     benchmark_obs_len: int = 16
     benchmark_tte_min: int = 30
     benchmark_tte_max: int = 60
     benchmark_overlap: float = 0.6
+    # S1 pivot — which LMDB set train/eval read (the cross-protocol-matrix switch): "streaming" (standard
+    # dense-window v2 dirs, the ~37:1 deployment distribution) | "anchored" (Kotseruba benchmark dirs,
+    # ~2.5:1). Resolved via paths.protocol_lmdb_dirs; does NOT change windowing (fixed at make_sequences).
+    protocol: str = "streaming"
     # PIE source opts (generate_data_trajectory_sequence) — defaults mirror the OLD data_opts literals
     min_track_size: int = 10
     fstride: int = 1
@@ -105,21 +105,13 @@ class ModelCfg:
     d_model: int = 128               # get_unified_dim_model() — one value shared by ALL modules
     in_channels: int = 3
     motion_dim: int = 8              # must equal DataCfg.motion_dim (cross-checked in validate_config, B7)
-    # A4 runtime motion normalization (ablatable from the SAME v2 data — the norm is applied in
-    # MotionEncoder.forward, never baked into the LMDB):
-    #   "image"        -> divide each channel by a fixed global scale (x-channels / source width,
-    #                     y-channels / source height, ego / ego_speed_scale). Absolute geometry
-    #                     (curb proximity, box size = distance proxy) survives as real values.
-    #   "per_sequence" -> legacy per-sequence z-norm (erases absolute geometry; amplifies px jitter).
-    #                     Golden-parity tests pin this mode; it is the "old" arm of the A4 ablation.
+    # A4 motion norm, applied in-forward (not baked into the LMDB): "image" = fixed per-channel scale,
+    # keeps absolute geometry | "per_sequence" = legacy z-norm, golden-pinned ablation arm.
     motion_norm: str = "image"
     motion_norm_image_size: tuple[int, int] = (1920, 1080)  # (W, H); must equal data.source_width/height
     ego_speed_scale: float = 50.0    # km/h scale for the ego channel under "image" norm (PIE OBD speed)
-    # ViT stage schedule — A1 redesign (NOT the legacy config.vit_args_config()). Monotonic
-    # increasing dims with real 7x7 windows; the old [36,36,288,36] + [8,4,2,None] schedule
-    # (dimension collapse + 2x2 windows) is golden-pinned in tests, not the live default.
-    # Invariants (enforced by validate_config): dim % heads == 0 (here dim/head = 24 each) and
-    # every stage's feature map at read_context=224 (56/28/14/7) tiles its window (8/4/2/1).
+    # ViT stage schedule — A1 redesign: monotonic dims, real 7x7 windows (dim/head = 24 each). The
+    # legacy [36,36,288,36] + [8,4,2,None] (dim collapse + 2x2 windows) is golden-pinned, not default.
     stage_dims: tuple[int, ...] = (48, 96, 192, 384)
     layer_nums: tuple[int, ...] = (2, 2, 6, 2)
     head_nums: tuple[int, ...] = (2, 4, 8, 16)
@@ -137,21 +129,15 @@ class ModelCfg:
     # head wiring (get_model(..., dropout=0.1))
     head_dropout: float = 0.1
     num_classes: dict[str, int] = field(default_factory=lambda: {"actions": 2, "looks": 2, "crosses": 2})
-    # CrossAttentionModule — mirror scripts/model_utils.get_model()'s full-model wiring EXACTLY.
-    # NOTE: get_model passes num_heads=4 (NOT the legacy class default 8) and does NOT forward dropout
-    # (so cross_attn + classifier use head_dropout=0.1, the class default).
+    # CrossAttentionModule wiring (legacy get_model): num_heads=4 (not the class default 8); heads
+    # use head_dropout=0.1.
     cross_attn_num_heads: int = 4
     use_frame_crosses: bool = True
     frame_pool: str = "logsumexp"       # {"logsumexp", "max", "mean"}
-    # B4: crosses_pooled is the pooled-feature crosses head. Legacy ALLOCATED it but never called it
-    # (dead param). Here it is LIVE-but-unsupervised (default on): emitted as an auxiliary diagnostic kept
-    # ready to swap in for crosses_frame, never fed to the loss. See docs/archive/MIGRATION.md (2.3) / CLAUDE.md.
+    # B4: live-but-unsupervised aux crosses head (default on); never fed to the loss.
     emit_crosses_pooled: bool = True
-    # A3 / RQ2 fusion lever. When True the cross-attention adds a residual from the motion query:
-    # fused = attn_output + motion_feats, so motion CONTENT reaches the heads (not just
-    # motion-as-attention-mask). Default True is the project standard (the no-residual legacy fusion was
-    # an undergrad oversight, not a design); the False arm is the explicitly-flagged A3 ablation, and the
-    # goldens pin it (like motion_norm="per_sequence") so legacy parity stays testable.
+    # A3/RQ2 fusion lever (default on): adds the motion query as a residual so motion content reaches
+    # the heads. False = legacy no-residual ablation (golden-pinned).
     fusion_residual: bool = True
 
     def vit_kwargs(self) -> dict:
@@ -204,19 +190,16 @@ class TrainCfg:
     lr: float = 1e-4
     weight_decay: float = 1e-5
     batch_size: int = 4
-    # Gradient accumulation: step the optimizer every accum_steps micro-batches (effective batch =
-    # batch_size * accum_steps). Same VRAM, less gradient noise — tames the small-batch val_loss thrash.
-    # Default 8 (effective batch 32) is the project standard; accum_steps=1 is per-batch stepping (legacy
-    # behavior, pinned in the golden-parity trainer test). Accumulation is per-chunk (any remainder
-    # micro-batches flush at the chunk boundary), so it never crosses chunk loaders.
+    # step the optimizer every accum_steps micro-batches (effective batch = batch_size * accum_steps).
+    # Default 8; accum_steps=1 is legacy per-batch stepping (golden-pinned). Per-chunk: remainder flushes
+    # at the chunk boundary.
     accum_steps: int = 8
     num_epochs: int = 30
     num_workers: int = 4
     use_amp: bool = True             # request; runtime-gated by CUDA availability in utils/amp.py (Q2)
     seed: int = 42                   # global RNG seed (M7) — set_seed() at the top of train/evaluate scripts
-    # Scalar that picks best.pth + drives early stopping (M8): {"val_loss", "macro_f1", "crosses_f1"}.
-    # F1 metrics are maximized; the LR scheduler stays on val_loss under lr_schedule="plateau"
-    # (lr_schedule="warmup_cosine" decouples the LR from val_loss entirely — see below).
+    # M8: scalar that picks best.pth + drives early stop {"val_loss", "macro_f1", "crosses_f1"}
+    # (F1s maximized). Independent of the LR schedule below.
     selection_metric: str = "macro_f1"
     loss_weight: dict[str, float] = field(
         default_factory=lambda: {"actions": 0.8, "looks": 0.8, "crosses": 1.2}
@@ -234,11 +217,8 @@ class TrainCfg:
     sched_factor: float = 0.5          # ReduceLROnPlateau knobs (lr_schedule="plateau" only)
     sched_patience: int = 2
     sched_threshold: float = 1e-4
-    # LR schedule selector. "warmup_cosine" (default) = deterministic linear warmup -> cosine anneal
-    # to lr_min over num_epochs, stepped once per epoch with NO metric, so the noisy val_loss never
-    # controls the LR (it still drives selection/early-stop — relaxes schedule.yaml D1). The opt-in
-    # "plateau" arm = ReduceLROnPlateau on val_loss (legacy / golden-parity; sched_* apply and lr_min
-    # is the floor). lr_min is the cosine eta_min under "warmup_cosine".
+    # LR schedule: "warmup_cosine" (default) = linear warmup -> cosine to lr_min, no metric (val_loss
+    # never drives the LR) | "plateau" = legacy ReduceLROnPlateau on val_loss (sched_* + lr_min apply).
     lr_schedule: str = "warmup_cosine"
     warmup_epochs: int = 1             # linear-warmup length in epochs (warmup_cosine only; 0 = none)
     warmup_start_factor: float = 0.1   # first warmup epoch runs at warmup_start_factor * lr

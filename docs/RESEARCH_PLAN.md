@@ -11,6 +11,19 @@
 > those decisions into a research narrative, work packages, and a schedule. Where the two touch, the
 > audit's **Final attack order** is the authoritative execution sequence and this plan follows it.
 
+> **⚠️ Thesis spine pivoted (July 2026) — read this first.** The thesis is no longer structured around
+> the architecture / imbalance / calibration ablation study below. The new spine is **online detection
+> of pedestrian crossing-onset and the decomposition of the anchored→streaming performance gap** — see
+> [project-context-streaming-crossing-onset.md](project-context-streaming-crossing-onset.md) (the brief)
+> and [streaming-onset-plan.md](streaming-onset-plan.md) (the execution plan). **This document is
+> retained, not discarded:** the existing dense-window pipeline *is* the streaming formulation, so the
+> engineering foundation (WP0) and every RQ below survive as **supporting studies** under the new spine —
+> RQ3 (imbalance) and RQ6 (calibration) are elevated (they become the two halves of the gap
+> decomposition), RQ1 (backbone) feeds the curated streaming model, and RQ2/RQ4/RQ5 (fusion, motion,
+> efficiency) become within-model analyses. Read the RQs and work packages below as the *supporting*
+> layer; read the two streaming docs for the *headline*. The re-slot mapping is in
+> [streaming-onset-plan.md §5](streaming-onset-plan.md).
+
 ---
 
 ## 1. Project Summary

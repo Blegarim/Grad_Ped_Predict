@@ -166,13 +166,69 @@ Report the `tuned_*` columns only; `oracle_*` are same-split (leakage) diagnosti
 - Video inference (YOLO): `pip install -e .[infer]` → `python scripts/infer_video.py …`
 - Plots / qualitative: `python scripts/visualize.py …`
 
+## 9. Anchored protocol (2.5:1) — the cross-protocol matrix
+Steps 3–7 above build and train the **streaming** protocol (dense sliding windows, the ~37:1 deployment
+distribution). The thesis also needs the **anchored** protocol (Kotseruba fixed-TTE windows, ~2.5:1) so
+the same model can be trained and tested under both — the anchored→streaming gap is the headline. The
+*why* is in [docs/streaming-onset-plan.md](docs/streaming-onset-plan.md); this is the runbook. One toggle
+drives everything at train/eval time: **`--set data.protocol=anchored`** (default `streaming`) repoints
+train/val/test at the `*_benchmark` LMDBs together.
+
+**9a. Generate anchored sequences** (annotations only — the test set was already made in step 3):
+```powershell
+python scripts/make_sequences.py --benchmark --split train    # -> sequences_train_benchmark.pkl
+python scripts/make_sequences.py --benchmark --split val      # -> sequences_val_benchmark.pkl
+```
+Each prints `N windows (P event-positive)`. **Sanity-check the negatives** (`N − P`): anchored negatives
+come from non-crossers (every PIE ped has a `crossing_point` anchor), so `N − P` should be a healthy
+majority, not a sliver. A near-zero negative count means early-anchor drops thinned them — stop and check
+`benchmark_tte_*` before building LMDBs.
+
+**9b. Build anchored LMDBs.** Reuses the same PIE frames as the streaming build (same splits/sets), so
+fold it into the step-4 staging rounds — extract a split's sets once, build both its standard and
+benchmark LMDBs, then delete the frames:
+```powershell
+python scripts/build_lmdb_incremental.py --split train_benchmark   # disk-bounded, like --split train
+python scripts/build_lmdb.py --split val_benchmark                 # val frames present (round 1)
+# test_benchmark was built in step 4
+```
+No augmentation step — at 2.5:1 the anchored train LMDB is a single dir with nothing to oversample.
+
+**9c. Train under the anchored protocol.** Mild 2.5:1 needs no aggressive rebalancing, so turn the
+online sampler off for a faithful anchored baseline (leave the rest at defaults):
+```powershell
+python scripts/train.py --set data.protocol=anchored eval.model_type=full train.use_weighted_sampler=false
+```
+The run's `resolved_config.yaml` records `data.protocol`, so each run self-documents its protocol.
+
+**9d. The 2×2 matrix.** `data.protocol` at *eval* time selects the test distribution **and** the val split
+that thresholds are tuned on (recalibration to that prior). For each trained checkpoint, run the val→test
+pair once per protocol you want to test:
+```powershell
+# test the checkpoint on the STREAMING distribution:
+python scripts/evaluate.py --split val  --set data.protocol=streaming --checkpoint <run>/checkpoints/best.pth
+python scripts/evaluate.py --split test --set data.protocol=streaming --checkpoint <run>/checkpoints/best.pth
+# ...then on the ANCHORED distribution:
+python scripts/evaluate.py --split val  --set data.protocol=anchored  --checkpoint <run>/checkpoints/best.pth
+python scripts/evaluate.py --split test --set data.protocol=anchored  --checkpoint <run>/checkpoints/best.pth
+```
+Train {anchored, streaming} × test {anchored, streaming} = the four matrix cells. The headline cell is
+**train-anchored / test-streaming** (does precision collapse at the true prior, and does the val-tuned
+threshold recover it?).
+
+> **Threshold-file caveat (matrix hygiene).** `thresholds.json` lives in the run dir and is **not**
+> protocol-suffixed yet, so a val pass overwrites it. Always run a protocol's `--split val` pass
+> *immediately before* its `--split test` pass, or test will apply the other protocol's thresholds.
+> (Per-protocol threshold files are a tracked follow-up — see the plan doc §8.)
+
 ---
 
 ### Critical path
 install (`.[dev]` + GPU torch) → gate → drop PIE into `data/` (incl. `annotations_vehicle/`) →
 `make_sequences.py --split all` + `--benchmark` → `count_labels.py --from-sequences` (re-pin) → build LMDBs (val/test
 standard, train incremental, + `test_benchmark`) → `augment_dataset.py` → `train.py` → `evaluate.py`
-(val then test).
+(val then test). **Anchored protocol (§9)** branches after data acquisition: `make_sequences.py --benchmark
+--split {train,val}` → build `*_benchmark` LMDBs → `train.py`/`evaluate.py --set data.protocol=anchored`.
 
 ### Gotchas
 - The **GPU torch reinstall** (step 1) is easy to miss — without it you silently train on CPU.
@@ -226,6 +282,8 @@ So **everything below is reached through `--set`**, validated against the datacl
 | `lmdb_val` | `preprocessed_val` |
 | `lmdb_test` | `preprocessed_test` |
 | `lmdb_test_benchmark` | `preprocessed_test_benchmark` |
+| `lmdb_train_benchmark` | `[preprocessed_train_benchmark]` (anchored protocol) |
+| `lmdb_val_benchmark` | `preprocessed_val_benchmark` (anchored protocol) |
 | `log_dir` / `ckpt_dir` / `run_ckpt_dir` | `training_log` / `best_model_outputs` / `model_outputs` (legacy) |
 | `runs_dir` | `outputs/runs` |
 
@@ -247,6 +305,7 @@ So **everything below is reached through `--set`**, validated against the datacl
 | `benchmark_obs_len` | `16` | M5 TTE-protocol obs length |
 | `benchmark_tte_min` / `benchmark_tte_max` | `30` / `60` | TTE sampling window |
 | `benchmark_overlap` | `0.6` | benchmark window overlap |
+| `protocol` | `streaming` | S1 pivot: LMDB set for train/eval — `streaming` (~37:1) \| `anchored` (~2.5:1); the cross-protocol-matrix switch (§9) |
 | `min_track_size` / `fstride` | `10` / `1` | PIE source opts |
 | `data_split_type` / `seq_type` | `default` / `all` | |
 | `squarify_ratio` / `height_min` / `height_max` | `0.0` / `0.0` / `null` | PIE bbox opts (`null` → +inf) |

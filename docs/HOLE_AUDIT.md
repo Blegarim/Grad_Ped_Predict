@@ -29,6 +29,14 @@ threshold on the test set* (M2), which silently compensates. The reported `opt_*
 not just optimistic — they hide the imbalance-stack over-correction from you. M1 + M2 + M10 must be
 resolved together, and they map directly onto the calibration/uncertainty research scope.
 
+> **July 2026 re-reading (streaming pivot).** That 2.8% test rate is not a nuisance to be tuned away — it
+> **is the true deployment base rate** of an imminent crossing-onset, and the M1 collapse is the textbook
+> "raw ~37:1 collapses a from-scratch ViT." Under the thesis pivot (see
+> [streaming-onset-plan.md](streaming-onset-plan.md)), M1/M2/M10 are recast: the imbalance is the
+> *streaming* condition, M2's val-tuned recalibration is the fixable half of the anchored→streaming gap
+> (`G_prior`), and the residual is the hard-negative half (`G_hardneg`). The fixes below still stand; only
+> their framing is elevated from "engineering hygiene" to "the measurement."
+
 ---
 
 ## Section M — Methodology (research validity)

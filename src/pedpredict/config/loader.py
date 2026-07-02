@@ -65,6 +65,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
 _FRAME_POOLS = frozenset({"logsumexp", "max", "mean"})  # CrossAttentionModule frame-pool modes (2.3)
 _SELECTION_METRICS = frozenset({"val_loss", "macro_f1", "crosses_f1"})  # M8 best-ckpt/early-stop scalar
+_PROTOCOLS = frozenset({"streaming", "anchored"})  # S1 pivot: data.protocol LMDB-set selector
 
 
 class ConfigError(ValueError):
@@ -270,6 +271,8 @@ def validate_config(root: RootCfg) -> None:
         )
     if not (0.0 <= d.benchmark_overlap < 1.0):
         raise ConfigError(f"data.benchmark_overlap must be in [0, 1); got {d.benchmark_overlap}")
+    if d.protocol not in _PROTOCOLS:
+        raise ConfigError(f"data.protocol must be one of {sorted(_PROTOCOLS)}; got {d.protocol!r}")
 
     if set(m.num_classes) != _TASK_KEYS:
         raise ConfigError(f"model.num_classes keys must be {sorted(_TASK_KEYS)}; got {sorted(m.num_classes)}")

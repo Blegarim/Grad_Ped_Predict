@@ -31,6 +31,9 @@ benchmark_obs_len: 16
 benchmark_tte_min: 30
 benchmark_tte_max: 60
 benchmark_overlap: 0.6
+# S1 pivot — LMDB set for train/eval (the cross-protocol-matrix switch): "streaming" (standard ~37:1
+# v2 windows) | "anchored" (Kotseruba benchmark ~2.5:1). Does not change how windows are generated.
+protocol: streaming
 # PIE source opts (generate_data_trajectory_sequence) — mirror the OLD data_opts literals
 min_track_size: 10
 fstride: 1

@@ -35,9 +35,8 @@ from pedpredict.training.schedule import _TRAINABLE_SUBSTRINGS, PhaseResult
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "trainer_step.pt"
 _CPU = torch.device("cpu")
 _TASKS = ("actions", "looks", "crosses")
-# trainer_step.pt's init_state is a legacy full model (OLD ViT schedule). The A1 redesign is now
-# the default, so build every model that loads (or round-trips a checkpoint of) that state from a
-# legacy-ViT-pinned config — otherwise strict load fails on the changed param shapes.
+# init_state is a legacy full model (OLD ViT). The A1 redesign is now default, so build anything that
+# loads or round-trips that state from a legacy-pinned config (else strict load fails on shapes).
 _LEGACY_VIT = dict(
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],

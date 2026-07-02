@@ -31,9 +31,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _CONFIG_DIR = _REPO_ROOT / "configs"
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "legacy_config.json"
 
-# The live ViT default is the A1 redesign; the legacy schedule (dimension collapse + 2x2 windows)
-# is pinned here so the byte-for-byte legacy-config parity guard survives the default change
-# (mirrors how motion_norm="per_sequence" / fusion_residual=False pin other legacy arms).
+# Legacy ViT schedule (the live default is the A1 redesign); pinned so the legacy-config parity
+# guard survives the default change.
 _LEGACY_VIT = dict(
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
@@ -196,6 +195,15 @@ def test_validation_benchmark_windowing() -> None:
 def test_validation_num_classes_keys() -> None:
     with pytest.raises(ConfigError):
         load_config(_CONFIG_DIR, overrides=["model.num_classes={actions: 2, looks: 2}"])
+
+
+def test_validation_protocol_mode() -> None:
+    """S1 pivot: data.protocol must be 'streaming' (default) or 'anchored'."""
+    assert load_config(_CONFIG_DIR).data.protocol == "streaming"
+    with pytest.raises(ConfigError, match="protocol"):
+        load_config(_CONFIG_DIR, overrides=["data.protocol=benchmark"])
+    for mode in ("streaming", "anchored"):
+        assert load_config(_CONFIG_DIR, overrides=[f"data.protocol={mode}"]).data.protocol == mode
 
 
 def test_validation_vit_window_tiling() -> None:

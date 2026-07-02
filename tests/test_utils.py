@@ -14,7 +14,7 @@ import re
 import torch
 
 from pedpredict.config.schema import PathsCfg
-from pedpredict.paths import find_project_root, resolve_paths
+from pedpredict.paths import find_project_root, protocol_lmdb_dirs, resolve_paths
 from pedpredict.utils import (
     CsvLogger,
     create_run_dir,
@@ -180,3 +180,22 @@ def test_resolve_paths_roots_relative_and_keeps_absolute(tmp_path) -> None:
     assert resolved.lmdb_train[0] == tmp_path.resolve() / "preprocessed_train"
     assert resolved.runs_dir == tmp_path.resolve() / "outputs" / "runs"
     assert resolved.lmdb_test == abs_test           # absolute entry passes through unchanged
+    assert isinstance(resolved.lmdb_train_benchmark, tuple)
+    assert resolved.lmdb_train_benchmark[0] == tmp_path.resolve() / "preprocessed_train_benchmark"
+    assert resolved.lmdb_val_benchmark == tmp_path.resolve() / "preprocessed_val_benchmark"
+
+
+def test_protocol_lmdb_dirs_selects_by_protocol(tmp_path) -> None:
+    """S1 pivot: the single switch behind the cross-protocol matrix picks standard vs benchmark dirs."""
+    resolved = resolve_paths(PathsCfg(), root=tmp_path)
+    streaming = protocol_lmdb_dirs(resolved, "streaming")
+    anchored = protocol_lmdb_dirs(resolved, "anchored")
+
+    assert streaming == (resolved.lmdb_train, resolved.lmdb_val, resolved.lmdb_test)
+    assert anchored == (
+        resolved.lmdb_train_benchmark, resolved.lmdb_val_benchmark, resolved.lmdb_test_benchmark,
+    )
+    # anchored train is a single dir (no aug union); streaming train is base + aug
+    assert len(anchored[0]) == 1 and len(streaming[0]) == 2
+    # unknown protocol is defensive-only -> streaming (validate_config rejects it upstream)
+    assert protocol_lmdb_dirs(resolved, "nonsense") == streaming
