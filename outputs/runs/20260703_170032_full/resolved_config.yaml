@@ -1,0 +1,241 @@
+paths:
+  pie_root: data
+  sequences_dir: data/sequences
+  lmdb_train:
+  - preprocessed_train
+  - preprocessed_train_aug
+  lmdb_train_balanced:
+  - preprocessed_train_balanced
+  lmdb_val: preprocessed_val
+  lmdb_test: preprocessed_test
+  lmdb_test_benchmark: preprocessed_test_benchmark
+  lmdb_train_benchmark:
+  - preprocessed_train_benchmark
+  lmdb_val_benchmark: preprocessed_val_benchmark
+  log_dir: training_log
+  ckpt_dir: best_model_outputs
+  run_ckpt_dir: model_outputs
+  runs_dir: outputs/runs
+data:
+  max_seq_len: 20
+  motion_dim: 8
+  source_width: 1920
+  source_height: 1080
+  img_height: 128
+  img_width: 128
+  read_context_height: 224
+  read_context_width: 224
+  context_scale: 3.0
+  jpeg_quality: 90
+  chunk_size: 5000
+  lmdb_map_size_bytes: 4294967296
+  lmdb_map_size_floor_gib: 4.0
+  lmdb_map_size_safety: 1.5
+  preprocess_num_workers: 8
+  preprocess_prefetch_factor: 2
+  seq_len: 20
+  stride: 3
+  future_offset: 30
+  tol: 2
+  benchmark_obs_len: 20
+  benchmark_tte_min: 30
+  benchmark_tte_max: 60
+  benchmark_overlap: 0.7
+  protocol: anchored
+  min_track_size: 10
+  fstride: 1
+  data_split_type: default
+  seq_type: all
+  squarify_ratio: 0.0
+  height_min: 0.0
+  height_max: null
+  norm_mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  norm_std:
+  - 0.229
+  - 0.224
+  - 0.225
+model:
+  d_model: 128
+  in_channels: 3
+  motion_dim: 8
+  motion_norm: image
+  motion_norm_image_size:
+  - 1920
+  - 1080
+  ego_speed_scale: 50.0
+  stage_dims:
+  - 48
+  - 96
+  - 192
+  - 384
+  layer_nums:
+  - 2
+  - 2
+  - 6
+  - 2
+  head_nums:
+  - 2
+  - 4
+  - 8
+  - 16
+  window_size:
+  - 7
+  - 7
+  - 7
+  - null
+  mlp_ratio:
+  - 4
+  - 4
+  - 4
+  - 4
+  drop_path: 0.15
+  attn_dropout: 0.15
+  proj_dropout: 0.15
+  dropout: 0.15
+  motion_hidden_dim: 168
+  motion_num_layers: 2
+  motion_num_heads: 8
+  motion_dropout: 0.3
+  head_dropout: 0.1
+  num_classes:
+    actions: 2
+    looks: 2
+    crosses: 2
+  cross_attn_num_heads: 4
+  use_frame_crosses: true
+  frame_pool: logsumexp
+  emit_crosses_pooled: true
+  fusion_residual: true
+train:
+  lr: 0.0001
+  weight_decay: 1.0e-05
+  batch_size: 4
+  accum_steps: 8
+  num_epochs: 30
+  num_workers: 4
+  use_amp: true
+  seed: 42
+  selection_metric: macro_f1
+  loss_weight:
+    actions: 0.8
+    looks: 0.8
+    crosses: 1.2
+  use_class_weights: false
+  use_weighted_sampler: false
+  sampler_powers:
+    crosses: 0.5
+    actions: 0.3
+    looks: 0.3
+  sampler_min_weight: 1.0e-06
+  grad_clip_max_norm: 1.0
+  early_stop_patience: 20
+  early_stop_min_delta: 0.001
+  sched_factor: 0.5
+  sched_patience: 2
+  sched_threshold: 0.0001
+  lr_schedule: warmup_cosine
+  warmup_epochs: 1
+  warmup_start_factor: 0.1
+  lr_min: 1.0e-06
+  chunk_preload_depth: 3
+  chunk_warm_ram_threshold: 96.0
+  chunk_warm_mem_interval: 1.0
+  chunk_warm_mem_timeout: null
+  chunk_queue_timeout: 300.0
+  dataloader_prefetch_factor: 2
+eval:
+  batch_size: 16
+  num_workers: 4
+  model_type: full
+  bench_batch_size: 1
+  bench_warmup: 10
+  latency_trials: 50
+  threshold_sweep_lo: 0.1
+  threshold_sweep_hi: 0.9
+  threshold_sweep_step: 0.05
+infer:
+  detector_weights: yolo11n.pt
+  detector_class_idx: 0
+  detector_conf: 0.3
+  window_stride: 1
+  batch_size: 32
+  default_fps: 30.0
+  draw_color_chips: true
+balance:
+  enabled: false
+  cross_pos_ratio: 0.3
+  target_action_rate: 0.5
+  target_look_rate: 0.5
+  x11_select: lower
+  subsample_cross1: true
+  allow_approx: true
+  on_infeasible: empty
+  legacy_x00_sign_bug: false
+  seed: 0
+augment:
+  enabled: true
+  n_augs_min: 2
+  n_augs_max: 4
+  p_flip: 0.5
+  p_color: 0.4
+  p_noise: 0.3
+  p_erase: 0.2
+  color_brightness: 0.2
+  color_contrast: 0.2
+  color_saturation: 0.3
+  color_hue: 0.1
+  motion_noise_std: 0.02
+  erase_n_frames: 2
+  crosses_multiplier: 6
+  looks_multiplier: 3
+  seed: 42
+schedule:
+  enabled: false
+  phases:
+  - name: balanced_warmup
+    data_source: balanced
+    lr: 0.0001
+    max_epochs: 10
+    early_stop_patience: 5
+    early_stop_min_delta: 0.001
+    weight_decay: 1.0e-05
+    sched_factor: 0.5
+    sched_patience: 2
+    sched_threshold: 0.0001
+    freeze_backbone: false
+    reload_best: false
+  - name: full_finetune
+    data_source: augmented
+    lr: 1.0e-05
+    max_epochs: 20
+    early_stop_patience: 5
+    early_stop_min_delta: 0.001
+    weight_decay: 1.0e-05
+    sched_factor: 0.5
+    sched_patience: 2
+    sched_threshold: 0.0001
+    freeze_backbone: false
+    reload_best: true
+  - name: decouple_classifiers
+    data_source: augmented
+    lr: 5.0e-05
+    max_epochs: 5
+    early_stop_patience: 3
+    early_stop_min_delta: 0.001
+    weight_decay: 1.0e-05
+    sched_factor: 0.5
+    sched_patience: 2
+    sched_threshold: 0.0001
+    freeze_backbone: true
+    reload_best: true
+export:
+  opset: 17
+  output_dir: outputs/onnx
+  include_temporal_weights: false
+  parity_atol: 0.0001
+  parity_rtol: 0.0001
+  parity_batch_size: 2
+  parity_seq_len: 4
