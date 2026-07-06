@@ -31,7 +31,7 @@ import torch.nn as nn
 from pedpredict.config import ModelCfg
 from pedpredict.models.cross_attention import CrossAttentionModule
 from pedpredict.models.motion_encoder import MotionEncoder
-from pedpredict.models.vit import ViT_Hierarchical
+from pedpredict.models.timm_backbone import build_visual_backbone
 
 LogitsDict = dict[str, torch.Tensor]
 
@@ -42,7 +42,7 @@ class EnsembleModel(nn.Module):
     def __init__(
         self,
         motion_enc: MotionEncoder,
-        vit: ViT_Hierarchical,
+        vit: nn.Module,  # ViT_Hierarchical (legacy) or a TimmBackbone — same [B,T,3,H,W]->[B,T,D] contract
         cross_attention: CrossAttentionModule,
         d_model: int = 128,
     ) -> None:
@@ -63,7 +63,7 @@ class EnsembleModel(nn.Module):
         """
         return cls(
             motion_enc=MotionEncoder.from_config(cfg),
-            vit=ViT_Hierarchical.from_config(cfg, img_size),
+            vit=build_visual_backbone(cfg, img_size),
             cross_attention=CrossAttentionModule.from_config(cfg),
             d_model=cfg.d_model,
         )

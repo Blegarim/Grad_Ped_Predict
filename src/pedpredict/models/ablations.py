@@ -56,7 +56,7 @@ from pedpredict.models.heads import (
     emit_task_logits,
 )
 from pedpredict.models.motion_encoder import MotionEncoder
-from pedpredict.models.vit import ViT_Hierarchical
+from pedpredict.models.timm_backbone import build_visual_backbone
 
 
 def _head_kwargs(cfg: ModelCfg) -> dict:
@@ -276,7 +276,7 @@ class VisualOnlyModel(nn.Module):
 
     def __init__(
         self,
-        vit: ViT_Hierarchical,
+        vit: nn.Module,  # ViT_Hierarchical (legacy) or a TimmBackbone — same [B,T,3,H,W]->[B,T,D] contract
         d_model: int = 128,
         num_classes_dict: dict[str, int] | None = None,
         dropout: float = 0.1,
@@ -301,7 +301,7 @@ class VisualOnlyModel(nn.Module):
     @classmethod
     def from_config(cls, cfg: ModelCfg, img_size: int) -> VisualOnlyModel:
         """Build from ``cfg`` (== OLD ``get_model('visual_only', ...)``); ``img_size`` sizes the ViT (2.1)."""
-        return cls(vit=ViT_Hierarchical.from_config(cfg, img_size), **_head_kwargs(cfg))
+        return cls(vit=build_visual_backbone(cfg, img_size), **_head_kwargs(cfg))
 
     def forward(self, images_context: torch.Tensor) -> dict[str, torch.Tensor]:
         """``images_context [B, T, 3, H, W]`` -> per-task logits dict."""
@@ -327,7 +327,7 @@ class VanillaConcatModel(nn.Module):
     def __init__(
         self,
         motion_enc: MotionEncoder,
-        vit: ViT_Hierarchical,
+        vit: nn.Module,  # ViT_Hierarchical (legacy) or a TimmBackbone — same [B,T,3,H,W]->[B,T,D] contract
         d_model: int = 128,
         num_classes_dict: dict[str, int] | None = None,
         dropout: float = 0.1,
@@ -363,7 +363,7 @@ class VanillaConcatModel(nn.Module):
         """Build from ``cfg`` (== OLD ``get_model('vanilla_concat', ...)``); ``img_size`` sizes the ViT."""
         return cls(
             motion_enc=MotionEncoder.from_config(cfg),
-            vit=ViT_Hierarchical.from_config(cfg, img_size),
+            vit=build_visual_backbone(cfg, img_size),
             **_head_kwargs(cfg),
         )
 

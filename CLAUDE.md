@@ -51,7 +51,7 @@ tight crop + motion → MotionEncoder    ───┘
 
 | Component | Role |
 |---|---|
-| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. |
+| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. The visual stream is **swappable** via `model.vit_backbone` (RQ1): `legacy` (default, this module) \| a `timm` model name (e.g. `tiny_vit_5m_224`) builds `TimmBackbone` (`models/timm_backbone.py`) behind the same `[B,T,3,H,W]→[B,T,d_model]` contract, `model.vit_pretrained` gating ImageNet weights — see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). |
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + fusion + GRU + learned pos-encoding + MultiheadAttention. In-forward motion norm is config-gated: `model.motion_norm` = `image` (fixed frame-dim scale, default) \| `per_sequence` (legacy z-norm, A4 ablation arm). Outputs `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → pooling MLP → softmax temporal weights → per-task classifier heads. `model.fusion_residual` (A3/RQ2, **default on**) adds the motion query back at fusion (`attn_output + motion_feats`) so motion *content* reaches the heads, not just motion-as-attention-mask; `=false` is the no-residual A3 ablation (golden-pinned). |
 | `EnsembleModel` | Wires all components; applies **LayerNorm before fusion**; `return_feats` path used by viz. |
@@ -96,7 +96,11 @@ are below. The gate that must pass before any change lands: `ruff check .` and `
 ## Data Pipeline
 
 Offline → runtime: PIE → sequence windows (`make_sequences`) → LMDB chunks (`build_lmdb`) → offline
-balance/augment → runtime `LMDBChunkDataset` + collate. Sequence-gen params (`seq_len`, `stride`,
+balance/augment → runtime `LMDBChunkDataset` + collate. The runtime dataset also supports **config-gated
+on-the-fly augmentation** (`augment.runtime`, default off, train split only, seeded per run+epoch+index):
+fresh ratio-preserving transforms per sample in the read path (applied pre-ImageNet-norm) — a data-scarcity
+regularizer, distinct from the offline minority-oversampling `augment.enabled` and NOT one of the three
+imbalance levers below. Sequence-gen params (`seq_len`, `stride`,
 `future_offset`, `context_scale`, …) live in `configs/data.yaml`; the **LMDB schema v2** key/value contract
 is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim motion channel table in
 [data/transforms.py](src/pedpredict/data/transforms.py). Crops are stored un-normalized (ImageNet norm at

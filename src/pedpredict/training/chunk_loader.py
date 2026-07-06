@@ -45,12 +45,14 @@ import multiprocessing as mp
 import random
 import warnings
 from collections.abc import Callable, Iterator, Sequence
+from functools import partial
 from pathlib import Path
 from queue import Empty
 
 from torch.utils.data import DataLoader
 
 from pedpredict.config.schema import RootCfg
+from pedpredict.data.augment import RuntimeAugmentor
 from pedpredict.data.collate import build_collate
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
 from pedpredict.data.lmdb_warm import WarmResult, warm_lmdb_chunk
@@ -286,6 +288,10 @@ class ChunkPrefetcher:
         # ``random`` (module) and ``random.Random`` both expose ``.shuffle``; default to global RNG (OLD).
         self._rng = shuffle_rng if shuffle_rng is not None else random
         self._collate = build_collate(cfg.data)
+        # On-the-fly train-time aug (opt-in via augment.runtime); train loaders only, never val.
+        self._augmentor = (
+            RuntimeAugmentor(cfg.augment, cfg.data.source_width) if cfg.augment.runtime else None
+        )
         self._closed = False
 
     @classmethod
@@ -310,7 +316,7 @@ class ChunkPrefetcher:
         paths = list(self.train_lmdb_paths)
         self._rng.shuffle(paths)
         with ChunkLoaderIterator(
-            paths, self._build_train_loader, skip_policy="warn", **self._iter_kwargs
+            paths, partial(self._build_train_loader, epoch=epoch), skip_policy="warn", **self._iter_kwargs
         ) as iterator:
             yield from iterator
 
@@ -363,9 +369,16 @@ class ChunkPrefetcher:
             kwargs["prefetch_factor"] = t.dataloader_prefetch_factor
         return kwargs
 
-    def _build_train_loader(self, path: str) -> DataLoader:
+    def _build_train_loader(self, path: str, epoch: int = 0) -> DataLoader:
         """Train loader with the optional online ``WeightedRandomSampler`` (OLD train.py:413-454)."""
-        dataset = LMDBChunkDataset.from_config(path, self.cfg.data)
+        if self._augmentor is not None:
+            # run seed + epoch -> reproducible within a run, fresh each epoch (per-sample seed adds idx)
+            aug_seed = self.cfg.train.seed * 1_000_003 + epoch
+            dataset = LMDBChunkDataset.from_config(
+                path, self.cfg.data, augmentor=self._augmentor, aug_seed=aug_seed
+            )
+        else:
+            dataset = LMDBChunkDataset.from_config(path, self.cfg.data)
         kwargs = self._loader_kwargs()
         if self.cfg.train.use_weighted_sampler:
             scan = self.scan_cache.get(path, dataset.seq_ids)   # aligns weights to dataset order (1.6)

@@ -19,6 +19,11 @@ drop_path: 0.15
 attn_dropout: 0.15
 proj_dropout: 0.15
 dropout: 0.15
+# RQ1 visual-backbone swap (docs/BACKBONE_STUDY.md): legacy = from-scratch A1 ViT (golden-pinned
+# default) | a timm model name (e.g. tiny_vit_5m_224) = pretrained hierarchical drop-in. The ViT
+# stage schedule above only configures legacy; it is inert when a timm backbone is selected.
+vit_backbone: legacy
+vit_pretrained: true             # load timm ImageNet weights (ignored when vit_backbone=legacy)
 motion_hidden_dim: 168
 motion_num_layers: 2
 motion_num_heads: 8

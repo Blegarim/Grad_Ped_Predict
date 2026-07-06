@@ -25,7 +25,7 @@ tight crop + motion → MotionEncoder    ───┘
 
 | Component | Role |
 |---|---|
-| `ViT_Hierarchical` | Hierarchical windowed-attention ViT over context crops (A1 monotonic stage schedule `[48,96,192,384]`, 7×7 windows) → `[B, T, d_model]`. |
+| `ViT_Hierarchical` | Hierarchical windowed-attention ViT over context crops (A1 monotonic stage schedule `[48,96,192,384]`, 7×7 windows) → `[B, T, d_model]`. Swappable for a pretrained `timm` backbone via `model.vit_backbone` (RQ1, see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md)); `legacy` is the default. |
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + GRU + attention → `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → temporal pooling → per-task heads. |
 | `EnsembleModel` | Wires the branches (LayerNorm before fusion); ablations swap or drop a branch. |
@@ -43,7 +43,7 @@ src/pedpredict/        # installable package (pip install -e .)
   utils/    seed device amp memory logging
   data/     pie_sequences transforms lmdb_writer lmdb_dataset lmdb_warm
             balance augment collate sampler stats
-  models/   vit geometry motion_encoder cross_attention ensemble ablations heads registry
+  models/   vit timm_backbone geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask.py
   training/ trainer chunk_loader callbacks schedule metrics distribution
   eval/     evaluate benchmark inference

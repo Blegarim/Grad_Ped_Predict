@@ -3,7 +3,8 @@
 # into single-transform augmented copies and written to preprocessed_train_aug (lmdb_train[1]),
 # unioned at train time with preprocessed_train. Negatives are NOT re-emitted here.
 enabled: true
-n_augs_min: 2            # OLD random.randint(2, 4) single-transform variants per call
+runtime: false          # on-the-fly train-time aug (ratio-preserving scarcity regularizer); off by default
+n_augs_min: 2           # OLD random.randint(2, 4) single-transform variants per call
 n_augs_max: 4
 p_flip: 0.5
 p_color: 0.4

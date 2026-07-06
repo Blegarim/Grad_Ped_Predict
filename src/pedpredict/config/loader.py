@@ -232,6 +232,11 @@ def validate_config(root: RootCfg) -> None:
         )
     if m.frame_pool not in _FRAME_POOLS:
         raise ConfigError(f"model.frame_pool must be one of {sorted(_FRAME_POOLS)}; got {m.frame_pool!r}")
+    # RQ1 backbone selector: "legacy" (the from-scratch A1 ViT) or a timm model name. The name is
+    # validated lazily at build time (timm.create_model raises on an unknown name) to keep config
+    # loading free of the heavy timm import; here we only reject an empty selector.
+    if not m.vit_backbone.strip():
+        raise ConfigError("model.vit_backbone must be non-empty ('legacy' or a timm model name)")
 
     if d.motion_dim != m.motion_dim:  # B7: dataset-slice / model-input agreement
         raise ConfigError(f"data.motion_dim ({d.motion_dim}) != model.motion_dim ({m.motion_dim})")

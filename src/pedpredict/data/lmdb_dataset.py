@@ -20,6 +20,7 @@ import io
 import logging
 import os
 import pickle
+import random
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,7 +32,12 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from pedpredict.config.schema import DataCfg
-from pedpredict.data.transforms import ProcessedSample, build_read_transforms
+from pedpredict.data.transforms import (
+    ProcessedSample,
+    build_read_transforms,
+    imagenet_normalize,
+    resize_to_tensor,
+)
 
 __all__ = ["LMDBChunkDataset", "read_raw_sample"]
 
@@ -92,6 +98,10 @@ class LMDBChunkDataset(Dataset):
         transform_tight: Callable[[Image.Image], Tensor],
         transform_context: Callable[[Image.Image], Tensor],
         motion_dim: int | None = None,
+        *,
+        augmentor: Callable[[ProcessedSample, random.Random], ProcessedSample] | None = None,
+        aug_seed: int = 0,
+        normalize: Callable[[Tensor], Tensor] | None = None,
     ) -> None:
         self.lmdb_path = str(lmdb_path)
         self.transform_tight = transform_tight
@@ -99,6 +109,11 @@ class LMDBChunkDataset(Dataset):
         # v2 store-wide/slice-narrow contract (A4/M9): the chunk stores MOTION_STORE_DIM channels;
         # __getitem__ slices to this consumed width. None -> return the full stored vector.
         self.motion_dim = motion_dim
+        # Runtime augmentation (train split only): transforms decode to un-normalized [0, 1] and
+        # `normalize` is applied AFTER `augmentor` (color jitter needs un-normalized crops).
+        self._augmentor = augmentor
+        self._aug_seed = aug_seed
+        self._normalize = normalize
         self._env: lmdb.Environment | None = None
         self._pid: int | None = None
 
@@ -116,10 +131,28 @@ class LMDBChunkDataset(Dataset):
         _LOGGER.debug("Loaded index from %s: %d sequences", self.lmdb_path, len(self.seq_ids))
 
     @classmethod
-    def from_config(cls, lmdb_path: str | Path, cfg: DataCfg) -> LMDBChunkDataset:
-        """Build with config-driven read transforms + the ``cfg.motion_dim`` consumed-width slice."""
-        transform_tight, transform_context = build_read_transforms(cfg)
-        return cls(lmdb_path, transform_tight, transform_context, motion_dim=cfg.motion_dim)
+    def from_config(
+        cls,
+        lmdb_path: str | Path,
+        cfg: DataCfg,
+        *,
+        augmentor: Callable[[ProcessedSample, random.Random], ProcessedSample] | None = None,
+        aug_seed: int = 0,
+    ) -> LMDBChunkDataset:
+        """Build with config-driven read transforms + the ``cfg.motion_dim`` consumed-width slice.
+
+        With an ``augmentor`` (train split only) frames decode to un-normalized ``[0, 1]`` and the
+        ImageNet norm is deferred to after augmentation; without one the read path is unchanged.
+        """
+        if augmentor is None:
+            transform_tight, transform_context = build_read_transforms(cfg)
+            return cls(lmdb_path, transform_tight, transform_context, motion_dim=cfg.motion_dim)
+        transform_tight = resize_to_tensor((cfg.img_height, cfg.img_width))
+        transform_context = resize_to_tensor((cfg.read_context_height, cfg.read_context_width))
+        return cls(
+            lmdb_path, transform_tight, transform_context, motion_dim=cfg.motion_dim,
+            augmentor=augmentor, aug_seed=aug_seed, normalize=imagenet_normalize(cfg),
+        )
 
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
@@ -184,9 +217,22 @@ class LMDBChunkDataset(Dataset):
                     f"Chunk may be corrupted: {self.lmdb_path}"
                 )
 
+        tight, context = torch.stack(imgs_tight), torch.stack(imgs_context)
+        if self._augmentor is not None:
+            assert self._normalize is not None  # from_config pairs augmentor with the deferred norm
+            ps = ProcessedSample(
+                images_tight=tight, images_context=context, motions=motions,
+                actions=torch.as_tensor(actions), looks=torch.as_tensor(looks),
+                crosses=torch.as_tensor(crosses), track_id=track_id, tte=meta.get("tte"),
+            )
+            ps = self._augmentor(ps, random.Random(self._aug_seed * 1_000_003 + idx))
+            tight = self._normalize(ps.images_tight)
+            context = self._normalize(ps.images_context)
+            motions = ps.motions
+
         sample: dict[str, Tensor | str | int] = {
-            "images_tight": torch.stack(imgs_tight),
-            "images_context": torch.stack(imgs_context),
+            "images_tight": tight,
+            "images_context": context,
             "motions": motions,
             "actions": actions,
             "looks": looks,

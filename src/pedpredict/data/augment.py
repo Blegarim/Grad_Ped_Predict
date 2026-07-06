@@ -35,7 +35,8 @@ from __future__ import annotations
 
 import os
 import random
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -58,6 +59,7 @@ __all__ = [
     "TransformName",
     "AugItem",
     "SequenceAugmenter",
+    "RuntimeAugmentor",
     "plan_oversample",
     "summarize_plan",
     "SampleSource",
@@ -179,6 +181,44 @@ def _probs(cfg: AugmentCfg) -> dict[TransformName, float]:
         TransformName.NOISE: cfg.p_noise,
         TransformName.ERASE: cfg.p_erase,
     }
+
+
+@contextmanager
+def _isolated_torch_seed(seed: int) -> Iterator[None]:
+    """Seed the global torch RNG for one op, then restore prior state — keeps the color/noise draws
+    deterministic per sample without perturbing the training RNG (matters at ``num_workers=0``)."""
+    state = torch.random.get_rng_state()
+    torch.manual_seed(seed)
+    try:
+        yield
+    finally:
+        torch.random.set_rng_state(state)
+
+
+class RuntimeAugmentor:
+    """On-the-fly train-time augmentation (S-scarcity): a fresh random composition of the four
+    :class:`SequenceAugmenter` transforms per sample, on un-normalized ``[0, 1]`` crops (before ImageNet
+    norm — color jitter is undefined on normalized tensors). Ratio-preserving (every sample, both
+    classes), so it is the data-scarcity regularizer, not the offline minority-oversampling lever. All
+    randomness flows from the passed per-sample ``rng`` (seeded by the dataset from run seed + epoch +
+    index), so the same run reproduces and each epoch varies."""
+
+    def __init__(self, cfg: AugmentCfg, source_width: int) -> None:
+        self._aug = SequenceAugmenter(cfg, source_width)
+        self._probs = _probs(cfg)
+
+    def __call__(self, sample: ProcessedSample, rng: random.Random) -> ProcessedSample:
+        if rng.random() < self._probs[TransformName.FLIP]:
+            sample = self._aug.horizontal_flip(sample)
+        if rng.random() < self._probs[TransformName.COLOR]:
+            with _isolated_torch_seed(rng.randrange(2**31)):
+                sample = self._aug.color_augment(sample)
+        if rng.random() < self._probs[TransformName.NOISE]:
+            with _isolated_torch_seed(rng.randrange(2**31)):
+                sample = self._aug.motion_noise(sample)
+        if rng.random() < self._probs[TransformName.ERASE]:
+            sample = self._aug.random_erase_frames(sample, rng)
+        return sample
 
 
 def _expand(subset: list[int], multiplier: int, cfg: AugmentCfg, rng: random.Random) -> list[AugItem]:

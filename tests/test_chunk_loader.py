@@ -202,7 +202,7 @@ def test_val_loaders_use_raise_policy(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cl, "ChunkLoaderIterator", _recorder)
     paths = _make_chunks(tmp_path, 1)
     pf = ChunkPrefetcher(RootCfg(), paths, paths, mp_context=_InlineCtx())
-    pf._build_train_loader = lambda p: p
+    pf._build_train_loader = lambda p, epoch=0: p
     pf._build_val_loader = lambda p: p
     list(pf.epoch_loaders(0))
     list(pf.val_loaders())
@@ -279,8 +279,8 @@ def test_epoch_reshuffle_deterministic(tmp_path) -> None:
     inline = _InlineCtx()
     pf_a = ChunkPrefetcher(RootCfg(), paths, paths, shuffle_rng=random.Random(123), mp_context=inline)
     pf_b = ChunkPrefetcher(RootCfg(), paths, paths, shuffle_rng=random.Random(123), mp_context=inline)
-    pf_a._build_train_loader = lambda p: p   # bypass real dataset build; we only assert path order
-    pf_b._build_train_loader = lambda p: p
+    pf_a._build_train_loader = lambda p, epoch=0: p   # bypass real dataset build; assert path order only
+    pf_b._build_train_loader = lambda p, epoch=0: p
 
     order_a0 = list(pf_a.epoch_loaders(0))
     order_b0 = list(pf_b.epoch_loaders(0))

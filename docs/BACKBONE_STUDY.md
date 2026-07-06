@@ -1,6 +1,11 @@
 # Backbone Candidate Study (RQ1 / A1–A2) — design note
 
-**Status:** audit complete; **implementation pending confirmation.** This note picks concrete pretrained
+**Status:** audit complete; **step 1 (wrapper + config + shape/wiring tests) landed** — the drop-in
+mechanism is in `src/pedpredict/models/timm_backbone.py` (`TimmBackbone` + `build_visual_backbone`),
+selected by `model.vit_backbone` (`legacy` default | timm name) with `model.vit_pretrained` gating the
+weights; `tests/test_timm_backbone.py` covers factory dispatch + the `[B,T,3,H,W]→[B,T,d_model]` contract
+(offline, `pretrained=False`). **Steps 2–4 (the actual pretrained-vs-legacy training comparisons, the
+Pareto, the mechanism check) are pending — they are lab-PC runs.** This note picks concrete pretrained
 backbones to drop in for the visual stream and records *why*. It is the WP2 deliverable that
 [RESEARCH_PLAN.md](RESEARCH_PLAN.md) §WP2 calls for. Numbers below are **measured against the installed
 `timm` 1.0.20** (built offline, `pretrained=False`, `num_classes=0`, `global_pool='avg'`), not recalled —
@@ -77,8 +82,12 @@ narrative; (d) clean `num_features → frame_proj → 128` drop-in ✓ for all.
 **Lightweight #1 — primary: `tiny_vit_5m_224.dist_in22k` (5.07M).** The cleanest drop-in on every axis:
 **224 input matches the pipeline exactly** (no resolution surgery), genuinely **Swin-style window
 attention** so the architecture narrative survives the swap, and the **strongest pretraining** here
-(ImageNet-**22k** distillation). At 5.07M it is **param-matched to the current ViT (~5.6M)** → the *fair*
-RQ1 comparison (same budget, pretrained-hierarchical vs from-scratch).
+(ImageNet-**22k** distillation). At 5.07M it sits **just below the live A1 ViT** (measured 7.44M as the
+`vit` submodule of the `full` model → full model 8.25M vs 5.92M with this backbone) → the RQ1 comparison is
+**pretrained-and-slightly-smaller vs from-scratch-and-larger**; if it wins it wins on *fewer* params, which
+strengthens rather than confounds the result (it is not a strict same-budget match — no TinyViT tag lands
+exactly at 7.4M; 11M overshoots). The motion branch (0.69M) + cross-attention (0.13M) are identical across
+both, so all param deltas are the visual stream.
 
 **Lightweight #2 — mechanism diversity: `pvt_v2_b0.in1k` (3.41M).** A *different* hierarchical mechanism
 (spatial-reduction attention, not windows) at 224. Including it stops RQ1 from being a single-family

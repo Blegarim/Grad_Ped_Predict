@@ -77,10 +77,12 @@ class DataCfg:
     tol: int = 2
     # M5 benchmark eval set (test split): fixed-TTE windows around the PIE crossing_point, labeled by
     # the crossing event (Kotseruba et al. WACV 2021). Sampling stride = round(obs_len * (1 - overlap)).
-    benchmark_obs_len: int = 16
+    # obs_len=20 matches the streaming seq_len (same observation length across protocols); overlap=0.7 is
+    # the agreed benchmark default (both LMDB-built and config-canonical).
+    benchmark_obs_len: int = 20
     benchmark_tte_min: int = 30
     benchmark_tte_max: int = 60
-    benchmark_overlap: float = 0.6
+    benchmark_overlap: float = 0.7
     # S1 pivot — which LMDB set train/eval read (the cross-protocol-matrix switch): "streaming" (standard
     # dense-window v2 dirs, the ~37:1 deployment distribution) | "anchored" (Kotseruba benchmark dirs,
     # ~2.5:1). Resolved via paths.protocol_lmdb_dirs; does NOT change windowing (fixed at make_sequences).
@@ -121,6 +123,13 @@ class ModelCfg:
     attn_dropout: float = 0.15
     proj_dropout: float = 0.15
     dropout: float = 0.15
+    # RQ1/A1-A2 visual-backbone swap (docs/BACKBONE_STUDY.md): "legacy" = the from-scratch A1
+    # ViT_Hierarchical above (default, golden-pinned) | a timm model name (e.g. "tiny_vit_5m_224")
+    # = a pretrained hierarchical backbone dropped in behind the same
+    # [B,T,3,H,W]->[B,T,d_model] contract. The stage_dims/window_size/... fields above configure the
+    # legacy ViT only; they are inert when a timm backbone is selected.
+    vit_backbone: str = "legacy"
+    vit_pretrained: bool = True      # load timm ImageNet weights (ignored when vit_backbone="legacy")
     # MotionEncoder — mirror config.motion_enc_args_config() EXACTLY
     motion_hidden_dim: int = 168
     motion_num_layers: int = 2
@@ -300,6 +309,11 @@ class AugmentCfg:
     """
 
     enabled: bool = True              # offline augmentation is the default imbalance lever (policy 1.3)
+    # On-the-fly train-time augmentation: a fresh random composition of the four transforms per sample
+    # each epoch, in the dataset read path (train split only). Independent of `enabled` (offline
+    # minority-oversampling): `runtime` preserves the class ratio (every sample, both classes), so it is
+    # the data-scarcity regularizer, not an imbalance lever. Reuses the same transforms/probabilities.
+    runtime: bool = False
     # per-call compose: OLD random.randint(2, 4) single-transform variants drawn from the 4 below
     n_augs_min: int = 2
     n_augs_max: int = 4
