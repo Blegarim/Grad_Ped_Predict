@@ -718,10 +718,11 @@ def test_all_model_types_build_and_forward(mt: ModelType) -> None:
     tight, context, motions = _dummy_full_inputs(cfg)
     with torch.no_grad():
         out = forward_model(model, tight, context, motions)
-    expected = _FULL_KEYS if mt is ModelType.FULL else _ABLATION_KEYS_ON
+    # temporal_weights is structurally CrossAttentionModule-only (full + pose_full).
+    emits_tw = mt in (ModelType.FULL, ModelType.POSE_FULL)
+    expected = _FULL_KEYS if emits_tw else _ABLATION_KEYS_ON
     assert set(out) == expected
-    # crosses_frame is the ONLY supervised key — present and finite for all four types.
+    # crosses_frame is the ONLY supervised key — present and finite for every type.
     assert out["crosses_frame"].shape == (2, cfg.num_classes["crosses"])
     assert torch.isfinite(out["crosses_frame"]).all()
-    # temporal_weights is structurally full-model-only.
-    assert ("temporal_weights" in out) is (mt is ModelType.FULL)
+    assert ("temporal_weights" in out) is emits_tw

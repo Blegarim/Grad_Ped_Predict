@@ -31,6 +31,7 @@ from pedpredict.config import ModelCfg, RootCfg
 from pedpredict.models.ablations import (
     KinematicsOnlyModel,
     PedLocalModel,
+    PoseFullModel,
     VanillaConcatModel,
     VisualOnlyModel,
 )
@@ -44,6 +45,9 @@ class ModelType(str, Enum):
 
     ``ped_local`` is the renamed legacy ``motion_only`` (A6: it reads the tight crop, so it is
     pedestrian-local, not motion-only); ``kinematics_only`` is the NEW pixel-free baseline (M9.1).
+    ``pose_kinematics``/``pose_full`` are the pose arm (docs/POSE_ENCODER.md): the same
+    ``KinematicsOnlyModel`` forward path / an ensemble variant, fed the read-time-built
+    ``[T, 9 + pose] motions`` (require ``pose.enabled`` + ``motion_norm="none"``).
     """
 
     FULL = "full"
@@ -51,6 +55,8 @@ class ModelType(str, Enum):
     KINEMATICS_ONLY = "kinematics_only"
     VISUAL_ONLY = "visual_only"
     VANILLA_CONCAT = "vanilla_concat"
+    POSE_KINEMATICS = "pose_kinematics"
+    POSE_FULL = "pose_full"
 
     @classmethod
     def coerce(cls, value: ModelTypeLike) -> ModelType:
@@ -65,7 +71,8 @@ class ModelType(str, Enum):
 
 
 ModelTypeLike = ModelType | Literal[
-    "full", "ped_local", "kinematics_only", "visual_only", "vanilla_concat"
+    "full", "ped_local", "kinematics_only", "visual_only", "vanilla_concat",
+    "pose_kinematics", "pose_full",
 ]
 
 # Which inputs each type consumes (documentation + the source of truth for forward_model + tests).
@@ -75,6 +82,8 @@ MODEL_INPUT_SIGNATURE: dict[ModelType, tuple[str, ...]] = {
     ModelType.PED_LOCAL: ("motions", "images_tight"),
     ModelType.KINEMATICS_ONLY: ("motions",),
     ModelType.VISUAL_ONLY: ("images_context",),
+    ModelType.POSE_KINEMATICS: ("motions",),
+    ModelType.POSE_FULL: ("images_context", "motions"),
 }
 
 # Per-type builder: every ``from_config`` takes the uniform ``(ModelCfg, img_size)`` so the factory is one
@@ -85,6 +94,8 @@ _BUILDERS: dict[ModelType, Callable[[ModelCfg, int], nn.Module]] = {
     ModelType.KINEMATICS_ONLY: KinematicsOnlyModel.from_config,
     ModelType.VISUAL_ONLY: VisualOnlyModel.from_config,
     ModelType.VANILLA_CONCAT: VanillaConcatModel.from_config,
+    ModelType.POSE_KINEMATICS: KinematicsOnlyModel.from_config,  # same class, wider motions (Route A)
+    ModelType.POSE_FULL: PoseFullModel.from_config,
 }
 
 # Fallback type resolution for a model not built through build_model (e.g. loaded from a raw class).
@@ -94,6 +105,7 @@ _TYPE_BY_CLASS: dict[type[nn.Module], ModelType] = {
     KinematicsOnlyModel: ModelType.KINEMATICS_ONLY,
     VisualOnlyModel: ModelType.VISUAL_ONLY,
     VanillaConcatModel: ModelType.VANILLA_CONCAT,
+    PoseFullModel: ModelType.POSE_FULL,
 }
 
 
@@ -145,8 +157,10 @@ def forward_model(
         return model(images_tight, images_context, motions)
     if mt is ModelType.PED_LOCAL:
         return model(motions, images_tight)
-    if mt is ModelType.KINEMATICS_ONLY:
+    if mt in (ModelType.KINEMATICS_ONLY, ModelType.POSE_KINEMATICS):
         return model(motions)
     if mt is ModelType.VISUAL_ONLY:
         return model(images_context)
+    if mt is ModelType.POSE_FULL:
+        return model(images_context, motions)
     raise ValueError(f"Unhandled model type: {mt!r}")  # unreachable (coerce validated mt)

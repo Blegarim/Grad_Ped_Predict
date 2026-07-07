@@ -48,6 +48,7 @@ import torch
 import torch.nn as nn
 
 from pedpredict.config import ModelCfg
+from pedpredict.models.cross_attention import CrossAttentionModule
 from pedpredict.models.heads import (
     FramePool,
     build_crosses_frame_head,
@@ -130,7 +131,9 @@ class KinematicsEncoder(nn.Module):
     Structurally the ``MotionEncoder`` with its tight-crop CNN (``img_encoder`` + image-fusion concat)
     removed — the bbox-motion path alone projected to ``d_model``. The A4 ``motion_norm`` choice is shared
     verbatim (fixed image-dimension scale vs legacy per-sequence z-norm) so the kinematics baseline ablates
-    on the same axis as the full model. ``forward(motion [B, T, motion_dim]) -> [B, T, d_model]``.
+    on the same axis as the full model; ``motion_norm="none"`` is the pose-arm pass-through (the read path
+    already normalized, and ``motion_dim`` may exceed the 9-channel scale contract).
+    ``forward(motion [B, T, motion_dim]) -> [B, T, d_model]``.
     """
 
     def __init__(
@@ -150,17 +153,20 @@ class KinematicsEncoder(nn.Module):
         self.motion_dim = motion_dim
         self.hidden_dim = hidden_dim
         self.d_model = d_model
-        if motion_norm not in {"image", "per_sequence"}:
-            raise ValueError(f"motion_norm must be 'image' or 'per_sequence'; got {motion_norm!r}")
+        if motion_norm not in {"image", "per_sequence", "none"}:
+            raise ValueError(f"motion_norm must be 'image', 'per_sequence' or 'none'; got {motion_norm!r}")
         self.motion_norm = motion_norm
-        # Same fixed per-channel scale as MotionEncoder ((cx, cy, dx, dy, w, h, dw, dh, ego) sliced).
-        width, height = float(norm_image_size[0]), float(norm_image_size[1])
-        scale_full = [width, height, width, height, width, height, width, height, float(ego_speed_scale)]
-        if motion_dim > len(scale_full):
-            raise ValueError(f"motion_dim={motion_dim} exceeds the {len(scale_full)}-channel motion contract")
-        self.register_buffer(
-            "motion_scale", torch.tensor(scale_full[:motion_dim]).view(1, 1, motion_dim), persistent=False
-        )
+        if motion_norm == "image":
+            # Same fixed per-channel scale as MotionEncoder ((cx, cy, dx, dy, w, h, dw, dh, ego) sliced).
+            # "none" (the pose arm, normalized at read time) skips the buffer — its motion_dim exceeds
+            # the 9-channel scale contract.
+            width, height = float(norm_image_size[0]), float(norm_image_size[1])
+            scale_full = [width, height, width, height, width, height, width, height, float(ego_speed_scale)]
+            if motion_dim > len(scale_full):
+                raise ValueError(f"motion_dim={motion_dim} exceeds the {len(scale_full)}-channel motion contract")
+            self.register_buffer(
+                "motion_scale", torch.tensor(scale_full[:motion_dim]).view(1, 1, motion_dim), persistent=False
+            )
 
         # Bbox-motion Conv1d stack projected up to hidden_dim (no image branch to fuse with).
         self.motion_encoder = nn.Sequential(
@@ -212,8 +218,10 @@ class KinematicsEncoder(nn.Module):
             )
         if self.motion_norm == "image":
             motion_norm = motion / self.motion_scale
-        else:
+        elif self.motion_norm == "per_sequence":
             motion_norm = (motion - motion.mean(dim=1, keepdim=True)) / (motion.std(dim=1, keepdim=True) + 1e-6)
+        else:  # "none" — pose arm: PoseMotionTransform already normalized at read time
+            motion_norm = motion
         feats = self.motion_encoder(motion_norm.transpose(1, 2))  # [B, hidden_dim, T]
         x = self.fusion(feats.transpose(1, 2))                    # [B, T, hidden_dim]
         x, _ = self.gru(x)
@@ -388,6 +396,46 @@ class VanillaConcatModel(nn.Module):
             emit_crosses_pooled=self.emit_crosses_pooled,
             emit_temporal_weights=False,
         )
+
+
+class PoseFullModel(nn.Module):
+    """Pose-arm full model (docs/POSE_ENCODER.md): the pose+bbox geometric descriptor as the
+    cross-attention query over the ViT context stream — no tight crop.
+
+    ``EnsembleModel`` with ``MotionEncoder`` swapped for :class:`KinematicsEncoder` (LayerNorm-before-
+    fusion preserved). ``forward(images_context, motions)`` -> logits dict incl. ``temporal_weights``.
+    New module, no legacy equivalent — carries no golden.
+    """
+
+    def __init__(
+        self,
+        kinematics_enc: KinematicsEncoder,
+        vit: nn.Module,
+        cross_attention: CrossAttentionModule,
+        d_model: int = 128,
+    ) -> None:
+        super().__init__()
+        self.kinematics_enc = kinematics_enc
+        self.vit = vit
+        self.cross_attention = cross_attention
+        self.image_norm = nn.LayerNorm(d_model)
+        self.motion_norm = nn.LayerNorm(d_model)
+
+    @classmethod
+    def from_config(cls, cfg: ModelCfg, img_size: int) -> PoseFullModel:
+        """Build from ``cfg``; ``img_size`` sizes the ViT (same wiring as ``EnsembleModel.from_config``)."""
+        return cls(
+            kinematics_enc=KinematicsEncoder.from_config(cfg),
+            vit=build_visual_backbone(cfg, img_size),
+            cross_attention=CrossAttentionModule.from_config(cfg),
+            d_model=cfg.d_model,
+        )
+
+    def forward(self, images_context: torch.Tensor, motions: torch.Tensor) -> dict[str, torch.Tensor]:
+        """``images_context [B, T, 3, H, W]`` + ``motions [B, T, motion_dim]`` -> per-task logits dict."""
+        image_feats = self.image_norm(self.vit(images_context))
+        motion_feats = self.motion_norm(self.kinematics_enc(motions))
+        return self.cross_attention(motion_feats, image_feats)
 
 
 if __name__ == "__main__":  # B6: smoke tests driven by ModelCfg, not drifting legacy kwargs

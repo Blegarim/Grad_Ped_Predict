@@ -120,6 +120,21 @@ class _KinematicsOnlyWrapper(nn.Module):
         return tuple(out[k] for k in self.output_keys)
 
 
+class _PoseFullWrapper(nn.Module):
+    def __init__(self, model: nn.Module, output_keys: tuple[str, ...]) -> None:
+        super().__init__()
+        self.model = model
+        self.output_keys = output_keys
+
+    def forward(
+        self,
+        images_context: torch.Tensor,
+        motions: torch.Tensor,
+    ) -> tuple[torch.Tensor, ...]:
+        out: dict[str, torch.Tensor] = self.model(images_context, motions)
+        return tuple(out[k] for k in self.output_keys)
+
+
 class _VisualOnlyWrapper(nn.Module):
     def __init__(self, model: nn.Module, output_keys: tuple[str, ...]) -> None:
         super().__init__()
@@ -139,7 +154,7 @@ class _VisualOnlyWrapper(nn.Module):
 
 def _resolve_output_keys(model_type: ModelType, include_temporal_weights: bool) -> tuple[str, ...]:
     keys = list(_SUPERVISED_KEYS)
-    if include_temporal_weights and model_type is ModelType.FULL:
+    if include_temporal_weights and model_type in (ModelType.FULL, ModelType.POSE_FULL):
         keys.append("temporal_weights")
     return tuple(keys)
 
@@ -151,10 +166,12 @@ def _make_wrapper(model: nn.Module, model_type: ModelType, output_keys: tuple[st
         return _VanillaConcatWrapper(model, output_keys)
     if model_type is ModelType.PED_LOCAL:
         return _PedLocalWrapper(model, output_keys)
-    if model_type is ModelType.KINEMATICS_ONLY:
+    if model_type in (ModelType.KINEMATICS_ONLY, ModelType.POSE_KINEMATICS):
         return _KinematicsOnlyWrapper(model, output_keys)
     if model_type is ModelType.VISUAL_ONLY:
         return _VisualOnlyWrapper(model, output_keys)
+    if model_type is ModelType.POSE_FULL:
+        return _PoseFullWrapper(model, output_keys)
     raise ValueError(f"Unhandled model type: {model_type!r}")  # unreachable; coerce validated
 
 
@@ -180,10 +197,12 @@ def _make_dummy_inputs(
         return (tight, context, motions)
     if model_type is ModelType.PED_LOCAL:
         return (motions, tight)
-    if model_type is ModelType.KINEMATICS_ONLY:
+    if model_type in (ModelType.KINEMATICS_ONLY, ModelType.POSE_KINEMATICS):
         return (motions,)
     if model_type is ModelType.VISUAL_ONLY:
         return (context,)
+    if model_type is ModelType.POSE_FULL:
+        return (context, motions)
     raise ValueError(f"Unhandled model type: {model_type!r}")  # unreachable
 
 
