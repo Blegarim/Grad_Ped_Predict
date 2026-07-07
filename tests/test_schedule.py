@@ -27,6 +27,7 @@ from pedpredict.training import (
     ModelStateCheckpointer,
     Trainer,
     freeze_backbone,
+    freeze_vit_backbone,
     run_phase_schedule,
     unfreeze_all,
 )
@@ -146,6 +147,29 @@ def test_freeze_matches_old_filter(golden: dict) -> None:
     freeze_backbone(model)
     actual_trainable = {n for n, p in model.named_parameters() if p.requires_grad}
     assert actual_trainable == expected_trainable
+
+
+def test_freeze_vit_backbone_freezes_only_vit(golden: dict) -> None:
+    """freeze_vit_backbone locks every ``vit.*`` param and leaves motion/fusion/heads trainable."""
+    model = _model(golden)
+    n_frozen = freeze_vit_backbone(model)
+
+    vit_params = [n for n, _ in model.named_parameters() if n.startswith("vit.")]
+    assert n_frozen == len(vit_params) > 0            # ViT present and fully frozen
+    for name, param in model.named_parameters():
+        if name.startswith("vit."):
+            assert not param.requires_grad, f"Expected frozen ViT param: {name}"
+        else:
+            assert param.requires_grad, f"Expected trainable non-ViT param: {name}"
+    # motion + fusion + heads all survive (unlike freeze_backbone, which keeps only the heads)
+    assert any(n.startswith("motion_enc.") and p.requires_grad for n, p in model.named_parameters())
+
+
+def test_freeze_vit_backbone_noop_returns_zero(golden: dict) -> None:
+    """A model with no ``vit`` submodule freezes nothing and returns 0 (caller warns)."""
+    bare = torch.nn.Linear(4, 2)                      # stand-in for a pixel-free ablation (no vit.*)
+    assert freeze_vit_backbone(bare) == 0
+    assert all(p.requires_grad for p in bare.parameters())
 
 
 # --------------------------------------------------------------------------- reset_for_phase

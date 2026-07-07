@@ -118,6 +118,8 @@ python scripts/train.py --set model.vit_backbone=tiny_vit_5m_224      # pretrain
 python scripts/train.py --set model.vit_backbone=tiny_vit_21m_224     # deploy-stress / Pareto arm
 python scripts/train.py --set model.vit_backbone=pvt_v2_b0            # different mechanism (SRA)
 python scripts/train.py --set augment.runtime=true                   # on-the-fly aug; composes with all above + protocol
+# frozen pretrained visual features (field-standard on the small anchored set — trains motion+fusion+heads only):
+python scripts/train.py --set model.vit_backbone=tiny_vit_5m_224 --set model.freeze_vit_backbone=true
 ```
 
 ## Run-defining knobs (pre-flight)
@@ -131,6 +133,7 @@ the first minute rather than at hour three. Defaults in **bold**.
 | `data.protocol` | **streaming** (~37:1) \| anchored (~2.5:1) | repoints train+val+test LMDBs; at eval also sets the test distribution AND the val split thresholds tune on |
 | `model.vit_backbone` | **legacy** \| `<timm>` (e.g. `tiny_vit_5m_224`) | from-scratch ViT vs pretrained drop-in (the RQ1 arm) |
 | `model.vit_pretrained` | **true** \| false | `false` = random-init backbone (wiring tests only) — a real run is garbage |
+| `model.freeze_vit_backbone` | **false** \| true | freezes the ViT (`vit.*`) for the whole run; trains motion+fusion+heads only — the field-standard PIE recipe on the small anchored set (~4.9k windows), stops the backbone memorizing. Not `ScheduleCfg.freeze_backbone` (which freezes all-but-heads) |
 | `train.selection_metric` | **macro_f1** \| crosses_f1 \| val_loss | which epoch becomes `best.pth` + early stop (macro_f1 can sacrifice crosses) |
 | `train.use_weighted_sampler` / `use_class_weights` | **true** / **false** | effective training distribution (imbalance levers) — confirm in `train_distribution.json` |
 | `augment.runtime` | **false** \| true | on-the-fly train-time aug (scarcity regularizer); offline `augment.enabled` is a *build* flag |

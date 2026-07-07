@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 __all__ = [
     "PhaseResult",
     "freeze_backbone",
+    "freeze_vit_backbone",
     "unfreeze_all",
     "run_phase_schedule",
 ]
@@ -77,6 +78,26 @@ def unfreeze_all(model: nn.Module) -> None:
     """Re-enable ``requires_grad=True`` for every parameter (e.g. to restore after a phase)."""
     for param in model.parameters():
         param.requires_grad = True
+
+
+def freeze_vit_backbone(model: nn.Module) -> int:
+    """Freeze ONLY the visual backbone (``vit.*`` params); train motion + fusion + heads.
+
+    Distinct from :func:`freeze_backbone` (which freezes everything except the task heads): this locks
+    only the ViT — the memorization-prone stream on the small anchored set (~4.9k windows) — leaving the
+    MotionEncoder, CrossAttention and heads trainable. Matches the field-standard "frozen pretrained
+    visual features" PIE recipe (docs/BACKBONE_STUDY.md). The ViT is ``EnsembleModel.vit`` (and the
+    visual ablations' ``.vit``), so the partition is name-prefixed, not head-list-based like ``freeze_backbone``.
+
+    Returns the number of parameter tensors frozen — ``0`` means the model has no ``vit`` submodule
+    (e.g. a pixel-free ``kinematics_only``/``ped_local`` ablation); the caller should warn on that.
+    """
+    n_frozen = 0
+    for name, param in model.named_parameters():
+        if name.startswith("vit.") or ".vit." in name:
+            param.requires_grad = False
+            n_frozen += 1
+    return n_frozen
 
 
 # --------------------------------------------------------------------------- schedule runner

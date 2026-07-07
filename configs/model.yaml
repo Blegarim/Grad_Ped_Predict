@@ -24,6 +24,9 @@ dropout: 0.15
 # stage schedule above only configures legacy; it is inert when a timm backbone is selected.
 vit_backbone: legacy
 vit_pretrained: true             # load timm ImageNet weights (ignored when vit_backbone=legacy)
+# Freeze ONLY the ViT (`vit.*`); train motion+fusion+heads. Field-standard on the small anchored set —
+# frozen pretrained features prevent backbone memorizing. NOT ScheduleCfg.freeze_backbone (all-but-heads).
+freeze_vit_backbone: false
 motion_hidden_dim: 168
 motion_num_layers: 2
 motion_num_heads: 8

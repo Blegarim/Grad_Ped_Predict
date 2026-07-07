@@ -20,7 +20,13 @@ from pedpredict.training.metrics import (
     MetricResult,
     TaskMetrics,
 )
-from pedpredict.training.schedule import PhaseResult, freeze_backbone, run_phase_schedule, unfreeze_all
+from pedpredict.training.schedule import (
+    PhaseResult,
+    freeze_backbone,
+    freeze_vit_backbone,
+    run_phase_schedule,
+    unfreeze_all,
+)
 from pedpredict.training.trainer import (
     TRAIN_LOG_COLUMNS,
     Checkpointer,
@@ -52,6 +58,7 @@ __all__ = [
     "build_trainer",
     "effective_distribution",
     "freeze_backbone",
+    "freeze_vit_backbone",
     "gather_lmdb_chunks",
     "run_phase_schedule",
     "unfreeze_all",
