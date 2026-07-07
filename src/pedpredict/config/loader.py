@@ -32,6 +32,7 @@ from .schema import (
     InferenceCfg,
     ModelCfg,
     PathsCfg,
+    PoseCfg,
     RootCfg,
     ScheduleCfg,
     TrainCfg,
@@ -58,6 +59,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
     "infer": (InferenceCfg, "infer.yaml"),
     "balance": (BalanceCfg, "balance.yaml"),
     "augment": (AugmentCfg, "augment.yaml"),
+    "pose": (PoseCfg, "pose.yaml"),
     "schedule": (ScheduleCfg, "schedule.yaml"),
     "export": (ExportCfg, "export.yaml"),
 }
@@ -240,15 +242,40 @@ def validate_config(root: RootCfg) -> None:
 
     if d.motion_dim != m.motion_dim:  # B7: dataset-slice / model-input agreement
         raise ConfigError(f"data.motion_dim ({d.motion_dim}) != model.motion_dim ({m.motion_dim})")
-    if d.motion_dim > MOTION_STORE_DIM:  # v2 store-wide/slice-narrow contract (A4/M9)
+    if not root.pose.enabled and d.motion_dim > MOTION_STORE_DIM:  # v2 store-wide/slice-narrow (A4/M9)
         raise ConfigError(
             f"data.motion_dim ({d.motion_dim}) exceeds the stored motion width MOTION_STORE_DIM "
             f"({MOTION_STORE_DIM}) — the LMDB only holds {MOTION_STORE_DIM} channels"
         )
-    if m.motion_norm not in {"image", "per_sequence"}:
+    if m.motion_norm not in {"image", "per_sequence", "none"}:
         raise ConfigError(
-            f"model.motion_norm must be 'image' or 'per_sequence'; got {m.motion_norm!r}"
+            f"model.motion_norm must be 'image', 'per_sequence' or 'none'; got {m.motion_norm!r}"
         )
+
+    # Pose-keypoint arm (docs/POSE_ENCODER.md): the read path emits [T, 9 + feature_dim] motions with
+    # all normalization applied at read time, so pose.enabled and motion_norm="none" imply each other.
+    p = root.pose
+    if p.extractor not in {"dwpose", "alphapose_halpe"}:
+        raise ConfigError(f"pose.extractor must be 'dwpose' or 'alphapose_halpe'; got {p.extractor!r}")
+    if not (0.0 <= p.min_conf <= 1.0):
+        raise ConfigError(f"pose.min_conf must be in [0, 1]; got {p.min_conf}")
+    if p.smooth_window < 1:
+        raise ConfigError(f"pose.smooth_window must be >= 1; got {p.smooth_window}")
+    if not p.cache_dir.strip():
+        raise ConfigError("pose.cache_dir must be non-empty")
+    if p.enabled != (m.motion_norm == "none"):
+        raise ConfigError(
+            f"pose.enabled ({p.enabled}) requires model.motion_norm='none' and vice versa — the pose "
+            f"read path normalizes motions itself; got motion_norm={m.motion_norm!r}"
+        )
+    if p.enabled and d.motion_dim != MOTION_STORE_DIM + p.feature_dim():
+        raise ConfigError(
+            f"pose.enabled: data.motion_dim must be {MOTION_STORE_DIM} + pose feature_dim "
+            f"({MOTION_STORE_DIM} + {p.feature_dim()} = {MOTION_STORE_DIM + p.feature_dim()}); "
+            f"got {d.motion_dim}"
+        )
+    if e.model_type.startswith("pose_") and not p.enabled:
+        raise ConfigError(f"eval.model_type={e.model_type!r} requires pose.enabled=true")
     if tuple(m.motion_norm_image_size) != (d.source_width, d.source_height):
         raise ConfigError(
             f"model.motion_norm_image_size {tuple(m.motion_norm_image_size)} != "

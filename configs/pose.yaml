@@ -1,0 +1,11 @@
+# PoseCfg — pose-keypoint motion arm (docs/POSE_ENCODER.md). OFF by default; a no-pose run is
+# byte-identical to pre-pose behavior. When enabled: scripts/extract_pose.py must have populated
+# cache_dir before the LMDB build, and data.motion_dim/model.motion_dim must equal 9 + feature_dim
+# (58 at these defaults) with model.motion_norm=none (validated).
+enabled: false
+extractor: dwpose        # dwpose | alphapose_halpe (extraction script; dwpose implemented)
+include_arms: false      # keep elbows+wrists: 19 kept joints (motion_dim 70) instead of 15 (58)
+conf_channel: true       # feed per-joint confidence scores
+smooth_window: 5         # temporal smoothing window at extraction (frames)
+min_conf: 0.3            # below -> joint treated as missing and interpolated (extraction)
+cache_dir: pose_cache    # extraction output root: {cache_dir}/{set}/{video}.npz

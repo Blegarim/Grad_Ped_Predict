@@ -321,6 +321,30 @@ class AugmentCfg:
 
 
 @dataclass(frozen=True, slots=True)
+class PoseCfg:
+    """Pose-keypoint motion arm (docs/POSE_ENCODER.md).
+
+    ``enabled`` gates both the writer (store raw ``[T, 23, 3]`` keypoints in the meta pickle) and the
+    read path (build the pose feature block and concat it onto the image-normalized motion vector, so
+    ``motions`` leaves the dataset as ``[T, 9 + feature_dim()]``). Joint layout and feature math live
+    in ``data/pose.py``.
+    """
+
+    enabled: bool = False
+    extractor: str = "dwpose"      # "dwpose" | "alphapose_halpe" (extraction script; dwpose implemented)
+    include_arms: bool = False     # keep elbows+wrists: 19 kept joints instead of 15
+    conf_channel: bool = True      # feed per-joint confidence scores
+    smooth_window: int = 5         # temporal smoothing window at extraction time (frames)
+    min_conf: float = 0.3          # below -> joint treated as missing and interpolated (extraction)
+    cache_dir: str = "pose_cache"  # extraction output root: {cache_dir}/{set}/{video}.npz
+
+    def feature_dim(self) -> int:
+        """Per-frame pose feature width: 2n coords + n confidences + 2 angle (sin, cos) pairs."""
+        n = 19 if self.include_arms else 15
+        return 2 * n + (n if self.conf_channel else 0) + 4
+
+
+@dataclass(frozen=True, slots=True)
 class PhaseCfg:
     """One phase in a training schedule (assembled into ScheduleCfg by ``_default_phases()``)."""
 
@@ -408,5 +432,6 @@ class RootCfg:
     infer: InferenceCfg = field(default_factory=InferenceCfg)
     balance: BalanceCfg = field(default_factory=BalanceCfg)
     augment: AugmentCfg = field(default_factory=AugmentCfg)
+    pose: PoseCfg = field(default_factory=PoseCfg)
     schedule: ScheduleCfg = field(default_factory=ScheduleCfg)
     export: ExportCfg = field(default_factory=ExportCfg)
