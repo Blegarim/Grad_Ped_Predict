@@ -40,6 +40,14 @@ from .pie_sequences import (
     windows_from_pie,
     windows_from_pie_benchmark,
 )
+from .pose import (
+    PoseCache,
+    PoseMotionTransform,
+    build_pose_features,
+    flip_pose,
+    pose_motion_transform,
+    smooth_pose,
+)
 from .sampler import (
     TASKS,
     ChunkLabelScan,
@@ -121,6 +129,13 @@ __all__ = [
     "window_track_benchmark",
     "windows_from_pie",
     "windows_from_pie_benchmark",
+    # pose arm (docs/POSE_ENCODER.md)
+    "PoseCache",
+    "PoseMotionTransform",
+    "build_pose_features",
+    "flip_pose",
+    "pose_motion_transform",
+    "smooth_pose",
     # runtime dataset + collate (1.5)
     "LMDBChunkDataset",
     "read_raw_sample",

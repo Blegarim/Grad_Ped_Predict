@@ -82,6 +82,7 @@ def read_raw_sample(txn: lmdb.Transaction, seq_id: str, lmdb_path: str = "") -> 
         crosses=torch.as_tensor(meta["crosses"], dtype=torch.long),
         track_id=meta["track_id"],
         tte=meta.get("tte"),
+        pose=meta.get("pose"),
     )
 
 # Q6: per-open chatter goes through logging at DEBUG (the dataset is re-opened per chunk per epoch —
@@ -102,6 +103,7 @@ class LMDBChunkDataset(Dataset):
         augmentor: Callable[[ProcessedSample, random.Random], ProcessedSample] | None = None,
         aug_seed: int = 0,
         normalize: Callable[[Tensor], Tensor] | None = None,
+        pose_transform: Callable[[Tensor, Tensor], Tensor] | None = None,
     ) -> None:
         self.lmdb_path = str(lmdb_path)
         self.transform_tight = transform_tight
@@ -114,6 +116,9 @@ class LMDBChunkDataset(Dataset):
         self._augmentor = augmentor
         self._aug_seed = aug_seed
         self._normalize = normalize
+        # Pose arm (docs/POSE_ENCODER.md): (pose [T,23,3], motions [T,9]) -> [T, 9+dim] "motions".
+        # Applied AFTER the augmentor (flip mutates raw pose + motions); implies motion_dim=None.
+        self._pose_transform = pose_transform
         self._env: lmdb.Environment | None = None
         self._pid: int | None = None
 
@@ -138,20 +143,28 @@ class LMDBChunkDataset(Dataset):
         *,
         augmentor: Callable[[ProcessedSample, random.Random], ProcessedSample] | None = None,
         aug_seed: int = 0,
+        pose_transform: Callable[[Tensor, Tensor], Tensor] | None = None,
     ) -> LMDBChunkDataset:
         """Build with config-driven read transforms + the ``cfg.motion_dim`` consumed-width slice.
 
         With an ``augmentor`` (train split only) frames decode to un-normalized ``[0, 1]`` and the
         ImageNet norm is deferred to after augmentation; without one the read path is unchanged.
+        With a ``pose_transform`` (``pose_motion_transform(cfg)``, pose.enabled) the stored motions
+        are kept full-width and replaced by the built ``[T, 9 + pose]`` vector.
         """
+        motion_dim = None if pose_transform is not None else cfg.motion_dim
         if augmentor is None:
             transform_tight, transform_context = build_read_transforms(cfg)
-            return cls(lmdb_path, transform_tight, transform_context, motion_dim=cfg.motion_dim)
+            return cls(
+                lmdb_path, transform_tight, transform_context, motion_dim=motion_dim,
+                pose_transform=pose_transform,
+            )
         transform_tight = resize_to_tensor((cfg.img_height, cfg.img_width))
         transform_context = resize_to_tensor((cfg.read_context_height, cfg.read_context_width))
         return cls(
-            lmdb_path, transform_tight, transform_context, motion_dim=cfg.motion_dim,
+            lmdb_path, transform_tight, transform_context, motion_dim=motion_dim,
             augmentor=augmentor, aug_seed=aug_seed, normalize=imagenet_normalize(cfg),
+            pose_transform=pose_transform,
         )
 
     def __getstate__(self) -> dict:
@@ -189,6 +202,14 @@ class LMDBChunkDataset(Dataset):
                     f"predates the v2 rebuild and must be rebuilt: {self.lmdb_path}"
                 )
             track_id = meta["track_id"]
+            pose = None
+            if self._pose_transform is not None:
+                pose = meta.get("pose")
+                if pose is None:
+                    raise ValueError(
+                        f"[LMDBChunkDataset] Sequence {seq_id!r} has no pose meta — this chunk was "
+                        f"built without pose.enabled and must be rebuilt: {self.lmdb_path}"
+                    )
             if self.motion_dim is not None:
                 if motions.shape[1] < self.motion_dim:
                     raise ValueError(
@@ -224,11 +245,15 @@ class LMDBChunkDataset(Dataset):
                 images_tight=tight, images_context=context, motions=motions,
                 actions=torch.as_tensor(actions), looks=torch.as_tensor(looks),
                 crosses=torch.as_tensor(crosses), track_id=track_id, tte=meta.get("tte"),
+                pose=pose,
             )
             ps = self._augmentor(ps, random.Random(self._aug_seed * 1_000_003 + idx))
             tight = self._normalize(ps.images_tight)
             context = self._normalize(ps.images_context)
             motions = ps.motions
+            pose = ps.pose
+        if self._pose_transform is not None:
+            motions = self._pose_transform(pose, motions)
 
         sample: dict[str, Tensor | str | int] = {
             "images_tight": tight,

@@ -30,6 +30,7 @@ from pedpredict.data.incremental import (
 )
 from pedpredict.data.lmdb_writer import write_dataset_chunks
 from pedpredict.data.pie_sequences import load_sequences
+from pedpredict.data.pose import PoseCache
 from pedpredict.paths import ResolvedPaths, resolve_paths
 
 _SPLITS = ("train", "val", "test")
@@ -67,6 +68,7 @@ def main(argv: list[str] | None = None) -> None:
     clips_dir = paths.pie_root / "PIE_clips"
 
     records = load_sequences(pkl)
+    pose_cache = PoseCache.from_config(cfg)  # None unless pose.enabled
     if args.start_idx is None:
         # C2 guard: a crashed build leaves a SHORT final chunk that auto-resume would skip forever.
         assert_resume_safe(out_dir, len(records), cfg.data.chunk_size)
@@ -84,7 +86,10 @@ def main(argv: list[str] | None = None) -> None:
             sample = next(iter(frames.values()))
             frame_dirs[key] = (p if (p := Path(sample)).is_absolute() else paths.root / sample).parent
             print(f"  extracted {n} frame(s) for {key[0]}/{key[1]}")
-        write_dataset_chunks(records, out_dir, cfg.data, start_idx=step.chunk_start, end_idx=step.chunk_end)
+        write_dataset_chunks(
+            records, out_dir, cfg.data,
+            start_idx=step.chunk_start, end_idx=step.chunk_end, pose_cache=pose_cache,
+        )
         print(f"  built chunk [{step.chunk_start}, {step.chunk_end})")
         if not args.keep_frames:
             for key in step.delete:

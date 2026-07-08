@@ -1,12 +1,19 @@
-"""Pose feature math (data/pose.py) on synthetic keypoints — docs/POSE_ENCODER.md §9."""
+"""Pose feature math (data/pose.py) + LMDB pose plumbing — docs/POSE_ENCODER.md §9."""
 
 from __future__ import annotations
 
+import dataclasses
+import pickle
+
+import lmdb
 import numpy as np
 import pytest
 import torch
 
-from pedpredict.config.schema import DataCfg, ModelCfg, PoseCfg, RootCfg
+from pedpredict.config.schema import AugmentCfg, DataCfg, ModelCfg, PoseCfg, RootCfg
+from pedpredict.data.augment import SequenceAugmenter
+from pedpredict.data.lmdb_dataset import LMDBChunkDataset, read_raw_sample
+from pedpredict.data.lmdb_writer import write_dataset_chunks
 from pedpredict.data.pose import (
     ARM_JOINTS,
     CORE_JOINTS,
@@ -176,3 +183,85 @@ def test_pose_cache_sequence_roundtrip(tmp_path) -> None:
         cache.sequence([images[0]], "9_9_9")
     with pytest.raises(FileNotFoundError, match="extract_pose"):
         cache.sequence([str(tmp_path / "images" / "set99" / "video_0009" / "00001.png")], "1_1_5")
+
+
+# --------------------------------------------------------------------------- LMDB plumbing (step 3)
+
+
+def _write_chunk(tmp_path, *, with_pose: bool):
+    """Write a 1-record chunk through the real writer (synthetic frames, optional pose cache)."""
+    from PIL import Image
+
+    seq_len = 4
+    frames_dir = tmp_path / "images" / "set01" / "video_0001"
+    frames_dir.mkdir(parents=True)
+    rng = np.random.default_rng(0)
+    images, keys = [], {}
+    for f in range(seq_len):
+        p = frames_dir / f"{f:05d}.png"
+        Image.fromarray(rng.integers(0, 255, (200, 200, 3), dtype=np.uint8), "RGB").save(p)
+        images.append(str(p))
+        keys[f"{f}_ped_0"] = rng.random((POSE_STORE_JOINTS, 3)).astype(np.float32)
+    pose_cache = None
+    if with_pose:
+        cache_dir = tmp_path / "pose_cache" / "set01"
+        cache_dir.mkdir(parents=True)
+        np.savez(cache_dir / "video_0001.npz", **keys)
+        pose_cache = PoseCache(tmp_path / "pose_cache")
+    record = {
+        "images": images,
+        "bboxes": [[10.0, 10.0, 60.0, 90.0]] * seq_len,
+        "track_id": "ped_0",
+        "ego_speed": [1.0] * seq_len,
+        "actions": 1,
+        "looks": 0,
+        "crosses": 1,
+    }
+    cfg = dataclasses.replace(DataCfg(), lmdb_map_size_bytes=64 * 1024 * 1024)
+    paths = write_dataset_chunks([record], tmp_path / "lmdb", cfg, num_workers=0, pose_cache=pose_cache)
+    return paths[0], keys, seq_len
+
+
+def test_lmdb_pose_roundtrip_and_read_path(tmp_path) -> None:
+    """Writer stores raw pose in the meta; the dataset read path emits the built [T, 58] motions."""
+    chunk, keys, seq_len = _write_chunk(tmp_path, with_pose=True)
+    env = lmdb.open(str(chunk), readonly=True, lock=False)
+    try:
+        with env.begin() as txn:
+            meta = pickle.loads(txn.get(b"0_meta"))
+            assert meta["pose"].shape == (seq_len, POSE_STORE_JOINTS, 3)
+            torch.testing.assert_close(meta["pose"][0], torch.from_numpy(keys["0_ped_0"]))
+            assert read_raw_sample(txn, "0").pose is not None  # offline-augment source keeps pose
+    finally:
+        env.close()
+
+    root = _pose_cfg()
+    ds = LMDBChunkDataset.from_config(chunk, root.data, pose_transform=pose_motion_transform(root))
+    sample = ds[0]
+    assert sample["motions"].shape == (seq_len, root.data.motion_dim)
+    # A pose-less read of the same chunk stays on the 9-dim contract (additive meta key ignored).
+    plain = LMDBChunkDataset.from_config(chunk, DataCfg())
+    assert plain[0]["motions"].shape == (seq_len, DataCfg().motion_dim)
+
+
+def test_pose_read_of_poseless_chunk_fails_loudly(tmp_path) -> None:
+    chunk, _, _ = _write_chunk(tmp_path, with_pose=False)
+    root = _pose_cfg()
+    ds = LMDBChunkDataset.from_config(chunk, root.data, pose_transform=pose_motion_transform(root))
+    with pytest.raises(ValueError, match="no pose meta"):
+        ds[0]
+
+
+def test_augment_flip_transforms_pose(tmp_path) -> None:
+    """horizontal_flip keeps pose and motions geometrically coupled (reflect + L/R swap)."""
+    chunk, _, _ = _write_chunk(tmp_path, with_pose=True)
+    env = lmdb.open(str(chunk), readonly=True, lock=False)
+    try:
+        with env.begin() as txn:
+            sample = read_raw_sample(txn, "0")
+    finally:
+        env.close()
+    cfg = DataCfg()
+    flipped = SequenceAugmenter(AugmentCfg(), cfg.source_width).horizontal_flip(sample)
+    torch.testing.assert_close(flipped.pose[:, 0, 0], cfg.source_width - sample.pose[:, 0, 0])
+    torch.testing.assert_close(flipped.pose[:, 5, 1], sample.pose[:, 6, 1])  # L <- R shoulder y

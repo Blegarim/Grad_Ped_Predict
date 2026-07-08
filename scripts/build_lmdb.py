@@ -20,6 +20,7 @@ from pathlib import Path
 from pedpredict.config import build_argparser, load_config
 from pedpredict.data.lmdb_writer import write_dataset_chunks
 from pedpredict.data.pie_sequences import load_sequences
+from pedpredict.data.pose import PoseCache
 from pedpredict.paths import ResolvedPaths, resolve_paths
 
 _SPLITS = ("train", "val", "test")
@@ -50,6 +51,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_config(args.config_dir, overrides=args.overrides)
     paths = resolve_paths(cfg.paths)
+    pose_cache = PoseCache.from_config(cfg)  # None unless pose.enabled
 
     splits = _SPLITS if args.split == "all" else (args.split,)
     if (args.pkl or args.out_dir) and len(splits) != 1:
@@ -59,7 +61,7 @@ def main(argv: list[str] | None = None) -> None:
         pkl = Path(args.pkl) if args.pkl else paths.sequences_dir / f"sequences_{split}.pkl"
         out_dir = Path(args.out_dir) if args.out_dir else _out_dir_for(split, paths)
         records = load_sequences(pkl)
-        chunks = write_dataset_chunks(records, out_dir, cfg.data)
+        chunks = write_dataset_chunks(records, out_dir, cfg.data, pose_cache=pose_cache)
         print(f"[{split}] {len(records)} sequences -> {len(chunks)} chunk(s) in {out_dir}")
 
 

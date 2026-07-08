@@ -56,6 +56,7 @@ from pedpredict.data.augment import RuntimeAugmentor
 from pedpredict.data.collate import build_collate
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
 from pedpredict.data.lmdb_warm import WarmResult, warm_lmdb_chunk
+from pedpredict.data.pose import pose_motion_transform
 from pedpredict.data.sampler import LabelScanCache, build_weighted_sampler
 from pedpredict.paths import protocol_lmdb_dirs, resolve_paths
 from pedpredict.utils.memory import wait_for_memory
@@ -292,6 +293,8 @@ class ChunkPrefetcher:
         self._augmentor = (
             RuntimeAugmentor(cfg.augment, cfg.data.source_width) if cfg.augment.runtime else None
         )
+        # Pose arm: read-time [T, 9+pose] motion builder for every loader; None when pose is disabled.
+        self._pose_transform = pose_motion_transform(cfg)
         self._closed = False
 
     @classmethod
@@ -375,10 +378,11 @@ class ChunkPrefetcher:
             # run seed + epoch -> reproducible within a run, fresh each epoch (per-sample seed adds idx)
             aug_seed = self.cfg.train.seed * 1_000_003 + epoch
             dataset = LMDBChunkDataset.from_config(
-                path, self.cfg.data, augmentor=self._augmentor, aug_seed=aug_seed
+                path, self.cfg.data, augmentor=self._augmentor, aug_seed=aug_seed,
+                pose_transform=self._pose_transform,
             )
         else:
-            dataset = LMDBChunkDataset.from_config(path, self.cfg.data)
+            dataset = LMDBChunkDataset.from_config(path, self.cfg.data, pose_transform=self._pose_transform)
         kwargs = self._loader_kwargs()
         if self.cfg.train.use_weighted_sampler:
             scan = self.scan_cache.get(path, dataset.seq_ids)   # aligns weights to dataset order (1.6)
@@ -390,5 +394,5 @@ class ChunkPrefetcher:
 
     def _build_val_loader(self, path: str) -> DataLoader:
         """Validation loader: stable order, no sampler (OLD validate path)."""
-        dataset = LMDBChunkDataset.from_config(path, self.cfg.data)
+        dataset = LMDBChunkDataset.from_config(path, self.cfg.data, pose_transform=self._pose_transform)
         return DataLoader(dataset, shuffle=False, **self._loader_kwargs())

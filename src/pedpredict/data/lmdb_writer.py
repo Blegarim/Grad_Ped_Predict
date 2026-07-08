@@ -14,12 +14,14 @@ key (utf-8)           value                       decodes to
 ``f"{j}_{t}_tight"``   JPEG bytes                  uint8 ``[3, img_height, img_width]``
 ``f"{j}_{t}_context"`` JPEG bytes                  uint8 ``[3, H*scale, W*scale]``
 ``f"{j}_meta"``        ``pickle`` dict             ``{motions[T,9], actions, looks, crosses,
-                                                   track_id, (tte)}``
+                                                   track_id, (tte), (pose)}``
 ====================  ==========================  =====================================================
 
 v2 meta (hole audit): ``motions`` is the full ``MOTION_STORE_DIM`` (9) vector — 8 bbox channels with
 true-zero frame-0 deltas + ego-speed (A4/M9); ``track_id`` is the PIE pedestrian id (M6); ``tte`` is
-present only in M5 benchmark-protocol chunks. ``bboxes`` stays dropped (motions encode the geometry).
+present only in M5 benchmark-protocol chunks; ``pose`` (``[T, 23, 3]`` raw keypoints, additive key —
+existing consumers ignore it) only in pose-enabled builds (docs/POSE_ENCODER.md). ``bboxes`` stays
+dropped (motions encode the geometry).
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from tqdm.auto import tqdm
 
 from pedpredict.config.schema import DataCfg
 from pedpredict.data.pie_sequences import SequenceRecord
+from pedpredict.data.pose import PoseCache
 from pedpredict.data.transforms import CropSequenceDataset, ProcessedSample
 
 __all__ = [
@@ -89,6 +92,8 @@ def pack_meta(sample: ProcessedSample) -> bytes:
     }
     if sample.tte is not None:  # M5 benchmark-protocol chunks only
         meta["tte"] = sample.tte
+    if sample.pose is not None:  # pose-enabled builds only (docs/POSE_ENCODER.md)
+        meta["pose"] = sample.pose
     return pickle.dumps(meta)
 
 
@@ -153,10 +158,15 @@ def write_chunk(
     *,
     num_workers: int,
     prefetch_factor: int,
+    pose_cache: PoseCache | None = None,
 ) -> Path:
     """Crop+encode ``records`` (deterministic order) into a single chunk LMDB at ``lmdb_path``."""
     return write_dataset_to_lmdb(
-        CropSequenceDataset(records, cfg), lmdb_path, cfg, num_workers=num_workers, prefetch_factor=prefetch_factor
+        CropSequenceDataset(records, cfg, pose_cache=pose_cache),
+        lmdb_path,
+        cfg,
+        num_workers=num_workers,
+        prefetch_factor=prefetch_factor,
     )
 
 
@@ -200,6 +210,7 @@ def write_dataset_chunks(
     end_idx: int | None = None,
     num_workers: int | None = None,
     prefetch_factor: int | None = None,
+    pose_cache: PoseCache | None = None,
 ) -> list[Path]:
     """Split ``records`` into ``cfg.chunk_size`` chunks -> one ``chunk_{i:06d}.lmdb`` each.
 
@@ -208,7 +219,7 @@ def write_dataset_chunks(
     """
     end = len(records) if end_idx is None else end_idx
     return write_dataset_chunks_from(
-        CropSequenceDataset(records, cfg),
+        CropSequenceDataset(records, cfg, pose_cache=pose_cache),
         out_dir,
         cfg,
         start_idx=start_idx,

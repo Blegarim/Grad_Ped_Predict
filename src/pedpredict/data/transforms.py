@@ -34,6 +34,7 @@ from torchvision import transforms
 
 from pedpredict.config.schema import MOTION_STORE_DIM, DataCfg
 from pedpredict.data.pie_sequences import SequenceRecord
+from pedpredict.data.pose import PoseCache
 
 __all__ = [
     "load_rgb",
@@ -210,6 +211,7 @@ class ProcessedSample:
     crosses: Tensor         # 0-dim long
     track_id: str = ""      # PIE pedestrian id (M6) — eval-side track aggregation
     tte: int | None = None  # M5 benchmark windows only: frames to crossing_point
+    pose: Tensor | None = None  # [T, 23, 3] raw keypoints (x, y, conf, absolute px) — pose.enabled only
 
 
 def process_record(
@@ -217,12 +219,14 @@ def process_record(
     cfg: DataCfg,
     transform_tight: Callable | None = None,
     transform_context: Callable | None = None,
+    pose_cache: PoseCache | None = None,
 ) -> ProcessedSample:
     """Turn one :class:`SequenceRecord` into a :class:`ProcessedSample` (crop + resize + motion).
 
     Replaces OLD ``PIESequenceDataset._process_sequence``. Transforms default to
     :func:`build_write_transforms` (config-driven); callers may inject augmentation transforms
-    without changing the geometry/motion math.
+    without changing the geometry/motion math. ``pose_cache`` (pose.enabled) attaches the window's
+    raw ``[T, 23, 3]`` keypoints by ``(frame, track_id)``.
     """
     if transform_tight is None or transform_context is None:
         bt, bc = build_write_transforms(cfg)
@@ -246,6 +250,7 @@ def process_record(
         crosses=torch.tensor(rec["crosses"], dtype=torch.long),
         track_id=rec["track_id"],
         tte=rec.get("tte"),
+        pose=pose_cache.sequence(rec["images"], rec["track_id"]) if pose_cache is not None else None,
     )
 
 
@@ -263,15 +268,19 @@ class CropSequenceDataset(Dataset):
         *,
         transform_tight: Callable | None = None,
         transform_context: Callable | None = None,
+        pose_cache: PoseCache | None = None,
     ) -> None:
         bt, bc = build_write_transforms(cfg)
         self.records = records
         self.cfg = cfg
         self.transform_tight = transform_tight or bt
         self.transform_context = transform_context or bc
+        self.pose_cache = pose_cache
 
     def __len__(self) -> int:
         return len(self.records)
 
     def __getitem__(self, index: int) -> ProcessedSample:
-        return process_record(self.records[index], self.cfg, self.transform_tight, self.transform_context)
+        return process_record(
+            self.records[index], self.cfg, self.transform_tight, self.transform_context, self.pose_cache
+        )

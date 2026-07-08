@@ -51,6 +51,7 @@ from pedpredict.config.schema import AugmentCfg, DataCfg
 from pedpredict.data.lmdb_dataset import read_raw_sample
 from pedpredict.data.lmdb_writer import write_dataset_chunks_from
 from pedpredict.data.pie_sequences import SequenceRecord
+from pedpredict.data.pose import flip_pose
 from pedpredict.data.sampler import scan_chunk_labels
 from pedpredict.data.stats import iter_chunk_lmdbs
 from pedpredict.data.transforms import ProcessedSample
@@ -115,7 +116,8 @@ class SequenceAugmenter:
         )
 
     def horizontal_flip(self, s: ProcessedSample) -> ProcessedSample:
-        """Mirror the width axis of both crops; negate ``dx`` and reflect ``cx`` about the frame width."""
+        """Mirror the width axis of both crops; negate ``dx``, reflect ``cx`` about the frame width,
+        and mirror the raw pose keypoints (reflect x + swap left/right joints) when present."""
         motions = s.motions.clone()
         motions[:, _FLIP_NEGATE_IDX] *= -1
         motions[:, _FLIP_REFLECT_IDX] = self.source_width - motions[:, _FLIP_REFLECT_IDX]
@@ -124,6 +126,7 @@ class SequenceAugmenter:
             images_tight=torch.flip(s.images_tight, dims=[3]),
             images_context=torch.flip(s.images_context, dims=[3]),
             motions=motions,
+            pose=flip_pose(s.pose, self.source_width) if s.pose is not None else None,
         )
 
     def color_augment(self, s: ProcessedSample) -> ProcessedSample:

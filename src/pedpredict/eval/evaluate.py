@@ -44,6 +44,7 @@ from tqdm.auto import tqdm
 from pedpredict.config.schema import EvalCfg, RootCfg
 from pedpredict.data.collate import build_collate
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
+from pedpredict.data.pose import pose_motion_transform
 from pedpredict.losses.multitask import TASKS
 from pedpredict.models.registry import ModelType, build_model, forward_model
 from pedpredict.paths import protocol_lmdb_dirs, resolve_paths
@@ -292,8 +293,9 @@ def _eval_chunk_loaders(cfg: RootCfg, chunk_paths: list[str], device: torch.devi
     """Yield a stable-order, no-sampler ``DataLoader`` per chunk (OLD ``test.py:393-405``); gc between (B11)."""
     collate = build_collate(cfg.data)
     pin = device.type == "cuda"
+    pose_transform = pose_motion_transform(cfg)
     for path in chunk_paths:
-        dataset = LMDBChunkDataset.from_config(path, cfg.data)
+        dataset = LMDBChunkDataset.from_config(path, cfg.data, pose_transform=pose_transform)
         loader = DataLoader(
             dataset,
             batch_size=cfg.eval.batch_size,
