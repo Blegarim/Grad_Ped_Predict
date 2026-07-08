@@ -31,8 +31,20 @@ tight crop + motion → MotionEncoder    ───┘
 | `EnsembleModel` | Wires the branches (LayerNorm before fusion); ablations swap or drop a branch. |
 
 A unified `d_model = 128` is shared across every module, and models are selected through a typed registry
-(`full`, `ped_local`, `kinematics_only`, `visual_only`, `vanilla_concat`). The output-dict contract, the
-severe `crosses` class imbalance, and the single imbalance policy are documented in [CLAUDE.md](CLAUDE.md).
+(`full`, `ped_local`, `kinematics_only`, `visual_only`, `vanilla_concat`, `pose_kinematics`, `pose_full`).
+The output-dict contract, the severe `crosses` class imbalance, and the single imbalance policy are
+documented in [CLAUDE.md](CLAUDE.md).
+
+**Pose-keypoint arm** ([docs/POSE_ENCODER.md](docs/POSE_ENCODER.md)): tests whether 2D pose is a cleaner
+geometric substitute for the noisy tight crop. `scripts/extract_pose.py` runs a bbox-conditioned
+whole-body extractor (DWPose via `rtmlib`, PIE GT boxes as the person prior) once per unique frame and
+caches raw `[23, 3]` keypoints; with `pose.enabled` the LMDB build stores them and the dataset builds a
+49-dim bbox-normalized feature block (15 joint coords + confidences + head/body facing angles) at read
+time, concatenated onto the image-normalized 9-dim motion vector (`motion_dim=58`,
+`model.motion_norm=none`). `pose_kinematics` is the pixel-free arm (`KinematicsOnlyModel` on the 58-dim
+input); `pose_full` swaps the full model's motion branch for it (pose as the cross-attention query — no
+tight crop). Raw keypoints are stored, features built at read time, so the normalization/angle math stays
+iterable without re-extraction; all pose math lives in [data/pose.py](src/pedpredict/data/pose.py).
 
 ## Repository layout
 
@@ -42,7 +54,7 @@ src/pedpredict/        # installable package (pip install -e .)
   paths.py
   utils/    seed device amp memory logging
   data/     pie_sequences transforms lmdb_writer lmdb_dataset lmdb_warm
-            balance augment collate sampler stats
+            balance augment collate sampler stats pose
   models/   vit timm_backbone geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask.py
   training/ trainer chunk_loader callbacks schedule metrics distribution
@@ -85,6 +97,7 @@ python scripts/build_lmdb.py     --split test_benchmark  # benchmark eval set �
 python scripts/build_lmdb_incremental.py --split train  # disk-bounded + resumable build (see setup.md)
 python scripts/balance_dataset.py                       # opt-in offline majority down-sample (default off)
 python scripts/augment_dataset.py                       # offline minority-class augmentation
+python scripts/extract_pose.py --split all              # pose arm: keypoint cache (--dry-run = synthetic)
 ```
 
 `build_lmdb` needs every frame a split references staged on disk; `build_lmdb_incremental` extracts only
@@ -100,8 +113,8 @@ lives in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py).
 ## Train, evaluate, export
 
 Config-first — override any field with `--set section.field=value`. The model is chosen by
-`eval.model_type` (`full` | `ped_local` | `kinematics_only` | `visual_only` | `vanilla_concat`), **not**
-`model.*`.
+`eval.model_type` (`full` | `ped_local` | `kinematics_only` | `visual_only` | `vanilla_concat` |
+`pose_kinematics` | `pose_full`), **not** `model.*`.
 
 ```bash
 python scripts/train.py    --set eval.model_type=full --set train.lr=5e-5
@@ -131,6 +144,8 @@ Optional extras:
 
 - `pip install -e .[infer]` — YOLO detection/tracking for video inference (`ultralytics`, `lap`).
 - `pip install -e .[export]` — ONNX export + onnxruntime parity check.
+- `pip install rtmlib onnxruntime-gpu` — real pose extraction (`scripts/extract_pose.py` without
+  `--dry-run`; lab PC only, deliberately not a packaged extra).
 
 **CUDA:** the pinned `torch==2.7.1` resolves to CPU wheels by default. For GPU training, install the CUDA
 build from the appropriate PyTorch index URL.

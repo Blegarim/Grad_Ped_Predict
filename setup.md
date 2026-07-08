@@ -122,6 +122,25 @@ python scripts/train.py --set augment.runtime=true                   # on-the-fl
 python scripts/train.py --set model.vit_backbone=tiny_vit_5m_224 --set model.freeze_vit_backbone=true
 ```
 
+## 11. Pose arm (needs a pose-enabled rebuild — fold into the final data pass)
+[docs/POSE_ENCODER.md](docs/POSE_ENCODER.md). Extraction once per unique frame (merge-updates per-video
+npz, so splits can run separately); then rebuild LMDBs with `pose.enabled` so metas carry raw keypoints.
+`--dry-run` fabricates keypoints — full-pipeline check without frames or rtmlib.
+The pose bundle (always the four together; validation rejects partial):
+`--set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58`
+```powershell
+pip install rtmlib onnxruntime-gpu                       # extractor runtime (lab PC, once)
+python scripts/extract_pose.py --split all               # → pose_cache/{set}/{video}.npz
+python scripts/extract_pose.py --split train_benchmark   # anchored windows, same cache
+# rebuild the step-4 LMDBs with <bundle> (window population must NOT change — pose is additive):
+python scripts/build_lmdb_incremental.py --split train <bundle>       # + other splits as in step 4
+# train/eval: <bundle> + a pose model type
+python scripts/train.py --set eval.model_type=pose_kinematics <bundle>
+python scripts/train.py --set eval.model_type=pose_full <bundle>
+```
+Pose-enabled chunks stay readable by non-pose runs (drop the bundle → 9-dim contract, key ignored);
+reading pose from a chunk built without it fails loudly. `pose.include_arms=true` ⇒ `motion_dim=70`.
+
 ## Run-defining knobs (pre-flight)
 A wrong value here does **not** crash — it silently produces an unusable run. Every run dumps
 `resolved_config.yaml` at start; skim it (and `train_distribution.json` for effective imbalance rates) in
@@ -129,7 +148,7 @@ the first minute rather than at hour three. Defaults in **bold**.
 
 | Field | Values | Switches (silent if wrong) |
 |---|---|---|
-| `eval.model_type` | **full** \| ped_local \| kinematics_only \| visual_only \| vanilla_concat | which model trains/evals — the selector, **not `model.model_type`** (that raises) |
+| `eval.model_type` | **full** \| ped_local \| kinematics_only \| visual_only \| vanilla_concat \| pose_kinematics \| pose_full | which model trains/evals — the selector, **not `model.model_type`** (that raises); `pose_*` need the §11 bundle |
 | `data.protocol` | **streaming** (~37:1) \| anchored (~2.5:1) | repoints train+val+test LMDBs; at eval also sets the test distribution AND the val split thresholds tune on |
 | `model.vit_backbone` | **legacy** \| `<timm>` (e.g. `tiny_vit_5m_224`) | from-scratch ViT vs pretrained drop-in (the RQ1 arm) |
 | `model.vit_pretrained` | **true** \| false | `false` = random-init backbone (wiring tests only) — a real run is garbage |
@@ -137,8 +156,9 @@ the first minute rather than at hour three. Defaults in **bold**.
 | `train.selection_metric` | **macro_f1** \| crosses_f1 \| val_loss | which epoch becomes `best.pth` + early stop (macro_f1 can sacrifice crosses) |
 | `train.use_weighted_sampler` / `use_class_weights` | **true** / **false** | effective training distribution (imbalance levers) — confirm in `train_distribution.json` |
 | `augment.runtime` | **false** \| true | on-the-fly train-time aug (scarcity regularizer); offline `augment.enabled` is a *build* flag |
-| `model.motion_norm` | **image** \| per_sequence | motion-feature semantics (A4 arm) |
+| `model.motion_norm` | **image** \| per_sequence \| none | motion-feature semantics (A4 arm); `none` is pose-only (validated ⇔ `pose.enabled`) |
 | `train.num_epochs` / `lr` / `lr_schedule` | **30** / **1e-4** / **warmup_cosine** | training budget + optimization (wrong `lr` = diverge / no-learn) |
+| `train.warmup_epochs` / `warmup_start_factor` | **1** / **0.1** | `warmup_cosine` linear-warmup length **in epochs** (not steps — the scheduler steps once per epoch; `0` disables warmup) + its start LR (`warmup_start_factor * lr`, = 1e-5 at default `lr`) |
 
 ## Config overrides
 `--config-dir DIR` and repeatable `--set section.field=value` (also `--section.field value`), validated

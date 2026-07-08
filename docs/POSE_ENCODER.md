@@ -1,6 +1,7 @@
 # Pose-Keypoint Motion Arm — design + implementation plan
 
-**Prepared:** July 2026 · **Status:** design locked, unimplemented. **Companions:**
+**Prepared:** July 2026 · **Status:** steps 0–4 implemented on `pose-encoder-arm` (💻 code complete,
+gate green); steps 5–8 (🖥️ extraction pass, experiments, verdict) pending. **Companions:**
 [streaming-onset-plan.md](streaming-onset-plan.md) (the data pass this piggybacks on — read §Phase A),
 [BACKBONE_STUDY.md](BACKBONE_STUDY.md) (RQ1 — must be locked before the `pose_full` comparison),
 [project-context-streaming-crossing-onset.md](project-context-streaming-crossing-onset.md) (the thesis spine).
@@ -322,7 +323,29 @@ Update this doc's Status → resolved, with the numbers and the "is the crop noi
 and the verdict recorded. If `pose_full` underperforms `full`, that is a **publishable negative** (pose ≱
 crop under streaming) — still merge the arm + the finding; do not bury it.
 
-## 11. Risks / open forks
+## 11. Implementation notes (deviations from the plan above)
+
+Recorded July 2026, at the step 0–4 implementation:
+
+- **No `PoseMotionEncoder` class.** §5's "KinematicsEncoder with one change" was taken literally:
+  `KinematicsEncoder` itself gained the `motion_norm="none"` pass-through (the `motion_scale` buffer is
+  now built only under `"image"`, which is also where the >9-channel guard lives). `pose_kinematics`
+  therefore builds the existing `KinematicsOnlyModel`; only `pose_full` got a new class
+  (`PoseFullModel`, `models/ablations.py`).
+- **Feature order** pinned to the §3.3 table: `coords(2n) | conf(n) | head(2) | body(2)` — the §7 sketch's
+  body/head order was not used. Angle confidence rides *inside* the angle: each `(sin, cos)` pair is
+  scaled by the product of its contributing joints' confidences (a dead angle reads ≈ (0, 0)).
+- **Read path**: `PoseMotionTransform` (picklable class, `data/pose.py`) not a closure — it crosses the
+  Windows-spawn DataLoader boundary. `pose_motion_transform(root)` is the gate; `validate_config`
+  enforces `pose.enabled ⇔ model.motion_norm="none"` and the strict `motion_dim = 9 + feature_dim`
+  width (the no-ego 8+dim variant is documented but not wired).
+- **Augmentation kept compatible** (not in the plan): `SequenceAugmenter.horizontal_flip` now mirrors
+  the raw pose too (`flip_pose`: reflect x + swap L/R joints), so the offline aug lever and
+  `augment.runtime` remain usable in pose-enabled builds instead of silently corrupting flipped copies.
+- **Cache writes merge-update** per-video npz, so streaming and anchored splits can be extracted in
+  separate runs; `extract_pose.py --split X` accepts every pkl `build_lmdb` does.
+
+## 12. Risks / open forks
 
 1. **Extractor quality on small peds is the real risk**, not the encoder. If DWPose confidences collapse
    below `min_conf` for most feet on distant peds, the feet block is dead weight — mitigate with the

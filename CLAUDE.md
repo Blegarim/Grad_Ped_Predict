@@ -56,6 +56,7 @@ tight crop + motion → MotionEncoder    ───┘
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → pooling MLP → softmax temporal weights → per-task classifier heads. `model.fusion_residual` (A3/RQ2, **default on**) adds the motion query back at fusion (`attn_output + motion_feats`) so motion *content* reaches the heads, not just motion-as-attention-mask; `=false` is the no-residual A3 ablation (golden-pinned). |
 | `EnsembleModel` | Wires all components; applies **LayerNorm before fusion**; `return_feats` path used by viz. |
 | Ablations | `PedLocalModel` (tight-crop CNN + bbox kinematics, no scene context — legacy `motion_only`, renamed per A6), `KinematicsOnlyModel` (NEW, pixel-free bbox-kinematics baseline, M9.1), `VisualOnlyModel`, `VanillaConcatModel` (concat instead of cross-attention); same output-dict format. |
+| Pose arm | [docs/POSE_ENCODER.md](docs/POSE_ENCODER.md): `pose_kinematics` (= `KinematicsOnlyModel` fed the 58-dim pose+motion vector, pixel-free) and `pose_full` (`PoseFullModel` — that vector as the cross-attention query over the ViT context, no tight crop; emits `temporal_weights` like `full`). Needs a pose-enabled LMDB build: `pose.enabled` + `data`/`model.motion_dim=58` + `model.motion_norm=none` (validated as a bundle). Pose math + cache reader: `data/pose.py`; extraction: `scripts/extract_pose.py` (`--dry-run` fabricates keypoints so the pipeline runs without frames/extractor). |
 
 - **Unified `d_model = 128`** across ALL modules. Never change one module's dim without the others.
 - **Output dict keys**: `actions`, `looks`, `crosses_pooled`, `crosses_frame`, `temporal_weights`.
@@ -104,7 +105,8 @@ imbalance levers below. Sequence-gen params (`seq_len`, `stride`,
 `future_offset`, `context_scale`, …) live in `configs/data.yaml`; the **LMDB schema v2** key/value contract
 is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim motion channel table in
 [data/transforms.py](src/pedpredict/data/transforms.py). Crops are stored un-normalized (ImageNet norm at
-read time); consumers slice motions to `data.motion_dim` (8 = no ego, 9 = with ego).
+read time); consumers slice motions to `data.motion_dim` (8 = no ego, 9 = with ego; 58 = pose arm, where
+the read path builds the pose feature block instead of slicing).
 
 **v2 labeling contract — deliberate departures from v1/legacy; do not "fix" these as bugs.** Full rationale
 in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
@@ -123,6 +125,12 @@ in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
   a runtime flag `model.motion_norm` (`image` default | `per_sequence` legacy/A4 arm, golden-pinned).
   `horizontal_flip` **must** negate `dx` (idx 2) and reflect `cx` (idx 0) about `data.source_width`, or
   augmented data corrupts silently.
+- **Pose (additive meta key)** — when `pose.enabled`, every meta also stores raw keypoints `pose[T,23,3]`
+  (COCO-WholeBody body-17+feet-6, absolute px, from the `extract_pose.py` cache); existing consumers
+  ignore it. Features are built at **read time** (`data/pose.py`), so `motions` leaves the dataset as
+  `[T, 58]` with the 9-dim block already image-normalized — hence pose models run
+  `model.motion_norm="none"`. `horizontal_flip` **must** also mirror pose (`flip_pose`: reflect x about
+  `data.source_width` + swap left/right joints) — same silent-corruption stakes as the motion-flip rule.
 - **S1 (streaming pivot)** — each standard `SequenceRecord` also carries pure per-window onset annotation:
   `onset_offset` (frames from end-of-obs to the first future crossing; `-1` if none), `future_observed`
   (`n − end`), and `track_crosses` (track ever crosses). These do **not** change the `crosses` label or
@@ -189,7 +197,8 @@ efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`
 `MetricAccumulator` is shared by training-validation and test (no divergence). Degenerate cases use
 `zero_division=0`; AUC needs softmax probabilities. Model types: `full`, `ped_local` (legacy
 `motion_only`, renamed per A6 — it reads the tight crop), `kinematics_only` (pixel-free baseline, M9.1),
-`visual_only`, `vanilla_concat` — selected via the typed registry, not raw strings. **Single-task**
+`visual_only`, `vanilla_concat`, `pose_kinematics` / `pose_full` (pose arm, need a pose-enabled build) —
+selected via the typed registry, not raw strings. **Single-task**
 (crosses-only) is not a model type but a config recipe: zero the disabled tasks in *both* imbalance-aware
 levers — `--set train.loss_weight.actions=0 train.loss_weight.looks=0 train.sampler_powers.actions=0
 train.sampler_powers.looks=0` (the loss honors a 0 weight; the dead heads still print metrics, harmless).
