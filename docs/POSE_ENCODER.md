@@ -344,6 +344,12 @@ Recorded July 2026, at the step 0–4 implementation:
   `augment.runtime` remain usable in pose-enabled builds instead of silently corrupting flipped copies.
 - **Cache writes merge-update** per-video npz, so streaming and anchored splits can be extracted in
   separate runs; `extract_pose.py --split X` accepts every pkl `build_lmdb` does.
+- **Frames stream from `PIE_clips`, in memory.** §7's "iterate unique PIE frames" originally assumed
+  staged image files, which the storage-limited lab PC never has (it builds LMDBs incrementally from
+  clips). `extract_pose.py` now decodes each video with a sequential cv2 scan (same decode as
+  `incremental.extract_video_frames`) and feeds the BGR frame straight to the extractor — nothing is
+  written to or read from an images dir. Side effect: rtmlib receives cv2-native BGR, its expected
+  channel order.
 
 ## 12. Risks / open forks
 

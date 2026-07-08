@@ -123,9 +123,10 @@ python scripts/train.py --set model.vit_backbone=tiny_vit_5m_224 --set model.fre
 ```
 
 ## 11. Pose arm (needs a pose-enabled rebuild — fold into the final data pass)
-[docs/POSE_ENCODER.md](docs/POSE_ENCODER.md). Extraction once per unique frame (merge-updates per-video
-npz, so splits can run separately); then rebuild LMDBs with `pose.enabled` so metas carry raw keypoints.
-`--dry-run` fabricates keypoints — full-pipeline check without frames or rtmlib.
+[docs/POSE_ENCODER.md](docs/POSE_ENCODER.md). Extraction streams frames **in memory from `PIE_clips`**
+(no staged images — same storage bound as the incremental build), once per unique frame; per-video npz
+is merge-updated, so splits can run separately. Then rebuild LMDBs with `pose.enabled` so metas carry
+raw keypoints. `--dry-run` fabricates keypoints — full-pipeline check without clips or rtmlib.
 The pose bundle (always the four together; validation rejects partial):
 `--set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58`
 ```powershell

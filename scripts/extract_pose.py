@@ -7,9 +7,12 @@ crop) once per unique frame, smooths/interpolates per track (``pose.smooth_windo
 windows never re-extract; existing video files are merge-updated, so splits can be run separately.
 Decoupled from windowing — the LMDB build (``pose.enabled``) reads this cache afterwards.
 
-The real extractor needs the PIE frames + ``pip install rtmlib onnxruntime-gpu`` (lab PC).
-``--dry-run`` fabricates deterministic random keypoints inside each GT box so the whole pose
-pipeline is exercisable end-to-end without frames or the extractor installed.
+Frames are decoded **in memory straight from ``PIE_clips``** (the storage-limited-lab-PC counterpart
+of ``build_lmdb_incremental.py``): a sequential cv2 scan per video, frame -> extractor -> discard —
+no staged image files are read or written. The real extractor needs the clips +
+``pip install rtmlib onnxruntime-gpu``. ``--dry-run`` fabricates deterministic random keypoints
+inside each GT box so the whole pose pipeline is exercisable end-to-end without clips or the
+extractor installed.
 
     python scripts/extract_pose.py --split train
     python scripts/extract_pose.py --split all --dry-run
@@ -20,12 +23,14 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
 import torch
 
 from pedpredict.config import build_argparser, load_config
+from pedpredict.data.incremental import parse_frame_path
 from pedpredict.data.pie_sequences import load_sequences
 from pedpredict.data.pose import POSE_STORE_JOINTS, smooth_pose
 from pedpredict.paths import find_project_root, resolve_paths
@@ -33,20 +38,43 @@ from pedpredict.paths import find_project_root, resolve_paths
 _SPLITS = ("train", "val", "test")
 _EXTRA_SPLITS = ("train_benchmark", "val_benchmark", "test_benchmark")
 
-# (set, video) -> {f"{frame}_{pid}": (bbox [x1, y1, x2, y2], frame image path)}
-_VideoTasks = dict[tuple[str, str], dict[str, tuple[list[float], str]]]
+# (set, video) -> {f"{frame}_{pid}": bbox [x1, y1, x2, y2]}
+_VideoTasks = dict[tuple[str, str], dict[str, list[float]]]
 
 
 def collect_tasks(pkl_paths: list[Path]) -> _VideoTasks:
-    """Dedupe every record frame into per-video (frame, pid) -> (bbox, path) lookup tasks."""
+    """Dedupe every record frame into per-video (frame, pid) -> bbox lookup tasks."""
     tasks: _VideoTasks = defaultdict(dict)
     for pkl in pkl_paths:
         for rec in load_sequences(pkl):
             for img_path, bbox in zip(rec["images"], rec["bboxes"], strict=True):
-                p = Path(img_path)
-                key = f"{int(p.stem)}_{rec['track_id']}"
-                tasks[(p.parts[-3], p.parts[-2])].setdefault(key, (list(bbox), str(img_path)))
+                set_id, video_id, fid = parse_frame_path(img_path)
+                tasks[(set_id, video_id)].setdefault(f"{fid}_{rec['track_id']}", list(bbox))
     return tasks
+
+
+def iter_clip_frames(clip_path: Path, frame_ids: set[int]) -> Iterator[tuple[int, np.ndarray]]:
+    """Sequential-scan ``clip_path`` (cv2, BGR — same decode as ``incremental.extract_video_frames``)
+    yielding ``(frame_id, image)`` for the requested ids; stops after the highest one."""
+    import cv2  # local import: only the real extraction path needs opencv
+
+    cap = cv2.VideoCapture(str(clip_path))
+    if not cap.isOpened():
+        raise FileNotFoundError(f"cannot open clip: {clip_path}")
+    served, last_needed = 0, max(frame_ids)
+    try:
+        frame_num = 0
+        ok, image = cap.read()
+        while ok and frame_num <= last_needed:
+            if frame_num in frame_ids:
+                served += 1
+                yield frame_num, image
+            ok, image = cap.read()
+            frame_num += 1
+    finally:
+        cap.release()
+    if served != len(frame_ids):
+        raise RuntimeError(f"{clip_path}: served {served}/{len(frame_ids)} frames (clip too short?)")
 
 
 def _fabricate(bbox: list[float], key: str) -> np.ndarray:
@@ -74,9 +102,9 @@ class DwposeExtractor:
             ) from exc
         self._pose = Wholebody(to_openpose=False, backend="onnxruntime", device=device).pose_model
 
-    def __call__(self, img_rgb: np.ndarray, boxes: list[list[float]]) -> np.ndarray:
-        """``img_rgb [H, W, 3]`` + N xyxy boxes -> ``[N, 23, 3]`` (x, y, conf)."""
-        keypoints, scores = self._pose(img_rgb, bboxes=boxes)
+    def __call__(self, img_bgr: np.ndarray, boxes: list[list[float]]) -> np.ndarray:
+        """``img_bgr [H, W, 3]`` (cv2 order, as rtmlib expects) + N xyxy boxes -> ``[N, 23, 3]``."""
+        keypoints, scores = self._pose(img_bgr, bboxes=boxes)
         kpts = np.asarray(keypoints)[:, :POSE_STORE_JOINTS]
         conf = np.asarray(scores)[:, :POSE_STORE_JOINTS, None]
         return np.concatenate([kpts, conf], axis=-1).astype(np.float32)
@@ -85,22 +113,22 @@ class DwposeExtractor:
 def extract_video(
     set_id: str,
     video_id: str,
-    frames: dict[str, tuple[list[float], str]],
+    frames: dict[str, list[float]],
     *,
+    clips_dir: Path,
     extractor: DwposeExtractor | None,
 ) -> dict[str, np.ndarray]:
-    """Run one video's unique frames through the extractor (or fabrication)."""
+    """Run one video's unique frames (streamed from its clip) through the extractor (or fabrication)."""
     if extractor is None:
-        return {key: _fabricate(bbox, f"{set_id}/{video_id}/{key}") for key, (bbox, _) in frames.items()}
-    from pedpredict.data.transforms import load_rgb  # PIL import stays off the --dry-run path
+        return {key: _fabricate(bbox, f"{set_id}/{video_id}/{key}") for key, bbox in frames.items()}
 
-    by_frame: dict[str, list[tuple[str, list[float]]]] = defaultdict(list)
-    for key, (bbox, img_path) in frames.items():
-        by_frame[img_path].append((key, bbox))
+    by_frame: dict[int, list[tuple[str, list[float]]]] = defaultdict(list)
+    for key, bbox in frames.items():
+        by_frame[int(key.split("_", 1)[0])].append((key, bbox))
     out: dict[str, np.ndarray] = {}
-    for img_path, items in sorted(by_frame.items()):
-        img = np.asarray(load_rgb(img_path))
-        results = extractor(img, [bbox for _, bbox in items])
+    for fid, image in iter_clip_frames(clips_dir / set_id / f"{video_id}.mp4", set(by_frame)):
+        items = by_frame[fid]
+        results = extractor(image, [bbox for _, bbox in items])
         for (key, _), kpts in zip(items, results, strict=True):
             out[key] = kpts
     return out
@@ -144,9 +172,10 @@ def main(argv: list[str] | None = None) -> None:
 
     tasks = collect_tasks(pkls)
     extractor = None if args.dry_run else DwposeExtractor(args.device)
+    clips_dir = paths.pie_root / "PIE_clips"
     total = 0
     for (set_id, video_id), frames in sorted(tasks.items()):
-        raw = extract_video(set_id, video_id, frames, extractor=extractor)
+        raw = extract_video(set_id, video_id, frames, clips_dir=clips_dir, extractor=extractor)
         smoothed = smooth_tracks(raw, window=cfg.pose.smooth_window, min_conf=cfg.pose.min_conf)
         out_path = cache_root / set_id / f"{video_id}.npz"
         out_path.parent.mkdir(parents=True, exist_ok=True)
