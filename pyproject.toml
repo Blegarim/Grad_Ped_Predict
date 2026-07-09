@@ -34,6 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 infer = ["ultralytics==8.3.156", "lap==0.5.12"]   # YOLO detect/track, inference-only
 export = ["onnx>=1.16", "onnxruntime>=1.18"]       # ONNX path (P7); onnxruntime is a deliberate addition
+ui = ["streamlit>=1.36"]                            # scripts/ui.py control panel (personal-use front door)
 dev = ["ruff==0.6.*", "pytest>=8", "pytest-cov>=5"]
 
 [tool.setuptools.packages.find]
