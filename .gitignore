@@ -37,6 +37,7 @@ htmlcov/
 
 # --- Generated LMDB datasets (writer output; content already covered by *.lmdb/*.mdb) ---
 /preprocessed_*/
+pose_cache/
 
 # --- Run artifacts (per-run output dirs, logs, generated figures) ---
 # Ignore everything under outputs/, but DO track the lightweight, portable text
