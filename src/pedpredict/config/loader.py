@@ -42,6 +42,7 @@ __all__ = [
     "ConfigError",
     "load_config",
     "load_resolved_config",
+    "merge_eval_config",
     "parse_overrides",
     "apply_overrides",
     "validate_config",
@@ -509,6 +510,47 @@ def load_resolved_config(path: str | Path, *, validate: bool = False) -> RootCfg
     if validate:
         validate_config(root)
     return root
+
+
+#: Architecture fields eval must inherit from the checkpoint's ``resolved_config.yaml`` so the model it
+#: builds matches the saved weights' param layout. ``model`` (backbone/dims/norm/freeze), ``pose`` (read-
+#: path shape), ``eval.model_type`` (which architecture to build) and ``data.motion_dim`` (must equal
+#: ``model.motion_dim``) are intrinsic to the trained model; everything else (paths, protocol, batch_size,
+#: workers, seed) is a runtime choice that stays with the caller's config. Explicit CLI ``--set`` wins over
+#: both (re-applied last), so a deliberate architecture override is still possible.
+_EVAL_ARCH_SECTIONS: tuple[str, ...] = ("model", "pose")
+_EVAL_ARCH_FIELDS: tuple[tuple[str, str], ...] = (("eval", "model_type"), ("data", "motion_dim"))
+
+
+def merge_eval_config(
+    runtime: RootCfg, ckpt_config_path: str | Path, cli_overrides: Sequence[str] | None = None
+) -> RootCfg:
+    """Splice the trained model's architecture into a runtime eval ``RootCfg`` (evaluate.py, OQ7).
+
+    The checkpoint's run dir holds ``resolved_config.yaml`` — the exact architecture the weights were
+    trained under. ``build_model`` reads ``eval.model_type`` + the ``model``/``pose`` bundle, so eval must
+    build from *those* values, not the ambient config defaults (else a ``pose_full`` timm checkpoint is
+    silently rebuilt as ``full`` and ``strict`` load fails on a wall of key mismatches). This takes
+    :data:`_EVAL_ARCH_SECTIONS` / :data:`_EVAL_ARCH_FIELDS` from the checkpoint config and keeps every
+    runtime field (paths, ``data.protocol``, ``eval.batch_size``, seed, …) from ``runtime``. Explicit CLI
+    ``--set`` overrides are re-applied last so they still win over the inherited architecture.
+
+    ``cli_overrides`` is the raw ``--set`` token list (only its ``model``/``pose``/``eval``/``data`` keys
+    are re-applied — the rest already shaped ``runtime``). Validation is the caller's job (evaluate.py runs
+    the same ``load_config`` path, so ``runtime`` is already validated; the merge only narrows it).
+    """
+    ckpt = load_resolved_config(ckpt_config_path, validate=False)
+    sections = {name: getattr(runtime, name) for name in _SECTIONS}
+    for name in _EVAL_ARCH_SECTIONS:
+        sections[name] = getattr(ckpt, name)
+    for section, field_name in _EVAL_ARCH_FIELDS:
+        sections[section] = dataclasses.replace(
+            sections[section], **{field_name: getattr(getattr(ckpt, section), field_name)}
+        )
+    merged = dataclasses.replace(runtime, **sections)
+    if cli_overrides:
+        merged = apply_overrides(merged, parse_overrides(cli_overrides))
+    return merged
 
 
 def _to_plain(obj: object) -> object:

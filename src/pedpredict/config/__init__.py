@@ -7,6 +7,7 @@ from .loader import (
     dump_config,
     load_config,
     load_resolved_config,
+    merge_eval_config,
     parse_overrides,
     validate_config,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "dump_config",
     "load_config",
     "load_resolved_config",
+    "merge_eval_config",
     "parse_overrides",
     "validate_config",
 ]

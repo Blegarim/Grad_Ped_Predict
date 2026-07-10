@@ -23,6 +23,7 @@ from pedpredict.config import (
     dump_config,
     load_config,
     load_resolved_config,
+    merge_eval_config,
     parse_overrides,
     validate_config,
 )
@@ -248,3 +249,75 @@ def test_argparser_set_channel() -> None:
     cfg = load_config(_CONFIG_DIR, overrides=ns.overrides, validate=False)
     assert cfg.train.lr == 5e-5
     assert cfg.train.batch_size == 8
+
+
+# --------------------------------------------------------------------------- merge_eval_config (OQ7)
+
+# A pose_full + timm-backbone training config: the architecture bundle eval must inherit from the run dir.
+_POSE_FULL_OVERRIDES = [
+    "eval.model_type=pose_full",
+    "model.vit_backbone=tiny_vit_5m_224",
+    "model.vit_pretrained=false",
+    "model.freeze_vit_backbone=true",
+    "model.motion_dim=58",
+    "model.motion_norm=none",
+    "data.motion_dim=58",
+    "pose.enabled=true",
+]
+
+
+def test_merge_eval_config_inherits_architecture(tmp_path: Path) -> None:
+    """Eval inherits model_type + the model/pose bundle + data.motion_dim from the checkpoint config."""
+    trained = load_config(_CONFIG_DIR, _POSE_FULL_OVERRIDES)
+    resolved = dump_config(trained, tmp_path)
+
+    ambient = load_config(_CONFIG_DIR, ["data.protocol=anchored"])  # default eval.model_type == "full"
+    assert ambient.eval.model_type == "full"
+
+    merged = merge_eval_config(ambient, resolved, ["data.protocol=anchored"])
+    validate_config(merged)                       # spliced bundle must satisfy the pose invariants
+    assert merged.eval.model_type == "pose_full"
+    assert merged.model.vit_backbone == "tiny_vit_5m_224"
+    assert merged.model.freeze_vit_backbone is True
+    assert merged.model.motion_norm == "none"
+    assert merged.model.motion_dim == 58
+    assert merged.data.motion_dim == 58            # architectural: must track model.motion_dim
+    assert merged.pose.enabled is True
+
+
+def test_merge_eval_config_keeps_runtime_fields(tmp_path: Path) -> None:
+    """Runtime choices (protocol, batch_size, workers, paths) stay with the caller, not the checkpoint."""
+    trained = load_config(_CONFIG_DIR, _POSE_FULL_OVERRIDES + ["eval.batch_size=4", "data.protocol=streaming"])
+    resolved = dump_config(trained, tmp_path)
+
+    runtime = ["data.protocol=anchored", "eval.batch_size=64"]
+    ambient = load_config(_CONFIG_DIR, runtime)
+    merged = merge_eval_config(ambient, resolved, runtime)
+
+    assert merged.data.protocol == "anchored"      # from the eval caller, NOT the checkpoint's streaming
+    assert merged.eval.batch_size == 64            # runtime field: caller wins
+
+
+def test_merge_eval_config_cli_override_wins(tmp_path: Path) -> None:
+    """An explicit --set on an architecture field beats the inherited checkpoint value."""
+    trained = load_config(_CONFIG_DIR, _POSE_FULL_OVERRIDES)   # trained with freeze_vit_backbone=true
+    resolved = dump_config(trained, tmp_path)
+
+    overrides = ["data.protocol=anchored", "model.freeze_vit_backbone=false"]
+    ambient = load_config(_CONFIG_DIR, overrides)
+    merged = merge_eval_config(ambient, resolved, overrides)
+    validate_config(merged)
+    assert merged.eval.model_type == "pose_full"              # still inherited
+    assert merged.model.freeze_vit_backbone is False          # CLI override beat the inherited `true`
+
+
+def test_merge_eval_config_plain_full_roundtrip(tmp_path: Path) -> None:
+    """A vanilla `full` checkpoint round-trips unchanged (no regression for the common case)."""
+    trained = load_config(_CONFIG_DIR)             # default: eval.model_type == "full"
+    resolved = dump_config(trained, tmp_path)
+    ambient = load_config(_CONFIG_DIR, ["data.protocol=anchored"])
+    merged = merge_eval_config(ambient, resolved, ["data.protocol=anchored"])
+    validate_config(merged)
+    assert merged.eval.model_type == "full"
+    assert merged.model.motion_dim == trained.model.motion_dim
+    assert merged.data.protocol == "anchored"
