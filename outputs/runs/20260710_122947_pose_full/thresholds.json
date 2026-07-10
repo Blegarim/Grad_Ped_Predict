@@ -1,0 +1,8 @@
+{
+  "tuned_on_split": "val",
+  "thresholds": {
+    "actions": 0.3,
+    "looks": 0.25,
+    "crosses": 0.45
+  }
+}
