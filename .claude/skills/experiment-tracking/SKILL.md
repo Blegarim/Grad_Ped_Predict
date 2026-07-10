@@ -57,8 +57,10 @@ macro_f1, lr, epoch_time_s
 
 `eval_log.csv` columns (from `scripts/evaluate.py`):
 ```
-model_type, task, accuracy, f1, auc, precision, recall
+model_type, protocol, task, accuracy, f1, auc, precision, recall
 ```
+(`protocol` = `streaming` | `anchored`, the cross-protocol-matrix axis; distinguishes eval rows
+that would otherwise differ only by `n_samples`.)
 
 `benchmark.csv` columns (from `eval/benchmark.py`, separate from accuracy metrics):
 ```

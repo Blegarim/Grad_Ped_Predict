@@ -94,9 +94,11 @@ _EFFICIENCY_COLUMNS: tuple[str, ...] = (
 
 #: WIDE eval-log schema (OQ2): context + shared METRIC_COLUMNS (default 0.5) + ``tuned_*``
 #: (val-tuned thresholds applied to this split — the REPORTABLE operating point, M2) + ``oracle_*``
-#: (same-split sweep — leakage, log-only) + efficiency.
+#: (same-split sweep — leakage, log-only) + efficiency. ``protocol`` (``data.protocol``: ``streaming``
+#: ~37:1 | ``anchored`` benchmark ~2.5:1) qualifies ``split`` — the cross-protocol-matrix axis; without it
+#: streaming vs anchored eval rows are indistinguishable except by ``n_samples``.
 EVAL_LOG_COLUMNS: tuple[str, ...] = (
-    ("timestamp", "checkpoint", "model_type", "split", "n_samples")
+    ("timestamp", "checkpoint", "model_type", "protocol", "split", "n_samples")
     + METRIC_COLUMNS
     + tuple(f"tuned_{task}_{suffix}" for task in TASKS for suffix in _THRESH_SUFFIXES)
     + ("tuned_macro_acc",)
@@ -341,6 +343,7 @@ def _build_eval_row(
     *,
     checkpoint: str | Path,
     model_type: str,
+    protocol: str,
     split: str,
     efficiency: dict[str, float] | None,
 ) -> dict[str, object]:
@@ -348,11 +351,13 @@ def _build_eval_row(
 
     ``tuned`` is the val-tuned-threshold metric dict for this split (blank columns when ``None`` —
     i.e. a test pass before any val pass stored thresholds). ``oracle_*`` is the same-split sweep.
+    ``protocol`` (``data.protocol``) records whether this was a ``streaming`` or ``anchored`` eval.
     """
     row: dict[str, object] = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "checkpoint": str(checkpoint),
         "model_type": model_type,
+        "protocol": protocol,
         "split": split,
         "n_samples": artifacts.n_samples,
     }
@@ -426,7 +431,13 @@ def run_evaluation(
         tuned = artifacts.tuned
 
     row = _build_eval_row(
-        artifacts, tuned, checkpoint=checkpoint, model_type=model_type, split=split, efficiency=efficiency
+        artifacts,
+        tuned,
+        checkpoint=checkpoint,
+        model_type=model_type,
+        protocol=cfg.data.protocol,
+        split=split,
+        efficiency=efficiency,
     )
     with run.eval_logger(EVAL_LOG_COLUMNS) as logger:
         logger.log(round_row(row))
