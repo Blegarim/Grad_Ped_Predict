@@ -21,10 +21,13 @@ Output contract honored (B4, coupled with 2.3/3.1/3.2): ``crosses`` is scored on
 structurally full-model-only.
 
 Threshold protocol (M2 — no test-set tuning): an eval pass over **val** sweeps the per-task F1-optimal
-thresholds and stores them in the run dir (``thresholds.json``); the **test** pass loads and applies
-them — those are the reportable ``tuned_*`` columns. The same-split sweep is still logged as
-``oracle_*`` (incl. Q3's ``oracle_macro_acc``) for diagnosis, but is test-set leakage and must never
-be quoted. Run ``evaluate.py --split val`` before ``--split test`` or the ``tuned_*`` columns stay blank.
+thresholds and stores them in the run dir (``thresholds_{protocol}.json`` — keyed by ``data.protocol``
+so an anchored val pass cannot clobber the streaming thresholds when one checkpoint fills both cells of
+the cross-protocol matrix); the **test** pass loads and applies them — those are the reportable
+``tuned_*`` columns. The same-split sweep is still logged as ``oracle_*`` (incl. Q3's
+``oracle_macro_acc``) for diagnosis, but is test-set leakage and must never be quoted. Run
+``evaluate.py --split val`` before ``--split test`` (under the same protocol) or the ``tuned_*`` columns
+stay blank.
 """
 
 from __future__ import annotations
@@ -79,7 +82,16 @@ __all__ = [
 Batch = tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]
 
 #: Per-run store for the val-tuned per-task thresholds (M2; written by a ``--split val`` pass).
+#: Keyed by ``data.protocol`` so an anchored val pass cannot clobber the streaming thresholds (or vice
+#: versa) when one checkpoint is evaluated under both protocols — the cross-protocol-matrix axis reuses
+#: the same run dir. ``thresholds.json`` (no protocol) is the pre-split legacy name, still read as a
+#: fallback so older runs keep working.
 THRESHOLDS_FILENAME = "thresholds.json"
+
+
+def _thresholds_filename(protocol: str) -> str:
+    """Protocol-keyed thresholds filename, e.g. ``thresholds_streaming.json`` (M2 cross-protocol safety)."""
+    return f"thresholds_{protocol}.json"
 
 #: Per-task fixed-threshold metric columns (``metrics_at_thresholds``, 3.2).
 _THRESH_SUFFIXES: tuple[str, ...] = ("threshold", "acc", "f1", "precision", "recall")
@@ -223,19 +235,36 @@ def evaluate_model(
 # --------------------------------------------------------------------------- artifact writers
 
 
-def save_thresholds(run_dir: Path, thresholds: dict[str, float], *, tuned_on: str) -> Path:
-    """Persist val-tuned per-task thresholds to ``<run_dir>/thresholds.json`` (M2)."""
-    path = Path(run_dir) / THRESHOLDS_FILENAME
-    payload = {"tuned_on_split": tuned_on, "thresholds": {t: float(v) for t, v in thresholds.items()}}
+def save_thresholds(
+    run_dir: Path, thresholds: dict[str, float], *, tuned_on: str, protocol: str
+) -> Path:
+    """Persist val-tuned per-task thresholds to ``<run_dir>/thresholds_{protocol}.json`` (M2).
+
+    Keyed by ``protocol`` so evaluating one checkpoint under both protocols writes two files instead of
+    the second val pass silently overwriting the first's thresholds.
+    """
+    path = Path(run_dir) / _thresholds_filename(protocol)
+    payload = {
+        "tuned_on_split": tuned_on,
+        "protocol": protocol,
+        "thresholds": {t: float(v) for t, v in thresholds.items()},
+    }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
 
 
-def load_thresholds(run_dir: Path) -> dict[str, float] | None:
-    """Read the stored val-tuned thresholds, or ``None`` when no val pass has run for this run dir."""
-    path = Path(run_dir) / THRESHOLDS_FILENAME
+def load_thresholds(run_dir: Path, *, protocol: str) -> dict[str, float] | None:
+    """Read the stored val-tuned thresholds for ``protocol``, or ``None`` when no val pass has run.
+
+    Prefers the protocol-keyed ``thresholds_{protocol}.json``; falls back to the legacy protocol-less
+    ``thresholds.json`` so runs tuned before this change keep loading (they only ever held one protocol).
+    """
+    path = Path(run_dir) / _thresholds_filename(protocol)
     if not path.exists():
-        return None
+        legacy = Path(run_dir) / THRESHOLDS_FILENAME
+        if not legacy.exists():
+            return None
+        path = legacy
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {task: float(thr) for task, thr in payload["thresholds"].items()}
 
@@ -403,11 +432,13 @@ def run_evaluation(
     load_eval_weights(model, checkpoint, device=device, strict=strict)
 
     run = _resolve_run_dir(cfg, checkpoint)            # resolved BEFORE eval: the test pass loads thresholds
-    stored_thresholds = load_thresholds(run.path) if split != "val" else None
+    protocol = cfg.data.protocol
+    stored_thresholds = load_thresholds(run.path, protocol=protocol) if split != "val" else None
     if split != "val" and stored_thresholds is None:
         print(
-            f"[run_evaluation] WARNING: no {THRESHOLDS_FILENAME} in {run.path} — tuned_* columns will be "
-            "blank. Run `evaluate.py --split val` with this checkpoint first to freeze val-tuned thresholds."
+            f"[run_evaluation] WARNING: no {_thresholds_filename(protocol)} in {run.path} — tuned_* columns "
+            f"will be blank. Run `evaluate.py --split val` under protocol={protocol} with this checkpoint "
+            "first to freeze val-tuned thresholds."
         )
 
     is_full = ModelType.coerce(model_type) is ModelType.FULL
@@ -425,7 +456,7 @@ def run_evaluation(
     if split == "val":
         # The val sweep IS the tuning pass: freeze the thresholds for later test passes; on val,
         # tuned == oracle by construction (both are the val-swept operating point).
-        save_thresholds(run.path, artifacts.thresholds, tuned_on=split)
+        save_thresholds(run.path, artifacts.thresholds, tuned_on=split, protocol=protocol)
         tuned = artifacts.oracle
     else:
         tuned = artifacts.tuned

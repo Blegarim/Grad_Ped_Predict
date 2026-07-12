@@ -31,7 +31,6 @@ from pedpredict.config import DataCfg, EvalCfg, ModelCfg, PathsCfg, RootCfg, Tra
 from pedpredict.data.lmdb_writer import write_dataset_chunks
 from pedpredict.eval.evaluate import (
     EVAL_LOG_COLUMNS,
-    THRESHOLDS_FILENAME,
     evaluate_model,
     load_eval_weights,
     load_thresholds,
@@ -360,9 +359,10 @@ def test_threshold_protocol_val_then_test(tmp_path: Path) -> None:
 
     val_report = run_evaluation(cfg, checkpoint=ckpt, device=_CPU, split="val")
     assert val_report.run_dir == run_dir
-    stored = load_thresholds(run_dir)
+    protocol = cfg.data.protocol
+    stored = load_thresholds(run_dir, protocol=protocol)
     assert stored is not None and set(stored) == set(_TASKS)
-    assert (run_dir / THRESHOLDS_FILENAME).exists()
+    assert (run_dir / f"thresholds_{protocol}.json").exists()  # protocol-keyed, not the legacy name
     assert stored == pytest.approx(val_report.artifacts.thresholds)  # frozen = the val sweep
 
     test_report = run_evaluation(cfg, checkpoint=ckpt, device=_CPU, split="test")

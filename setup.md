@@ -80,7 +80,7 @@ is `eval.model_type`, not `model.model_type`.** Override anything inline, e.g. `
 
 ## 7. Evaluate (thresholds tuned on val, applied to test)
 ```powershell
-python scripts/evaluate.py --split val  --checkpoint outputs/runs/<run>/checkpoints/best.pth   # → thresholds.json
+python scripts/evaluate.py --split val  --checkpoint outputs/runs/<run>/checkpoints/best.pth   # → thresholds_<protocol>.json
 python scripts/evaluate.py --split test --checkpoint outputs/runs/<run>/checkpoints/best.pth   # applies them
 ```
 Report `tuned_*` only (`oracle_*` = same-split leakage, diagnosis only). Lead metric `crosses_f1`.
@@ -107,8 +107,9 @@ python scripts/evaluate.py --split val  --set data.protocol=streaming --checkpoi
 python scripts/evaluate.py --split test --set data.protocol=streaming --checkpoint <run>/checkpoints/best.pth
 # ...then the same pair with data.protocol=anchored. Headline cell: train-anchored / test-streaming.
 ```
-⚠️ `thresholds.json` is not protocol-suffixed yet — run a protocol's `--split val` immediately before its
-`--split test`, or test applies the wrong thresholds.
+Thresholds are stored per protocol (`thresholds_streaming.json` / `thresholds_anchored.json`), so the two
+protocols no longer clobber each other's val-tuned cutoffs — still run each protocol's `--split val` before
+its own `--split test` so the file exists.
 
 ## 10. Pretrained backbone + runtime aug (RQ1 / scarcity)
 Both are train-time-only, no data rebuild; see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). First

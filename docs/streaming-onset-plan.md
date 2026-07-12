@@ -166,8 +166,10 @@ Left for a dedicated reconciliation pass to avoid churning three anchor docs mid
 `data.protocol` switch is now documented in [setup.md §9](../setup.md) and CLAUDE.md's Data Pipeline /
 Evaluation sections.)
 
-**Deferred code follow-up (Phase E hygiene, not blocking the first matrix cell):** `thresholds.json`
-lives per-run and is **not** protocol-suffixed, so evaluating one checkpoint under both protocols means
-the second val pass overwrites the first's thresholds. Mitigation today = run each protocol's val→test
-pair back-to-back (documented in setup.md §9d). Clean fix = key the threshold file by `data.protocol`
-(`thresholds_{protocol}.json`) in `eval/evaluate.py` `load_thresholds`/`save_thresholds`.
+**Deferred code follow-up (Phase E hygiene) — RESOLVED (July 2026).** `thresholds.json` is now keyed by
+`data.protocol` (`thresholds_{streaming,anchored}.json`) in `eval/evaluate.py`
+`save_thresholds`/`load_thresholds`, so evaluating one checkpoint under both protocols writes two files
+instead of the second val pass overwriting the first's thresholds. The legacy `thresholds.json` is still
+read as a fallback so pre-change runs keep loading. (Runs eval'd before this change kept only the
+last-calibrated protocol's file on disk, but their `tuned_*` CSV columns were captured inline at eval
+time and remain valid.)
