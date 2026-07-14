@@ -45,7 +45,7 @@ from pedpredict.losses.multitask import TASKS, MultiTaskLoss, build_multitask_lo
 from pedpredict.models.registry import build_model, forward_model
 from pedpredict.training.callbacks import CheckpointManager, EarlyStopping
 from pedpredict.training.distribution import write_distribution_report
-from pedpredict.training.metrics import METRIC_COLUMNS, MetricAccumulator, MetricResult
+from pedpredict.training.metrics import MetricAccumulator, MetricResult, metric_columns
 from pedpredict.utils.amp import autocast_ctx, make_grad_scaler, resolve_amp
 from pedpredict.utils.device import enable_perf_flags, get_device
 from pedpredict.utils.logging import (
@@ -89,14 +89,21 @@ def _loader_len(loader: DataLoader) -> int:
 #: enrichments over OLD) + the shared :data:`METRIC_COLUMNS` (val metrics). Composed here, in the
 #: training layer, because the metric names belong to ``training/metrics.py``; ``utils.logging`` stays
 #: free of any ``training`` import (a top-level import there would cycle via ``training/__init__``).
-TRAIN_LOG_COLUMNS: tuple[str, ...] = (
-    "epoch",
-    "train_loss",
-    "val_loss",
-    "lr",
-    "epoch_time_s",
-    *METRIC_COLUMNS,
-)
+_TRAIN_CONTEXT_COLUMNS: tuple[str, ...] = ("epoch", "train_loss", "val_loss", "lr", "epoch_time_s")
+
+
+def train_log_columns(tasks: tuple[str, ...] = TASKS) -> tuple[str, ...]:
+    """Per-run train-log schema: context columns + :func:`metric_columns` over the ACTIVE task set.
+
+    Crosses-only runs therefore emit only ``crosses_*`` (+ ``overall_acc``) — no dead ``actions_*`` /
+    ``looks_*`` / ``macro_f1`` columns. Full mode reproduces :data:`TRAIN_LOG_COLUMNS` exactly.
+    """
+    return _TRAIN_CONTEXT_COLUMNS + metric_columns(tasks)
+
+
+#: Default full 3-task train-log schema (back-compat constant). New call sites derive per-run columns
+#: from :func:`train_log_columns` over ``cfg.train.ordered_active_tasks()``.
+TRAIN_LOG_COLUMNS: tuple[str, ...] = train_log_columns(TASKS)
 
 
 class EpochResult(NamedTuple):
@@ -208,6 +215,10 @@ class Trainer:
         #: (``val_loss`` minimized; F1 metrics maximized via sign flip in :meth:`_selection_value`).
         #: ``best_val_loss`` remains the val loss AT the selected best epoch (checkpoint/index column).
         self.selection_metric = cfg.train.selection_metric
+        #: Supervised-task set (head-selection mode). Full = (actions, looks, crosses); crosses-only =
+        #: (crosses,). Drives the metric accumulator, the CSV column set, and (via effective_*) the loss
+        #: + sampler. macro_f1 over one task IS that task, so single-task selection never sees a dead head.
+        self.active_tasks = cfg.train.ordered_active_tasks()
         self.best_selection = float("inf")
         self.best_val_loss = float("inf")
         self._start_epoch = start_epoch
@@ -368,10 +379,19 @@ class Trainer:
     # ----------------------------------------------------------------- validation
 
     def _selection_value(self, val_loss: float, metrics: MetricResult) -> float:
-        """The minimized scalar for best-ckpt + early stop (M8). F1 metrics are negated (maximized)."""
+        """The minimized scalar for best-ckpt + early stop (M8). F1 metrics are negated (maximized).
+
+        ``macro_f1`` averages ONLY active tasks; with a single active task there is no ``macro_f1``
+        column, so it resolves to that task's own macro (``metrics.macro_f1``, which ``compute`` set to
+        the single task's F1). This is what makes crosses-only selection track ``crosses_f1`` even under
+        the default ``selection_metric=macro_f1`` — and why the epoch-1 dead-head poisoning is gone.
+        """
         if self.selection_metric == "val_loss":
             return val_loss
-        return -metrics.as_flat_dict()[self.selection_metric]
+        flat = metrics.as_flat_dict()
+        if self.selection_metric == "macro_f1" and "macro_f1" not in flat:
+            return -metrics.macro_f1        # single active task: macro == that task's F1
+        return -flat[self.selection_metric]
 
     def validate(self) -> tuple[float, MetricResult]:
         """Validate over all val chunks. Returns ``(val_loss, metrics)`` (OLD validate_one_epoch + :574-596).
@@ -382,7 +402,7 @@ class Trainer:
         :class:`MetricAccumulator` (3.2); crosses routes to ``crosses_frame`` (B4).
         """
         self.model.eval()
-        acc = MetricAccumulator()
+        acc = MetricAccumulator(tasks=self.active_tasks)
         loss_sum = 0.0
         n_samples = 0
         n_batches = 0
@@ -589,7 +609,7 @@ def build_trainer(
             print(f"[freeze_vit_backbone] froze {n_frozen} ViT tensors; {n_train:,} trainable params remain.")
     run = init_run(cfg, tag=tag)                                  # run id + scaffold + config snapshot
     run_dir = run.path
-    logger = run.train_logger(TRAIN_LOG_COLUMNS)
+    logger = run.train_logger(train_log_columns(cfg.train.ordered_active_tasks()))
     ckpt_mgr = CheckpointManager(
         run.checkpoints_dir,
         run_id=run.run_id,

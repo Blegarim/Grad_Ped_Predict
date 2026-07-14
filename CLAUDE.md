@@ -198,10 +198,17 @@ efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`
 `zero_division=0`; AUC needs softmax probabilities. Model types: `full`, `ped_local` (legacy
 `motion_only`, renamed per A6 — it reads the tight crop), `kinematics_only` (pixel-free baseline, M9.1),
 `visual_only`, `vanilla_concat`, `pose_kinematics` / `pose_full` (pose arm, need a pose-enabled build) —
-selected via the typed registry, not raw strings. **Single-task**
-(crosses-only) is not a model type but a config recipe: zero the disabled tasks in *both* imbalance-aware
-levers — `--set train.loss_weight.actions=0 train.loss_weight.looks=0 train.sampler_powers.actions=0
-train.sampler_powers.looks=0` (the loss honors a 0 weight; the dead heads still print metrics, harmless).
+selected via the typed registry, not raw strings. **Crosses-only** (single-task) is not a model type but
+the **head-selection mode**, driven by one field: `--set train.active_tasks=[crosses]
+train.selection_metric=crosses_f1`. `active_tasks` (default `[actions,looks,crosses]` = full) is the
+single source of truth — the Trainer derives `effective_loss_weight()`/`effective_sampler_powers()`
+(inactive tasks → 0 in *both* imbalance levers), builds the metric accumulator + CSV/eval columns over
+the active set only (no dead `actions_*`/`looks_*`/`macro_*` columns anywhere), and `macro_f1` averages
+only active tasks so a single active task collapses it to that task's F1. **This closes a real bug:** with
+the old multi-task `macro_f1` selection, dropped heads still emit predictions, and their transient
+epoch-1 F1 (before collapse) spiked `macro_f1` to an unbeatable value — best.pth froze on epoch 1 and
+early-stop counted from epoch 2. `active_tasks` makes that impossible; always pair crosses-only with
+`selection_metric=crosses_f1` (validated: `crosses_f1` requires `crosses ∈ active_tasks`).
 
 **Experimental-validity rules (M2/M7/M8 — non-negotiable):**
 - **Thresholds are tuned on val, never test.** `evaluate.py --split val` sweeps per-task F1-optimal

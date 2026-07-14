@@ -181,6 +181,11 @@ class ModelCfg:
         }
 
 
+#: Canonical supervised-task order — the config-layer copy of ``losses.multitask.TASKS`` (kept in sync
+#: by the shared golden/parity tests). Config must not import training, hence the local constant.
+_CANONICAL_TASKS: tuple[str, ...] = ("actions", "looks", "crosses")
+
+
 @dataclass(frozen=True, slots=True)
 class TrainCfg:
     """Training hyperparameters."""
@@ -198,6 +203,12 @@ class TrainCfg:
     # picks best.pth + drives early stop: {"val_loss", "macro_f1", "crosses_f1"} (F1s maximized).
     # Independent of the LR schedule below.
     selection_metric: str = "macro_f1"
+    # Supervised-task set (single source of truth for the head-selection mode). Default = all three
+    # (full mode). A subset, e.g. ["crosses"], is CROSSES-ONLY mode: inactive tasks get loss_weight 0
+    # + sampler_powers 0 (derived by the Trainer), their heads run but are unsupervised and DROPPED
+    # from the metric/CSV schema, and macro_f1 averages ONLY active tasks (so a single active task IS
+    # the selection metric — no dead-head macro_f1 poisoning). Order-insensitive; validated ⊆ TASKS.
+    active_tasks: tuple[str, ...] = ("actions", "looks", "crosses")
     loss_weight: dict[str, float] = field(
         default_factory=lambda: {"actions": 0.8, "looks": 0.8, "crosses": 1.2}
     )
@@ -227,6 +238,27 @@ class TrainCfg:
     chunk_warm_mem_timeout: float | None = None   # opt-in cap on the RAM wait
     chunk_queue_timeout: float = 300.0      # queue.get skip-on-timeout
     dataloader_prefetch_factor: int = 2     # applies when num_workers > 0
+
+    # ----------------------------------------------------------------- active-task derivations
+    # ``active_tasks`` is the single source of truth for the head-selection mode; the three helpers
+    # below derive every downstream lever from it so loss / sampler / metrics can never drift apart.
+    # Canonical task order (matches losses.multitask.TASKS / the output contract) — duplicated here so
+    # the config layer does not import the training layer (which would cycle).
+
+    def ordered_active_tasks(self) -> tuple[str, ...]:
+        """``active_tasks`` in canonical (actions, looks, crosses) order — order-insensitive input."""
+        active = set(self.active_tasks)
+        return tuple(t for t in _CANONICAL_TASKS if t in active)
+
+    def effective_loss_weight(self) -> dict[str, float]:
+        """Per-task loss weights with INACTIVE tasks forced to 0 (crosses-only kills their gradient)."""
+        active = set(self.active_tasks)
+        return {t: (float(self.loss_weight.get(t, 1.0)) if t in active else 0.0) for t in _CANONICAL_TASKS}
+
+    def effective_sampler_powers(self) -> dict[str, float]:
+        """Per-task sampler powers with INACTIVE tasks forced to 0 (sampler ignores them, sampler.py)."""
+        active = set(self.active_tasks)
+        return {t: (float(self.sampler_powers.get(t, 0.0)) if t in active else 0.0) for t in _CANONICAL_TASKS}
 
 
 @dataclass(frozen=True, slots=True)

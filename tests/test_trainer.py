@@ -400,3 +400,71 @@ def test_fit_smoke_one_tiny_chunk(golden: dict, tmp_path: Path) -> None:
     rows = (tmp_path / "train_log.csv").read_text(encoding="utf-8").strip().splitlines()
     assert len(rows) == 2 and rows[0].split(",")[0] == "epoch"   # header + 1 epoch row
     assert set(mp.active_children()) == before         # no leaked processes
+
+
+# --------------------------------------------------------------------------- crosses-only mode
+
+def _crosses_only_cfg() -> RootCfg:
+    """PARITY cfg narrowed to crosses-only (the head-selection mode), one epoch."""
+    train = dataclasses.replace(
+        _PARITY_CFG.train, active_tasks=("crosses",), num_epochs=1,
+    )
+    return dataclasses.replace(_PARITY_CFG, train=train)
+
+
+def test_crosses_only_derives_effective_levers(golden: dict) -> None:
+    """active_tasks=(crosses,) zeros the inactive heads in BOTH imbalance levers (loss + sampler)."""
+    cfg = _crosses_only_cfg()
+    assert cfg.train.ordered_active_tasks() == ("crosses",)
+    assert cfg.train.effective_loss_weight() == {"actions": 0.0, "looks": 0.0, "crosses": 1.2}
+    assert cfg.train.effective_sampler_powers()["actions"] == 0.0
+    assert cfg.train.effective_sampler_powers()["looks"] == 0.0
+    assert cfg.train.effective_sampler_powers()["crosses"] == pytest.approx(0.5)
+    # the loss built for this cfg carries the zeroed weights (no actions/looks gradient)
+    from pedpredict.losses.multitask import build_multitask_loss
+    loss = build_multitask_loss(cfg.train, golden["class_weights"])
+    assert loss.loss_weight == {"actions": 0.0, "looks": 0.0, "crosses": 1.2}
+
+
+def test_crosses_only_selection_not_poisoned_by_dead_heads(golden: dict) -> None:
+    """Regression for the epoch-1 macro_f1 poisoning: with one active task, macro selection == crosses.
+
+    The bug: dropped heads still emit predictions; at epoch 1 (before they collapse) their transient F1
+    spiked macro_f1 to an unbeatable value, so best.pth froze on epoch 1 and early stop counted from
+    epoch 2. With active_tasks=(crosses,), macro_f1 has no column and _selection_value falls back to the
+    single task's macro (== crosses F1) — no dead head can enter the selection scalar.
+    """
+    model = _fresh_model(golden)
+    cfg = _crosses_only_cfg()   # selection_metric defaults to macro_f1
+    trainer = Trainer(cfg, model, _CPU, _ListChunkProvider([], [golden["val_batches"]]),
+                      loss=_loss_from_golden(golden))
+    assert trainer.active_tasks == ("crosses",)
+    _, metrics = trainer.validate()
+    # only crosses is scored; no macro_f1 column exists
+    assert metrics.tasks == ("crosses",)
+    assert "macro_f1" not in metrics.as_flat_dict()
+    # macro_f1 selection resolves to crosses F1 (negated) instead of KeyError-ing on the missing column
+    sel = trainer._selection_value(val_loss=1.0, metrics=metrics)
+    assert sel == pytest.approx(-metrics.per_task["crosses"].f1)
+
+
+def test_crosses_only_fit_writes_crosses_only_csv(golden: dict, tmp_path: Path) -> None:
+    """End-to-end: a crosses-only fit emits a train log with ONLY crosses columns (no dead actions/looks)."""
+    from pedpredict.training.trainer import train_log_columns
+    from pedpredict.utils.logging import CsvLogger
+
+    model = _fresh_model(golden)
+    cfg = _crosses_only_cfg()
+    chunks = _ListChunkProvider([golden["train_batches"]], [golden["val_batches"]])
+    cols = train_log_columns(cfg.train.ordered_active_tasks())
+    logger = CsvLogger(tmp_path / "train_log.csv", cols)
+    trainer = Trainer(cfg, model, _CPU, chunks, loss=_loss_from_golden(golden),
+                      checkpointer=ModelStateCheckpointer(tmp_path / "ckpts"), logger=logger,
+                      run_dir=tmp_path)
+    torch.manual_seed(golden["step_seed"])
+    trainer.fit()
+    logger.close()
+
+    header = (tmp_path / "train_log.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert "crosses_f1" in header
+    assert "actions_f1" not in header and "looks_f1" not in header and "macro_f1" not in header

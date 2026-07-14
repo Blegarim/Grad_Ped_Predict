@@ -52,7 +52,7 @@ from pedpredict.losses.multitask import TASKS
 from pedpredict.models.registry import ModelType, build_model, forward_model
 from pedpredict.paths import protocol_lmdb_dirs, resolve_paths
 from pedpredict.training.chunk_loader import gather_lmdb_chunks
-from pedpredict.training.metrics import METRIC_COLUMNS, MetricAccumulator, MetricResult
+from pedpredict.training.metrics import MetricAccumulator, MetricResult, metric_columns
 from pedpredict.utils.amp import autocast_ctx, resolve_amp
 from pedpredict.utils.device import enable_perf_flags, get_device
 from pedpredict.utils.logging import (
@@ -104,20 +104,36 @@ _EFFICIENCY_COLUMNS: tuple[str, ...] = (
     "peak_vram_mb",
 )
 
-#: WIDE eval-log schema (OQ2): context + shared METRIC_COLUMNS (default 0.5) + ``tuned_*``
-#: (val-tuned thresholds applied to this split — the REPORTABLE operating point, M2) + ``oracle_*``
-#: (same-split sweep — leakage, log-only) + efficiency. ``protocol`` (``data.protocol``: ``streaming``
-#: ~37:1 | ``anchored`` benchmark ~2.5:1) qualifies ``split`` — the cross-protocol-matrix axis; without it
-#: streaming vs anchored eval rows are indistinguishable except by ``n_samples``.
-EVAL_LOG_COLUMNS: tuple[str, ...] = (
-    ("timestamp", "checkpoint", "model_type", "protocol", "split", "n_samples")
-    + METRIC_COLUMNS
-    + tuple(f"tuned_{task}_{suffix}" for task in TASKS for suffix in _THRESH_SUFFIXES)
-    + ("tuned_macro_acc",)
-    + tuple(f"oracle_{task}_{suffix}" for task in TASKS for suffix in _THRESH_SUFFIXES)
-    + ("oracle_macro_acc",)
-    + _EFFICIENCY_COLUMNS
+_EVAL_CONTEXT_COLUMNS: tuple[str, ...] = (
+    "timestamp", "checkpoint", "model_type", "protocol", "split", "n_samples",
 )
+
+
+def eval_log_columns(tasks: tuple[str, ...] = TASKS) -> tuple[str, ...]:
+    """WIDE eval-log schema for an arbitrary supervised-task set (crosses-only support).
+
+    Context + :func:`metric_columns` (default-0.5) + ``tuned_*`` (val-tuned thresholds applied to this
+    split — the REPORTABLE operating point, M2) + ``oracle_*`` (same-split sweep — leakage, log-only) +
+    efficiency. ``*_macro_acc`` (mean per-task accuracy) is omitted for a single-task set. A crosses-only
+    run therefore emits only ``crosses_*`` / ``tuned_crosses_*`` / ``oracle_crosses_*`` — no dead
+    actions/looks columns. ``protocol`` qualifies ``split`` (the cross-protocol-matrix axis).
+    """
+    tuned = tuple(f"tuned_{task}_{suffix}" for task in tasks for suffix in _THRESH_SUFFIXES)
+    oracle = tuple(f"oracle_{task}_{suffix}" for task in tasks for suffix in _THRESH_SUFFIXES)
+    macro = ("tuned_macro_acc",) if len(tasks) > 1 else ()
+    omacro = ("oracle_macro_acc",) if len(tasks) > 1 else ()
+    return (
+        _EVAL_CONTEXT_COLUMNS
+        + metric_columns(tasks)
+        + tuned + macro
+        + oracle + omacro
+        + _EFFICIENCY_COLUMNS
+    )
+
+
+#: Default full 3-task eval-log schema (back-compat constant). New call sites derive per-run columns
+#: from :func:`eval_log_columns` over the checkpoint's active task set.
+EVAL_LOG_COLUMNS: tuple[str, ...] = eval_log_columns(TASKS)
 
 
 @dataclass(frozen=True)
@@ -163,7 +179,7 @@ def _prepare_batch(
 def _extract_predictions(acc: MetricAccumulator) -> dict[str, np.ndarray]:
     """Per-sample ``{task}_true / _prob_0 / _prob_1 / _pred`` from the accumulator's canonical store."""
     preds: dict[str, np.ndarray] = {}
-    for task in TASKS:
+    for task in acc.tasks:
         y_true, y_pred, y_prob = acc.task_arrays(task)
         preds[f"{task}_true"] = y_true
         preds[f"{task}_prob_0"] = y_prob[:, 0]
@@ -182,6 +198,7 @@ def evaluate_model(
     collect_predictions: bool = False,
     collect_temporal_weights: bool = False,
     tuned_thresholds: dict[str, float] | None = None,
+    active_tasks: tuple[str, ...] = TASKS,
 ) -> EvalArtifacts:
     """Run ``model`` over every loader; return metrics (+ optional per-sample preds / temporal weights).
 
@@ -190,11 +207,15 @@ def evaluate_model(
     from ``outputs["temporal_weights"]`` only when present (full model). ``predictions`` is populated when
     either collection flag is set (the temporal-weight NPZ needs the per-task ground truth).
 
+    ``active_tasks`` (crosses-only support): the supervised-task set the checkpoint trained under. The
+    accumulator scores only these, so sweep / tuned / oracle / predictions cover exactly them — a
+    crosses-only run yields crosses-only eval columns (no dead actions/looks). Defaults to the full set.
+
     ``tuned_thresholds`` (M2): per-task cutoffs tuned on **val** — when given, ``artifacts.tuned``
     holds the metrics at those fixed cutoffs on this split (the reportable numbers).
     """
     model.eval()
-    acc = MetricAccumulator()
+    acc = MetricAccumulator(tasks=active_tasks)
     tw_chunks: list[torch.Tensor] = []
     pin = device.type == "cuda"
     # One bar over all test chunks; ``disable=None`` auto-hides when stderr is not a TTY (pytest).
@@ -281,8 +302,9 @@ def save_temporal_weights_npz(
 ) -> Path:
     """Save ``[N, T]`` temporal weights (+ each ``{task}_true`` when available) for the attention viz (6.2)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Only the ACTIVE tasks' ground truth is present (crosses-only predictions carry just crosses_true).
     labels = (
-        {f"{task}_true": predictions[f"{task}_true"] for task in TASKS}
+        {f"{task}_true": predictions[f"{task}_true"] for task in TASKS if f"{task}_true" in predictions}
         if predictions is not None
         else {}
     )
@@ -391,12 +413,14 @@ def _build_eval_row(
         "n_samples": artifacts.n_samples,
     }
     row.update(artifacts.metrics.as_flat_dict())
-    for task in TASKS:
+    tasks = artifacts.metrics.tasks       # active-task set (crosses-only => ('crosses',))
+    for task in tasks:
         for suffix in _THRESH_SUFFIXES:
             row[f"tuned_{task}_{suffix}"] = tuned[f"{task}_{suffix}"] if tuned is not None else ""
             row[f"oracle_{task}_{suffix}"] = artifacts.oracle[f"{task}_{suffix}"]
-    row["tuned_macro_acc"] = tuned["macro_acc"] if tuned is not None else ""
-    row["oracle_macro_acc"] = artifacts.oracle["macro_acc"]
+    if len(tasks) > 1:                     # *_macro_acc only exists for a multi-task set (matches columns)
+        row["tuned_macro_acc"] = tuned["macro_acc"] if tuned is not None else ""
+        row["oracle_macro_acc"] = artifacts.oracle["macro_acc"]
     eff = efficiency or {}
     for col in _EFFICIENCY_COLUMNS:
         row[col] = eff.get(col, "")
@@ -441,6 +465,10 @@ def run_evaluation(
             "first to freeze val-tuned thresholds."
         )
 
+    # Score the checkpoint's OWN supervised-task set (inherited via merge_eval_config): a crosses-only
+    # checkpoint yields crosses-only eval columns, and a stored crosses-only thresholds.json (no
+    # actions/looks keys) loads cleanly against it.
+    active_tasks = cfg.train.ordered_active_tasks()
     is_full = ModelType.coerce(model_type) is ModelType.FULL
     artifacts = evaluate_model(
         model,
@@ -451,6 +479,7 @@ def run_evaluation(
         collect_predictions=save_predictions,
         collect_temporal_weights=save_temporal_weights and is_full,
         tuned_thresholds=stored_thresholds,
+        active_tasks=active_tasks,
     )
 
     if split == "val":
@@ -470,7 +499,7 @@ def run_evaluation(
         split=split,
         efficiency=efficiency,
     )
-    with run.eval_logger(EVAL_LOG_COLUMNS) as logger:
+    with run.eval_logger(eval_log_columns(active_tasks)) as logger:
         logger.log(round_row(row))
     _append_eval_index(cfg, run, artifacts, model_type=model_type, checkpoint=checkpoint)
 

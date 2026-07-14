@@ -27,7 +27,7 @@ from torch import nn
 
 from pedpredict.config.schema import RootCfg, ScheduleCfg
 from pedpredict.training.callbacks import CheckpointManager
-from pedpredict.training.trainer import TRAIN_LOG_COLUMNS, EpochResult, Trainer
+from pedpredict.training.trainer import EpochResult, Trainer, train_log_columns
 from pedpredict.utils.logging import CsvLogger, RunDir, append_index_row, build_index_row
 
 if TYPE_CHECKING:
@@ -159,7 +159,7 @@ def run_phase_schedule(
             )
             trainer.logger = CsvLogger(
                 phase_dir.parent / f"phase_{i}_{phase.name}_log.csv",
-                TRAIN_LOG_COLUMNS,
+                train_log_columns(cfg.train.ordered_active_tasks()),
             )
         else:
             trainer.checkpointer = CheckpointManager(None, run_id="", model_type="")

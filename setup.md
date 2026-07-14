@@ -74,9 +74,16 @@ alternatives (do not stack): `balance_dataset.py --split train --set balance.ena
 ## 6. Train
 ```powershell
 python scripts/train.py                            # full model (default); writes outputs/runs/{timestamp}_full/
+python scripts/train.py --set train.active_tasks=[crosses] train.selection_metric=crosses_f1   # crosses-only
 ```
 Ablation arms: `--set eval.model_type=ped_local|kinematics_only|visual_only|vanilla_concat`. **The selector
 is `eval.model_type`, not `model.model_type`.** Override anything inline, e.g. `--set train.lr=5e-5`.
+
+**Crosses-only (head-selection mode).** `--set train.active_tasks=[crosses]` is the one-flag switch: it
+zeros the actions/looks heads in both imbalance levers, drops them from the metric/CSV/eval columns, and
+makes `macro_f1` collapse to `crosses_f1`. **Always pair it with `train.selection_metric=crosses_f1`** —
+otherwise best.pth/early-stop can freeze on a transient epoch-1 value of the (now single-task) macro. Eval
+inherits `active_tasks` from the checkpoint, so its `eval_log.csv` is crosses-only automatically.
 
 ## 7. Evaluate (thresholds tuned on val, applied to test)
 ```powershell

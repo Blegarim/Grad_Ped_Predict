@@ -367,6 +367,24 @@ def validate_config(root: RootCfg) -> None:
             f"train.selection_metric must be one of {sorted(_SELECTION_METRICS)}; got {t.selection_metric!r}"
         )
 
+    # active-task set (head-selection mode) invariants — the single source of truth for crosses-only.
+    active = list(t.active_tasks)
+    if not active:
+        raise ConfigError("train.active_tasks must be non-empty")
+    if len(set(active)) != len(active):
+        raise ConfigError(f"train.active_tasks must not repeat a task; got {active}")
+    if not set(active) <= _TASK_KEYS:
+        raise ConfigError(
+            f"train.active_tasks must be a subset of {sorted(_TASK_KEYS)}; got {active}"
+        )
+    # selection metric must reference an ACTIVE task, else best.pth/early-stop track a dead head
+    # (the exact epoch-1 macro_f1 poisoning that crosses-only was built to remove).
+    if t.selection_metric == "crosses_f1" and "crosses" not in set(active):
+        raise ConfigError(
+            "train.selection_metric='crosses_f1' requires 'crosses' in train.active_tasks; "
+            f"got active_tasks={active}"
+        )
+
     # chunk prefetch loader invariants
     if t.chunk_preload_depth < 1:
         raise ConfigError(f"train.chunk_preload_depth must be >= 1; got {t.chunk_preload_depth}")

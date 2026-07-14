@@ -375,3 +375,34 @@ def test_threshold_protocol_val_then_test(tmp_path: Path) -> None:
     assert [r["split"] for r in rows] == ["val", "test"]
     assert rows[1]["tuned_crosses_threshold"] != ""      # tuned columns filled on the test row
     assert rows[1]["oracle_crosses_threshold"] != ""     # oracle logged alongside (never reported)
+
+
+def test_crosses_only_eval_emits_crosses_only_columns(tmp_path: Path) -> None:
+    """A crosses-only checkpoint (active_tasks=[crosses]) yields crosses-only eval_log columns."""
+    import csv
+
+    chunk_dir = _write_tiny_chunk(tmp_path)
+    runs_dir = tmp_path / "outputs" / "runs"
+    cfg = dataclasses.replace(
+        RootCfg(),
+        paths=dataclasses.replace(
+            PathsCfg(), lmdb_test=str(chunk_dir), lmdb_val=str(chunk_dir), runs_dir=str(runs_dir)
+        ),
+        eval=dataclasses.replace(EvalCfg(), batch_size=2, num_workers=0),
+        train=dataclasses.replace(TrainCfg(), use_amp=False, active_tasks=("crosses",)),
+    )
+    run_dir = runs_dir / "20990101_000000_full"
+    (run_dir / "checkpoints").mkdir(parents=True)
+    ckpt = run_dir / "checkpoints" / "best.pth"
+    torch.save(build_model(cfg).state_dict(), ckpt)
+
+    run_evaluation(cfg, checkpoint=ckpt, device=_CPU, split="val")
+    test_report = run_evaluation(cfg, checkpoint=ckpt, device=_CPU, split="test")
+    # only crosses is scored end-to-end
+    assert test_report.artifacts.metrics.tasks == ("crosses",)
+
+    with open(run_dir / "eval_log.csv", newline="", encoding="utf-8") as handle:
+        header = next(csv.reader(handle))
+    assert "crosses_f1" in header and "tuned_crosses_f1" in header
+    for dead in ("actions_f1", "looks_f1", "macro_f1", "tuned_macro_acc", "tuned_looks_f1"):
+        assert dead not in header, f"crosses-only eval leaked column {dead!r}"

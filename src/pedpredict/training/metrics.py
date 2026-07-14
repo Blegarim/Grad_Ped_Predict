@@ -51,15 +51,29 @@ from pedpredict.config.schema import EvalCfg
 from pedpredict.losses.multitask import TASK_OUTPUT_KEY, TASKS
 from pedpredict.utils.amp import to_float_logits
 
-__all__ = ["TaskMetrics", "MetricResult", "MetricAccumulator", "METRIC_COLUMNS"]
+__all__ = ["TaskMetrics", "MetricResult", "MetricAccumulator", "METRIC_COLUMNS", "metric_columns"]
 
 _METRIC_SUFFIXES: tuple[str, ...] = ("acc", "f1", "auc", "precision", "recall")
 
-#: Canonical flat column order (task-major) — the single schema both train-val (4.5) and test (5.1)
-#: emit. Writers prepend their own context columns (epoch / timestamp+chunk) and own the loss columns.
-METRIC_COLUMNS: tuple[str, ...] = tuple(
-    f"{task}_{suffix}" for task in TASKS for suffix in _METRIC_SUFFIXES
-) + ("macro_f1", "overall_acc")
+
+def metric_columns(tasks: tuple[str, ...] = TASKS) -> tuple[str, ...]:
+    """Flat metric-column order (task-major) for an arbitrary supervised-task set.
+
+    Emits ``{task}_{acc,f1,auc,precision,recall}`` for each task in ``tasks``, then ``macro_f1`` — but
+    ``macro_f1`` is OMITTED for a single-task set (it would just duplicate that task's F1, and averaging
+    over one task is the epoch-1 dead-head trap crosses-only removes). ``overall_acc`` (pooled micro
+    accuracy) always closes the row.
+    """
+    cols = tuple(f"{task}_{suffix}" for task in tasks for suffix in _METRIC_SUFFIXES)
+    macro = ("macro_f1",) if len(tasks) > 1 else ()
+    return cols + macro + ("overall_acc",)
+
+
+#: Canonical flat column order for the DEFAULT full 3-task schema — the shared back-compat constant both
+#: train-val (4.5) and test (5.1) emitted before the active-task pivot. New call sites derive their own
+#: columns from :func:`metric_columns` over ``cfg.train.ordered_active_tasks()``. Writers prepend their
+#: own context columns (epoch / timestamp+chunk) and own the loss columns.
+METRIC_COLUMNS: tuple[str, ...] = metric_columns(TASKS)
 
 
 @dataclass(frozen=True)
@@ -82,7 +96,12 @@ class MetricResult:
     overall_accuracy: float
 
     def as_flat_dict(self) -> dict[str, float]:
-        """Flatten to :data:`METRIC_COLUMNS` keys (``actions_acc`` ... ``macro_f1``, ``overall_acc``)."""
+        """Flatten to metric-column keys (``actions_acc`` ... ``macro_f1``, ``overall_acc``).
+
+        The key set follows the ACTUAL supervised-task set (``per_task``): a crosses-only result emits
+        only ``crosses_*`` (+ ``overall_acc``), no dead ``actions_*``/``looks_*`` and no ``macro_f1``
+        (a single task's macro is itself). Matches :func:`metric_columns` over the same task set.
+        """
         flat: dict[str, float] = {}
         for task, metrics in self.per_task.items():
             flat[f"{task}_acc"] = metrics.accuracy
@@ -90,14 +109,20 @@ class MetricResult:
             flat[f"{task}_auc"] = metrics.auc
             flat[f"{task}_precision"] = metrics.precision
             flat[f"{task}_recall"] = metrics.recall
-        flat["macro_f1"] = self.macro_f1
+        if len(self.per_task) > 1:
+            flat["macro_f1"] = self.macro_f1
         flat["overall_acc"] = self.overall_accuracy
         return flat
 
+    @property
+    def tasks(self) -> tuple[str, ...]:
+        """The supervised tasks in this result, canonical order (drives the CSV column set)."""
+        return tuple(t for t in TASKS if t in self.per_task)
+
     def csv_row(self) -> list[float]:
-        """Metric values in :data:`METRIC_COLUMNS` order (unrounded; logging layer rounds)."""
+        """Metric values in this result's own :func:`metric_columns` order (logging layer rounds)."""
         flat = self.as_flat_dict()
-        return [flat[col] for col in METRIC_COLUMNS]
+        return [flat[col] for col in metric_columns(self.tasks)]
 
 
 def _safe_auc(y_true: np.ndarray, y_prob: np.ndarray) -> float:
@@ -129,6 +154,11 @@ class MetricAccumulator:
         self._tasks = tuple(tasks)
         self._probs: dict[str, list[Tensor]] = {t: [] for t in self._tasks}
         self._targets: dict[str, list[Tensor]] = {t: [] for t in self._tasks}
+
+    @property
+    def tasks(self) -> tuple[str, ...]:
+        """The supervised tasks this accumulator scores (drives eval column/prediction sets)."""
+        return self._tasks
 
     def reset(self) -> None:
         """Drop all accumulated batches (reuse one accumulator across epochs / chunks)."""

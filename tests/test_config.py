@@ -167,6 +167,44 @@ def test_validation_motion_norm_mode() -> None:
         assert load_config(_CONFIG_DIR, overrides=[f"model.motion_norm={mode}"]).model.motion_norm == mode
 
 
+def test_active_tasks_override_and_derivations() -> None:
+    """--set train.active_tasks=[crosses] is the one-flag crosses-only switch; derivations zero others."""
+    cfg = load_config(
+        _CONFIG_DIR,
+        overrides=["train.active_tasks=[crosses]", "train.selection_metric=crosses_f1"],
+    )
+    assert cfg.train.active_tasks == ("crosses",)
+    assert cfg.train.ordered_active_tasks() == ("crosses",)
+    assert cfg.train.effective_loss_weight() == {"actions": 0.0, "looks": 0.0, "crosses": 1.2}
+    assert cfg.train.effective_sampler_powers() == {"actions": 0.0, "looks": 0.0, "crosses": 0.5}
+
+
+def test_active_tasks_is_order_insensitive() -> None:
+    """ordered_active_tasks() returns canonical order regardless of the input order."""
+    cfg = load_config(_CONFIG_DIR, overrides=["train.active_tasks=[crosses,actions]"])
+    assert cfg.train.ordered_active_tasks() == ("actions", "crosses")
+
+
+def test_active_tasks_validation() -> None:
+    """active_tasks must be a non-empty, non-repeating subset of the three tasks."""
+    for bad in (
+        ["train.active_tasks=[]"],                       # empty
+        ["train.active_tasks=[crosses,crosses]"],        # repeat
+        ["train.active_tasks=[bogus]"],                  # not a task
+    ):
+        with pytest.raises(ConfigError, match="active_tasks"):
+            load_config(_CONFIG_DIR, overrides=bad)
+
+
+def test_selection_metric_must_reference_active_task() -> None:
+    """selection_metric=crosses_f1 requires crosses to be active (else best-ckpt tracks a dead head)."""
+    with pytest.raises(ConfigError, match="crosses_f1"):
+        load_config(
+            _CONFIG_DIR,
+            overrides=["train.active_tasks=[actions]", "train.selection_metric=crosses_f1"],
+        )
+
+
 def test_validation_motion_norm_image_size_must_match_source() -> None:
     """The runtime image-dim norm must use the same frame dims the data was generated from."""
     with pytest.raises(ConfigError, match="motion_norm_image_size"):

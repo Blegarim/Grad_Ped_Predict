@@ -221,10 +221,12 @@ def sample_weights(scan: ChunkLabelScan, powers: dict[str, float], min_weight: f
 def build_weighted_sampler(scan: ChunkLabelScan, cfg: TrainCfg) -> WeightedRandomSampler:
     """Build the online ``WeightedRandomSampler`` for one chunk from ``TrainCfg`` (replaces train.py:439).
 
-    Powers and ``min_weight`` come from config; ``replacement=True`` and ``num_samples=len(weights)``
-    reproduce the legacy sampler exactly.
+    Powers come from ``cfg.effective_sampler_powers()`` (INACTIVE tasks — those outside
+    ``cfg.active_tasks`` — forced to power 0, which :func:`sample_weights` skips); ``min_weight`` from
+    config. In full mode this equals ``cfg.sampler_powers``. ``replacement=True`` and
+    ``num_samples=len(weights)`` reproduce the legacy sampler exactly.
     """
-    weights = sample_weights(scan, cfg.sampler_powers, cfg.sampler_min_weight)
+    weights = sample_weights(scan, cfg.effective_sampler_powers(), cfg.sampler_min_weight)
     return WeightedRandomSampler(
         weights=torch.tensor(weights, dtype=torch.double),
         num_samples=len(weights),

@@ -10,6 +10,11 @@ num_workers: 4
 use_amp: true            # request; AND-gated by CUDA availability at runtime
 seed: 42                 # global RNG seed (M7); logged via the run-dir config snapshot
 selection_metric: macro_f1   # best-ckpt + early-stop scalar (M8): val_loss | macro_f1 | crosses_f1
+# Supervised-task set = head-selection mode. Default [actions,looks,crosses] = full. CROSSES-ONLY is a
+# one-flag switch: --set train.active_tasks=[crosses] train.selection_metric=crosses_f1 — inactive heads
+# get loss_weight 0 + sampler_powers 0 (auto-derived), are dropped from metric/CSV columns, and macro_f1
+# collapses to crosses_f1 (single-task selection, no dead-head early-stop poisoning). See setup.md.
+active_tasks: [actions, looks, crosses]
 loss_weight: {actions: 0.8, looks: 0.8, crosses: 1.2}
 use_class_weights: false # imbalance lever 3 (M1): inverse-frequency CE class weights — OFF by default (run #2 canonical)
 use_weighted_sampler: true

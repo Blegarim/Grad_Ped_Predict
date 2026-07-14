@@ -130,10 +130,14 @@ def build_multitask_loss(
     *,
     reduction: str = "mean",
 ) -> MultiTaskLoss:
-    """Wire a :class:`MultiTaskLoss` from ``TrainCfg.loss_weight`` + precomputed class weights.
+    """Wire a :class:`MultiTaskLoss` from ``TrainCfg`` + precomputed class weights.
+
+    Uses ``cfg.effective_loss_weight()`` (not the raw ``cfg.loss_weight``) so that INACTIVE tasks —
+    those outside ``cfg.active_tasks`` — are forced to weight 0 and contribute no gradient. In full
+    mode this is exactly ``cfg.loss_weight``; in crosses-only it zeros the actions/looks heads.
 
     ``class_weights`` is produced ONCE by the Trainer via
     ``class_weights_ce(LabelScanCache.aggregate_counts(train_lmdbs), device=...)`` — this
     factory does not scan. Move the loss to the model device with ``loss.to(device)`` after building.
     """
-    return MultiTaskLoss(class_weights, cfg.loss_weight, reduction=reduction)
+    return MultiTaskLoss(class_weights, cfg.effective_loss_weight(), reduction=reduction)
