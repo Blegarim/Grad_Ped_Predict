@@ -91,3 +91,4 @@ test_fit_smoke_one_tiny_chunk0,test_fit,full,,train,1,1,1.7223,0.6667,1.0,0.2222
 20260710_152517_pose_full,20260710_152517,pose_full,,eval,0,0,nan,0.0343,0.4473,0.37,0.4229,0.653,D:\Grad_Ped_Predict\outputs\runs\20260710_152517_pose_full,outputs\runs\20260710_152517_pose_full\checkpoints\best.pth,80b0d80
 20260710_152517_pose_full,20260710_152517,pose_full,,eval,0,0,nan,0.1864,0.5141,0.444,0.4376,0.7081,D:\Grad_Ped_Predict\outputs\runs\20260710_152517_pose_full,outputs\runs\20260710_152517_pose_full\checkpoints\best.pth,80b0d80
 20260712_160717_pose_full,20260712_160717,pose_full,,train,21,1,3.8694,0.054,0.7878,0.1289,0.0292,0.3036,outputs\runs\20260712_160717_pose_full,outputs\runs\20260712_160717_pose_full\checkpoints\best.pth,a4c3880
+20260712_160717_pose_full,20260712_160717,pose_full,,eval,0,0,nan,0.054,0.7877,0.1266,0.0308,0.2951,D:\Grad_Ped_Predict\outputs\runs\20260712_160717_pose_full,outputs\runs\20260712_160717_pose_full\checkpoints\best.pth,e352960
