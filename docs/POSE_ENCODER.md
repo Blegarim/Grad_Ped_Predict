@@ -2,7 +2,7 @@
 
 **Prepared:** July 2026 · **Status:** steps 0–4 implemented on `pose-encoder-arm` (💻 code complete,
 gate green); steps 5–8 (🖥️ extraction pass, experiments, verdict) pending. **Companions:**
-[streaming-onset-plan.md](streaming-onset-plan.md) (the data pass this piggybacks on — read §Phase A),
+[THESIS_ROADMAP.md](THESIS_ROADMAP.md) (the data pass this piggybacks on — read Stage 3),
 [BACKBONE_STUDY.md](BACKBONE_STUDY.md) (RQ1 — must be locked before the `pose_full` comparison),
 [project-context-streaming-crossing-onset.md](project-context-streaming-crossing-onset.md) (the thesis spine).
 
@@ -40,7 +40,7 @@ keep alongside pose.
 but **only under the anchored protocol**, so those numbers are not comparable to our streaming F1 (~0.08).
 The novel angle, and the only reason this ties to the thesis, is to **evaluate the pose arm under the
 streaming protocol and inside the anchored→streaming gap decomposition** (see
-[streaming-onset-plan.md](streaming-onset-plan.md)). Encoder sophistication is *not* the contribution — see
+[THESIS_ROADMAP.md](THESIS_ROADMAP.md)). Encoder sophistication is *not* the contribution — see
 the encoder audit conclusion in §5 (flatten into the existing temporal stack, not an ST-GCN).
 
 **Ordering constraints:**

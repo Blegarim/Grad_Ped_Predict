@@ -27,7 +27,7 @@ soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 > architecture / imbalance / calibration work (the old RQs, [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md),
 > [docs/RESEARCH_PLAN.md](docs/RESEARCH_PLAN.md)) is retained as **supporting** studies, not the thesis
 > structure. The brief is [docs/project-context-streaming-crossing-onset.md](docs/project-context-streaming-crossing-onset.md)
-> and the execution plan is [docs/streaming-onset-plan.md](docs/streaming-onset-plan.md). HOLE_AUDIT's
+> and the execution plan is [docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md). HOLE_AUDIT's
 > Final attack order still governs the data/engineering steps; docs/PHASE_B_BACKLOG.md is superseded.
 
 ## Execution Environment (two machines)
@@ -135,7 +135,7 @@ in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
   `onset_offset` (frames from end-of-obs to the first future crossing; `-1` if none), `future_observed`
   (`n − end`), and `track_crosses` (track ever crosses). These do **not** change the `crosses` label or
   which windows are emitted — they let eval re-label at any horizon H and type the streaming negatives
-  (genuine / hard-temporal / already-crossed). See [docs/streaming-onset-plan.md](docs/streaming-onset-plan.md).
+  (genuine / hard-temporal / already-crossed). See [docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md).
 
 ### Dataset Statistics
 
