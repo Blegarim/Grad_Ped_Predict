@@ -69,6 +69,10 @@ def _build_chunk_builders(cfg, *, device, scan_cache):
 
 def main(argv=None) -> int:
     parser = build_argparser()
+    parser.add_argument(
+        "--tag", default="",
+        help="Optional run-id suffix ({timestamp}_{model_type}_{tag}); also the index.csv tag column.",
+    )
     args = parser.parse_args(argv)
     cfg = load_config(args.config_dir, args.overrides)
     set_seed(cfg.train.seed)        # M7: seed BEFORE model init / sampler / shuffle (snapshot logs it)
@@ -88,7 +92,7 @@ def main(argv=None) -> int:
         from pedpredict.utils.device import enable_perf_flags
 
         enable_perf_flags(device)
-        run_id = make_run_id(cfg.eval.model_type, "schedule")
+        run_id = make_run_id(cfg.eval.model_type, f"{args.tag}_schedule" if args.tag else "schedule")
         run_dir = create_run_dir(Path(cfg.paths.runs_dir), run_id)
 
         # Build loss once from the augmented (full) train set — shared across all phases.
@@ -134,7 +138,7 @@ def main(argv=None) -> int:
     else:
         # ---------------------------------------------------------------- single-phase
         chunks = ChunkPrefetcher.from_config(cfg, pin_memory=(device.type == "cuda"))
-        trainer = build_trainer(cfg, chunks, device=device)
+        trainer = build_trainer(cfg, chunks, device=device, tag=args.tag)
         results = trainer.fit()
         print(f"Training complete. {len(results)} epoch(s), run dir: {trainer.run_dir}")
 

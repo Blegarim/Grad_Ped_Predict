@@ -120,6 +120,10 @@ Config-first — override any field with `--set section.field=value`. The model 
 python scripts/train.py    --set eval.model_type=full --set train.lr=5e-5
 python scripts/evaluate.py --split val  --checkpoint <best.pth>   # tune + store val thresholds, then…
 python scripts/evaluate.py --split test --checkpoint <best.pth>   # report at the frozen val thresholds
+python scripts/run_arm.py  --set eval.model_type=full ...         # full cross-protocol matrix for one arm:
+                                                 # trains on BOTH protocols (runner owns data.protocol) and
+                                                 # runs val+test × anchored+streaming per leg (10 steps);
+                                                 # same --set surface as train.py; --dry-run previews
 python scripts/report_distribution.py            # effective per-task sampler-draw distribution
 python scripts/count_labels.py                   # dataset-stats drift gate (nonzero exit on drift)
 python scripts/visualize.py    ...               # plots / qualitative panels
