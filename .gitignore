@@ -42,13 +42,18 @@ pose_cache/
 # --- Run artifacts (per-run output dirs, logs, generated figures) ---
 # Ignore everything under outputs/, but DO track the lightweight, portable text
 # artifacts so runs can be compared/shared via git: index/train/eval CSV logs,
-# resolved_config.yaml snapshots, and thresholds/train_distribution JSON.
+# resolved_config.yaml snapshots, thresholds/train_distribution JSON, and the
+# hand-maintained markdown ledgers (RESULTS_MATRIX.md).
 # Heavy checkpoints (*.pth, ignored above) and figures (*.png) stay out of git.
+# The *.md exception was added 2026-08-18: RESULTS_MATRIX.md had been silently
+# untracked since it was created, so the results ledger existed on ONE machine
+# only — invisible to the lab PC that runs the evals it asks you to record.
 outputs/**
 !outputs/**/
 !outputs/**/*.csv
 !outputs/**/*.yaml
 !outputs/**/*.json
+!outputs/**/*.md
 plots/*.png
 *.xlsx
 *.log
