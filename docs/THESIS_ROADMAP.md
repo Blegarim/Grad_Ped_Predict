@@ -1,19 +1,33 @@
 # Thesis Roadmap — Streaming Crossing-Onset Detection
 
-**Renamed from** `streaming-onset-plan.md` (obsolete name). **Prepared:** July 2026 · **Last swept:** 2026-07-21.
+**Prepared:** July 2026 · **Last swept:** 2026-08-19.
 
 > **What this document is.** The single, findable, end-to-end checklist for the whole thesis — from the
-> pre-migration prototype (~2 months ago) through to defending the paper. It supersedes the old
-> `streaming-onset-plan.md` (which only covered the pivot) and is the *tracker*; the *why* lives in the
-> two companions and is not repeated here:
-> - **The research brief** — [`project-context-streaming-crossing-onset.md`](project-context-streaming-crossing-onset.md) (read for the thesis argument, the dead ends, the reviewer objections).
-> - **The supporting-studies plan** — [`RESEARCH_PLAN.md`](RESEARCH_PLAN.md) (the RQ ablations, re-slotted as support).
-> - **The resolved engineering audit** — [`HOLE_AUDIT.md`](HOLE_AUDIT.md) (the data-contract decisions + Final attack order).
+> pre-migration prototype through to the defense — plus the supporting-study spokes at the bottom. It is
+> the **tracker**. The *why* lives in two companions and is not repeated here:
+> - **The argument** — [`project-context-streaming-crossing-onset.md`](project-context-streaming-crossing-onset.md): the thesis case, the dead ends already ruled out, the reviewer objections. Frozen reference.
+> - **The method** — [`METHODOLOGY.md`](METHODOLOGY.md): the three prongs and how they were chosen. The active working reference.
 >
-> **The one-line thesis:** the standard PIE protocol is event-anchored (~2.5:1) and hides the deployed
-> streaming case (~37:1, full of "will-cross-soon" hard negatives). The contribution is to re-evaluate
-> under a streaming protocol and **decompose** the anchored→streaming performance gap into a
-> recalibration-fixable part (**G_prior**) and a residual hard-negative part (**G_hardneg**).
+> The numbers live in [`RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md), which is authoritative for
+> every figure — this file never restates a metric it does not own.
+
+**Where the thesis stands (August 2026).** It is a **methods** thesis. The measurement — take a model
+trained the standard event-anchored way, test it on a realistic continuous stream, watch its ability to
+rank pedestrians by risk collapse to near-chance while threshold re-tuning recovers essentially nothing —
+is *done* (Stage 4). But on its own that is a negative result: "the usual benchmark flatters models." So it
+became the **motivation**, and the contribution is what follows from it: *a way to train for streaming
+crossing-onset that the standard setup cannot produce.*
+
+Three things follow, and they govern how to read the stages below:
+
+- **The centre of gravity is Stage 7**, not Stage 4. Critical path: **4 (done) → 6 → 7 → 8**.
+- **The four existing runs are now baselines.** An accidental config difference between two legs used to be
+  a footnote on a caveat; it now silently invalidates a method comparison. One such difference exists — see
+  Stage 5.
+- **The matched-size control is demoted** from headline-critical to an acknowledged caveat, because a
+  motivating measurement is allowed to carry a stated confound.
+
+---
 
 **Legend:** `[x]` done · `[~]` in progress / partial · `[ ]` not started · 💻 personal PC (code, no data) ·
 🖥️ lab PC (needs PIE data / GPU). Sub-items are granular on purpose — each is meant to be individually
@@ -28,16 +42,26 @@ checkable.
 | **0** | Prototype → clean rebuild (behavior-preserving port) | ✅ done |
 | **1** | Engineering audit + v2 data-contract *code* | ✅ done |
 | **2** | v2 data regeneration + baseline runs | ✅ done (streaming + anchored builds exist, trained) |
-| **3** | Streaming pivot: onset metadata + protocol switch + pose arm | ✅ code done · 🖥️ pose extraction done |
-| **4** | **The decomposition (G_prior / G_hardneg)** — the headline | 🟢 **NEXT — computable now, no GPU** |
-| **5** | Streaming-leg convergence + matched-config matrix | 🟡 partial (streaming trains but unstable) |
-| **6** | ODAS/OAD streaming metrics + negative-composition report | ⬜ net-new, mostly 💻 |
-| **7** | Constructive close (curated hard-neg recipe) + supporting studies | ⬜ not started |
+| **3** | Streaming pivot: onset metadata + protocol switch + pose arm | 🟡 code + pose extraction done · onset fields still stranded (see below) |
+| **4** | The decomposition (G_prior / G_hardneg) — **now the motivation, not the headline** | ✅ measured + written up ([RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md)) |
+| **5** | Streaming-leg convergence + baseline hygiene | 🟡 demoted from headline — one real config mismatch found, must be fixed |
+| **6** | Rare-event metrics + negative-composition report | 🟢 **NEXT — all 💻, no GPU, no data** |
+| **7** | **The method** (was "constructive close") + supporting studies | 🟢 **the thesis now lives here** → [METHODOLOGY.md](METHODOLOGY.md) |
 | **8** | Write-up, defense, release | ⬜ not started |
 
-The critical path to a *defensible thesis* runs **4 → 5 → 6 → 8**. Stage 7 and the RESEARCH_PLAN RQ
-spokes are the "full paper vs. cautionary note" upgrade — land them if time allows, but 4–6 alone
-support a thesis (see brief §4, the demote-to-short-paper branch).
+The critical path is now **6 → 7 → 8** (Stage 4 is done). Stage 6 comes first because it is entirely
+laptop work and because it supplies the measuring instrument: F1 at a 1-in-37 base rate is too unstable to
+tell whether a new method actually helped, so building the method before the metric means not being able to
+read the result. Stage 5 no longer gates anything as a *finding*, but its baseline-hygiene half is now
+load-bearing — the four existing runs are the comparison baselines, and one of them has a configuration
+mismatch that would corrupt any comparison built on it.
+
+**The two dependencies worth knowing before planning any lab visit:**
+- The three onset fields never reach the database the trainer reads (Stage 3, last unchecked item; the gap
+  is described in CLAUDE.md § Data Pipeline, S1 bullet). Two of the four candidate method directions cannot
+  start until they do. The fix is small and mostly 💻.
+- Nothing in Stages 6–7 needs a *training* run to make progress. Metrics, features, and the negative
+  census are all written and tested on the laptop; the lab machine only executes.
 
 ---
 
@@ -61,7 +85,8 @@ the arc is complete.
 
 ## Stage 1 — Engineering audit + v2 data-contract *code* ✅
 
-Two-pass audit ([`HOLE_AUDIT.md`](HOLE_AUDIT.md)) catalogued every validity/design/correctness issue and
+Two-pass audit ([`archive/HOLE_AUDIT.md`](archive/HOLE_AUDIT.md) — retired 2026-08-19, its attack order
+fully executed) catalogued every validity/design/correctness issue and
 resolved each with a fixed **Final attack order**. Two batches merged to `main`.
 
 **Batch 1 — data-independent code fixes (M1, M7, M8)**
@@ -86,7 +111,7 @@ The one-time lab-PC regen the code above enabled, plus the first real training.
 
 - [x] 🖥️ Regenerate sequences + build LMDBs for all three splits (streaming protocol)
 - [x] 🖥️ Build the anchored/benchmark LMDBs (`*_benchmark` dirs)
-- [x] 🖥️ Re-pin Dataset Statistics table + `count_labels` drift gate + `test_stats` fixture
+- [x] 🖥️💻 Re-pin Dataset Statistics table + `count_labels` drift gate + `test_stats` fixture *(table re-pinned at regen; the golden fixture + its doc-sync test were only re-pinned 2026-08-19 — until then the gate failed on every run)*
 - [x] 🖥️ First v2 training run (`20260616_153511_full`) → **the imbalance-collapse finding** (AUC ~0.57, crosses F1 0.081, effective-crosses ~89%). Reframed by the pivot as *the 37:1-collapses-a-from-scratch-ViT finding*, not a bug.
 - [x] 🖥️ Retuned imbalance stack (run #2 canonical: sampler `crosses^0.5`, class-weights off) → effective crosses ~26%
 - [x] 🖥️ warmup→cosine LR strategy; gradient accumulation; fusion-residual default-on
@@ -103,7 +128,13 @@ The July reframe. Code is landed; the pose extraction pass ran on the lab PC.
 - [x] 💻 `future_observed` (`n − end`) — makes the H-sweep rigorous against right-censoring
 - [x] 💻 `track_crosses` (track ever crosses) — separates genuine non-crosser from will-/already-crossed
 - [x] 💻 Tests: genuine-non-crosser, in-horizon positive, hard-temporal-negative, already-crossed
-- [ ] 🖥️ Regenerate standard pkls carrying S1 fields **← still needs the final lab-PC pkl re-gen** (rides pkls, no JPEG re-encode; joins to test preds by index)
+- [ ] 💻+🖥️ **Get the three onset fields into the trainer's reach — the one blocking item left in Stage 3.**
+      They are computed but dropped before the trainer can see them; the gap and its three-part fix are
+      stated once, in the **S1 bullet of [CLAUDE.md](../CLAUDE.md) § Data Pipeline**. Blocks two of the four
+      candidate method directions. Sub-checkboxes:
+      - [ ] 💻 (a) add the three fields to `pack_meta` + the read path, so future builds carry them
+      - [ ] 💻 (b) write the backfill patch script for the existing LMDBs
+      - [ ] 🖥️ (c) run it (fast metadata pass — images untouched)
 
 **Protocol switch (`data.protocol`)**
 - [x] 💻 `data.protocol={streaming,anchored}` resolved once in `paths.protocol_lmdb_dirs`
@@ -118,65 +149,90 @@ The July reframe. Code is landed; the pose extraction pass ran on the lab PC.
 
 ---
 
-## Stage 4 — 🟢 THE DECOMPOSITION (the headline) — computable NOW, no GPU
+## Stage 4 — ✅ THE DECOMPOSITION — done (and reclassified as the motivation)
 
-**This is the next action and the single most valuable thing on the board.** The four macro_f1 matrix
-cells already exist in eval logs; the G_prior/G_hardneg number has *not* been written down. This stage is
-pure 💻 analysis.
+**Closed 2026-07-22, audited 2026-08-18.**
 
-**Reference — the completed macro_f1 matrix** (crosses, test split, tuned thresholds):
+> **The numbers live in [`RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md) and only there** — both
+> models' 2×2 matrices, all three G-figures, the arithmetic, and the four caveats that must ship with them.
+> This section used to carry a second copy; it was removed 2026-08-19 because two copies of a number drift.
+> Update the matrix file after every eval pass; update this section only when a *checkbox* changes.
 
-|  | test = anchored | test = streaming |
-|---|---|---|
-| **train = anchored** (`20260710_122947`) | AUC 0.873 · F1 0.694 | AUC **0.540** · F1 **0.064** |
-| **train = streaming** (`20260710_152517`) | AUC 0.514 · F1 0.322 | AUC 0.742 · F1 **0.190** |
+*Result, in one sentence:* **of the total anchored→streaming deployment gap, ~0% is recalibration-fixable
+and ~100% is a genuine hard-negative skill gap the standard benchmark never trains.**
 
-**Metric discipline (settled 2026-07-21):** G_prior and G_hardneg are **operating-point** quantities —
-measure them in **F1 (or precision-at-fixed-recall)**, the currency recalibration acts on. **AUC is the
-*diagnostic*, not the measurement** — it explains *why* recalibration recovers nothing (a discrimination
-collapse, not a mis-set dial), but it must not be quoted *as* G_prior.
+**Metric discipline (settled 2026-07-21, and the reason the arithmetic is shaped the way it is):** G_prior
+and G_hardneg are **operating-point** quantities — measure them in **F1 (or precision-at-fixed-recall)**,
+the currency recalibration acts on. **AUC is the *diagnostic*, not the measurement** — it explains *why*
+recalibration recovers nothing (a discrimination collapse, not a mis-set dial), but it must never be quoted
+*as* G_prior.
 
-- [ ] 💻 Compute **G_total** = (streaming-trained, test-streaming F1) − (anchored-trained, test-streaming raw F1) = 0.190 − 0.064 = **0.126**
-- [ ] 💻 Compute **G_prior** = (anchored-trained, test-streaming, *recalibrated* F1) − (raw F1) = 0.064 − 0.064 = **≈0.00** *(threshold re-tuning recovered nothing; precision stuck ~3.3%)*
-- [ ] 💻 Compute **G_hardneg** = (streaming-trained, test-streaming F1) − (anchored-trained, recalibrated F1) = 0.190 − 0.064 = **≈0.126** (the whole recoverable gap)
-- [ ] 💻 Report the AUC diagnostic (0.873 → 0.540) as the *explanation* of why G_prior ≈ 0 — a discrimination collapse recalibration can't touch
-- [ ] 💻 Write the decomposition up as a `docs/` results note (table + arithmetic + the two caveats below)
-- [ ] 💻 **Caveat to state, not bury:** the 0.126 conflates "trained streaming" with "trained on 18× more data" (anchored train ≈ 4.9k vs streaming ≈ 88k). The matched-config sweep (Stage 5) is what bulletproofs it.
-- [ ] 💻 **Caveat 2:** F1 at 37:1 is jumpy; the sharper version uses precision-at-fixed-recall / AP (Stage 6), which tightens this conclusion, not changes it.
+- [x] 💻 Compute all three G-figures on the 3-head matrix (Model A) under that discipline
+- [x] 💻 Report the AUC diagnostic as the *explanation* of why G_prior ≈ 0 — a discrimination collapse recalibration can't touch
+- [x] 💻 Write the decomposition up next to the runs → [`RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md), not in `docs/`
+- [x] 💻 Second model added (crosses-only) — same pattern, larger G_hardneg
+- [x] 💻 All four caveats stated in the matrix file, not buried: data-volume confound · F1 instability at 37:1 · Model B's sampler mismatch · single seed
 
-*Deliverable:* the sentence "of the total anchored→streaming deployment gap, ~0% is recalibration-fixable
-and ~100% is a genuine hard-negative skill gap the standard benchmark never trains" — with the table
-behind it. **This is the thesis headline.**
+*Why it is motivation rather than result:* it establishes that a real problem exists and that the cheap fix
+(re-tuning the threshold) does not work. It does not offer a way forward. The thesis contribution is the way
+forward — Stage 7.
 
 ---
 
-## Stage 5 — Streaming-leg convergence + matched-config matrix 🟡
+## Stage 5 — Streaming-leg convergence + baseline hygiene 🟡
 
-The decomposition's 0.126 is only as trustworthy as the streaming-trained model and the config match.
-Right now the streaming leg trains but wobbles, and the crosses-only matrix is half-built.
+**Reclassified 2026-08-18.** This stage used to exist to bulletproof the gap's magnitude. Now that the
+figure is motivation rather than result, the "prove the magnitude" half is optional. The other half got
+*more* important, not less: **these four runs are the baselines every new method will be measured
+against.** A baseline with an accidental configuration difference doesn't weaken a caveat — it makes the
+comparison meaningless.
+
+**One mismatch is open** — Model B's two halves trained with different weighted-sampler settings. It is
+**described once, in [`RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md)** (register footnote † and
+caveat 3), including which direction it might push the numbers and why that is genuinely unclear. Not
+restated here; the actionable half is the checkbox below. Model A is unaffected and is the headline matrix.
+
+Separately: the streaming leg still does not converge cleanly, which caps how good any streaming-trained
+model can look — including new methods.
 
 **Stabilize the streaming-trained model** (Phase C of the old plan; the G_hardneg ceiling)
 - [ ] 🖥️ Diagnose the val_loss instability in `20260714_134253` (spikes to 4–8 on epochs 1/2/4/13/17; recall collapses to 1.0 = all-positive; best epoch 8 is a lucky trough, not a plateau)
 - [ ] 🖥️ Stabilize: revisit LR / warmup / focal-or-class-balanced loss / sampler power under raw 37:1 (this *is* the "curated streaming training" recipe — see Stage 7)
 - [ ] 🖥️ Confirm a streaming-trained model that plateaus cleanly (not a single lucky epoch)
 
-**Complete the crosses-only 2×2** (the multi-task-confound-free matrix)
+**Complete the crosses-only 2×2** (removes the multi-task confound, adds a sampler one)
 - [x] 🖥️ train=streaming × test=streaming — `20260714_134253` (AUC 0.78 / tuned-F1 0.22)
 - [x] 🖥️ train=streaming × test=anchored — `20260714_134253` (AUC 0.68 / tuned-F1 0.26)
-- [ ] 🖥️ **train=anchored × test={anchored,streaming}** — *missing row.* One run: `pose_full`, `data.protocol=anchored`, `train.active_tasks=[crosses] train.selection_metric=crosses_f1`, config-matched to `134253`, then eval both protocols
-- [ ] 💻 Recompute the Stage-4 decomposition on the crosses-only matrix; compare to the macro_f1 numbers
+- [x] 🖥️ train=anchored × test={anchored,streaming} — `20260721_123011` (AUC 0.88 / 0.53), filled 2026-07-21
+- [x] 💻 Recompute the decomposition on the crosses-only matrix → G_hardneg 0.162 vs 0.126, in [RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md)
+- [ ] 🖥️ **Re-run the anchored half with the sampler ON** to match `134253` — the mismatch above. ~1.5 h, cheapest outstanding lab item
 
-**Matched-config rigor (the "it was just more data" rebuttal)**
-- [ ] 🖥️ Re-run anchored-train + streaming-train under **one identical config** (same seed, selection, arch, augment), so the only difference is the training protocol
-- [ ] 🖥️ (validity) Multi-seed the headline cells — screen with 1 seed, confirm finalists with 3, report mean±std
+**Baseline hygiene (now load-bearing, since these are the comparison baselines)**
+- [x] 💻 Audit all four `resolved_config.yaml` snapshots for unintended differences (done 2026-08-18 — found the sampler mismatch; everything else matches)
+- [x] 💻 Add a config-diff step to the results-logging procedure so this is caught at fill time, not a month later ([RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md), "Adding a new run", step 3)
+- [ ] 🖥️ Re-evaluate all four existing checkpoints with `--save-predictions --save-temporal-weights`. **Evaluation only, no training.** Unlocks a large amount of laptop-only follow-up: combining models offline, breaking errors down by how soon the crossing happens, and seeing which frame the model actually reacted to. None of the four runs saved these.
+- [ ] 🖥️ (validity) Multi-seed the cells that end up in the write-up — screen with 1 seed, confirm with 3, report mean±spread
+
+**Optional now (was headline-critical, demoted by the reframe)**
+- [ ] 🖥️ Matched-*size* control: a streaming run subsampled to the anchored set's ≈4.9k windows, so training protocol is the only difference. Needs a small config knob (no cap on training-set size exists today). Cheap to run (~1/18th the epoch cost) if the knob is added.
 
 ---
 
-## Stage 6 — ODAS/OAD streaming metrics + negative composition ⬜
+## Stage 6 — 🟢 NEXT — rare-event metrics + negative composition
 
-Net-new, and mostly 💻 — unit-testable on synthetic streams before any lab-PC apply. This is what makes
-the evaluation *correct* for a rare-event stream (F1 is a blunt instrument at 37:1) and delivers two
-unpublished sub-contributions.
+Net-new, and almost entirely 💻: the metrics can be written and tested on made-up streams, with no data and
+no GPU, before anything is applied on the lab machine.
+
+**Why this comes before building the method.** F1 at a 1-in-37 base rate moves a lot when only a handful of
+samples cross the threshold. If the method is built first, there is no reliable way to tell whether it
+helped — the measurement noise is comparable to the effect being looked for. Building the instrument first
+makes every later comparison readable. The online-action-detection literature made the same move for the
+same reason, which is also where these metrics come from.
+
+The negative-composition half answers a question that sizes the whole method effort: **how much of the
+1-in-37 imbalance is actually the hard case?** "Not crossing" currently lumps together someone who never
+crosses, someone who crosses in four seconds, and someone who has already finished crossing. Counting them
+is cheap and decides how much is on the table.
 
 **Metric suite (import from OAD/ODAS — brief §2.4)**
 - [ ] 💻 Per-frame mAP over the stream
@@ -194,9 +250,22 @@ unpublished sub-contributions.
 
 ---
 
-## Stage 7 — Constructive close + supporting studies ⬜
+## Stage 7 — 🟢 THE METHOD (was "constructive close") + supporting studies
 
-Turns the diagnosis into a fix (the "full paper" upgrade), and re-slots the RESEARCH_PLAN RQs as support.
+**This is where the thesis contribution now lives.** It used to be the optional upgrade; after the August
+reframe it is the centre. The detailed direction — three prongs, what has been tried in the literature, what
+transfers, the open decision points — is in **[`METHODOLOGY.md`](METHODOLOGY.md)**, which is the working
+reference. Kept here in summary so the tracker stays complete:
+
+1. **Pose-motion features** — turn the raw keypoints into features that describe *movement*, not just
+   posture. All current pose features are single-frame. 💻, no re-extraction needed.
+2. **Onset-time supervision** — get the three onset fields into the trainer's reach, then teach the model
+   *when*, not just *whether*. 💻 plumbing + a small lab pass.
+3. **A rare-event mechanism imported from online action detection** — that community named this exact
+   failure in 2018 and proposed fixes for it; the two literatures do not currently talk to each other.
+
+The items below are the pre-reframe version of this stage. They remain valid work; METHODOLOGY.md is what
+sequences them now.
 
 **Curated streaming recipe (narrows G_hardneg — brief Phase 5)**
 - [ ] 🖥️ Pretrained backbone (RQ1) + focal/class-balanced loss + hard-negative emphasis + junk filtering
@@ -204,15 +273,35 @@ Turns the diagnosis into a fix (the "full paper" upgrade), and re-slots the RESE
 - [ ] 🖥️ **H-sweep** (near-free via S1) — base rate + difficulty move with horizon H → rebuts objection #2 ("just the TTE sweep")
 - [ ] 🖥️ Ego-speed-under-streaming leakage probe (RQ4) — does streaming lean *harder* on the shortcut?
 
-**Supporting RQ spokes** (from [`RESEARCH_PLAN.md`](RESEARCH_PLAN.md) — hub-and-spoke, single-axis, vs the frozen hub)
-- [~] RQ1 backbone — TinyViT-5M drop-in landed + trained (frozen); PVTv2-B0 / other candidates optional
-- [~] RQ3 imbalance levers — the lever combination *is* the curated recipe above
-- [x] RQ2 fusion residual — `fusion_residual` default-on; no-residual arm golden-pinned
-- [x] RQ4 motion-norm — `image` vs `per_sequence` ablatable from one dataset
-- [ ] RQ4 ego-speed on/off — accuracy effect + leakage reading
-- [ ] RQ5 efficiency — params/FLOPs/latency/FPS/peak-VRAM per model type (harness exists)
-- [ ] RQ6 calibration — reliability diagrams + temperature scaling on val (calibration script scaffolded)
+---
+
+## Supporting studies (the RQ spokes)
+
+*Absorbed from the retired `RESEARCH_PLAN.md` (2026-08-19, now at
+[`archive/RESEARCH_PLAN.md`](archive/RESEARCH_PLAN.md)) — that document's engineering foundation is
+complete and its thesis narrative was superseded twice, so only this list survives.*
+
+These were the thesis before the July pivot; they are now **single-axis side studies** that support the
+method rather than structure the argument. **Experimental design: hub-and-spoke, never factorial.** One
+frozen hub baseline; every spoke changes exactly **one** axis and is compared straight back to the hub,
+never against each other. Screen at 1 seed, confirm finalists at 3, report mean±spread.
+
+| RQ | Question | State |
+|---|---|---|
+| **RQ1** Visual backbone | Does a modern pretrained hierarchical backbone beat the from-scratch ViT at a matched param/FLOP budget? Motivation: the v1 ViT collapsed 288→36 dims before `frame_proj`, spent its attention FLOPs on 2×2 windows, and had never seen data outside PIE. | [~] TinyViT-5M drop-in landed + trained (frozen); PVTv2-B0 and the rest optional. Desk study: [BACKBONE_STUDY.md](BACKBONE_STUDY.md) |
+| **RQ2** Fusion | Is motion-as-saliency the right design? The cross-attention originally had **no residual**, so motion *content* never reached the heads — only motion-shaped attention over image values. | [x] `fusion_residual` default-on; the no-residual arm is golden-pinned and ablatable |
+| **RQ3** Imbalance levers | Which of the three stacked levers (offline aug, weighted sampler, class-weighted loss) actually earns its place, measured against the effective-distribution instrument? | [~] Folded into the curated streaming recipe above — the lever combination *is* that recipe |
+| **RQ4** Input representation | Do corrected, image-normalized motion features help over per-sequence z-norm? And does the **ego-speed** channel help — or is it a shortcut? (The driver brakes *because* the pedestrian will cross, so its on/off ablation doubles as a leakage probe. Cheapest scientific finding available.) | [x] motion-norm ablatable from one dataset · [ ] ego-speed on/off untested |
+| **RQ5** Efficiency | Is the full multimodal model worth its cost — params, FLOPs, latency, FPS, peak VRAM per model type? | [ ] Harness exists (fvcore + ONNX parity), never run across the ladder |
+| **RQ6** Calibration | Are the crossing probabilities *honest*, and what is the single canonical operating point? Reliability diagrams → temperature scaling on val → one threshold shared by eval **and** `infer_video`. The bridge to a controller-consumable probability. | [ ] Calibration script scaffolded; **note the pivot reframed this** — val-tuned recalibration is now `G_prior`, and it measured ≈0 |
+
+**Remaining spoke work**
+- [ ] 🖥️ RQ4 ego-speed on/off — accuracy effect + leakage reading
+- [ ] 🖥️ RQ5 efficiency sweep — params/FLOPs/latency/FPS/peak-VRAM per model type
+- [ ] 🖥️ RQ6 calibration — reliability diagrams + temperature scaling on val
 - [ ] 🖥️ Kinematics-only pixel-free baseline (`kinematics_only`) trained as the floor
+- [ ] 💻 Single unified crosses head — collapse `crosses_frame` + the live-but-unsupervised `crosses_pooled` into one supervised head, retiring the dual-head contract *(absorbed from the retired PHASE_B_BACKLOG)*
+- [ ] 💻 Variable-length sequences — drop the fixed `seq_len=20` truncate-no-pad policy; add padding + masking *(same source; not an audit hole, still live)*
 - [ ] (stretch) Published baselines (PCPA / SF-GRU / a transformer) retrained — **de-scopable v2**, the schedule killer (brief §7.1)
 - [ ] (stretch) Replicate the core matrix on JAAD — single-dataset-validity hedge (brief §7.7)
 
@@ -220,11 +309,12 @@ Turns the diagnosis into a fix (the "full paper" upgrade), and re-slots the RESE
 
 ## Stage 8 — Write-up, defense, release ⬜
 
-- [ ] 💻 Reconcile the anchor docs to the streaming spine (RESEARCH_PLAN spine line, CLAUDE.md S1 line, HOLE_AUDIT imbalance-is-now-the-base-rate-finding note) — *deferred; do after the plan locks*
+- [x] 💻 Reconcile the anchor docs to the streaming spine — done 2026-08-19 in the doc-consolidation pass (RESEARCH_PLAN / CHANGELOG / PROPOSAL / PHASE_B_BACKLOG / HOLE_AUDIT retired to `archive/`; their live content absorbed here and in CLAUDE.md)
 - [ ] 💻 Related-work survey (brief §9 reading list; know the nearest neighbors cold — Coupling-Intent, Diving-Deeper, LIM, GTransPDM)
 - [ ] 💻 Draft: intro + the two-formulation background + the base-rate-fallacy primer
-- [ ] 💻 Draft: methods (both samplers, the protocol, the metric suite, the decomposition math)
-- [ ] 💻 Draft: results (the matrix, the G_prior/G_hardneg headline, the negative-composition figure, the H-sweep)
+- [ ] 💻 Draft: **motivation** — the two protocols, the decomposition, and why re-tuning the threshold cannot fix it (this is the old "results headline", moved forward to justify the method)
+- [ ] 💻 Draft: methods (both samplers, the protocol, the metric suite, the decomposition math, **and the three prongs from [METHODOLOGY.md](METHODOLOGY.md)**)
+- [ ] 💻 Draft: results (the method measured against the four baseline runs, the negative-composition figure, the H-sweep)
 - [ ] 💻 Draft: pre-empt the reviewer objections (brief §7) — especially "just recalibrate" (answered by §4) and "just the TTE sweep" (answered by H-sweep)
 - [ ] 💻 Discussion + limitations + the constructive close (protocol + recipe as community artifacts)
 - [ ] 🖥️ Regenerate final figures/tables from the frozen final runs
@@ -236,12 +326,24 @@ Turns the diagnosis into a fix (the "full paper" upgrade), and re-slots the RESE
 
 ## Execution risks (thesis-level — see brief §7 for the full list)
 
-1. **Published-baseline retraining is the schedule killer.** The decomposition on *our own model alone*
-   is a defensible thesis + workshop paper; the multi-model matrix is the reach, explicitly de-scoped to
-   Stage 7 stretch.
-2. **G_hardneg depends on a streaming model that converges.** Mitigated by ordering: Stage 4 (G_prior)
-   is already done and independent of a well-trained streaming model. If Stage 5 stays hard, the thesis
-   reports "G is almost all hard-negative and the streaming leg is itself hard to train" — which is
-   *still the finding*, not a collapse.
-3. **Two-machine latency.** ~97% of coding is 💻; every 🖥️ item is a lab-PC batch. Front-load all the
-   💻 analysis (Stages 4 + 6 metric code) so lab-PC runs are never the bottleneck for *thinking*.
+*(Rewritten 2026-08-18 for the reframe — the old list assumed the decomposition was the result.)*
+
+1. **The method might not work.** This is the real risk now, and it is new. Before the reframe, the thesis
+   rested on a measurement that was already taken; now it rests on making something better. Mitigation is in
+   the ordering: build the measuring instrument (Stage 6) before the method, so a null result is *readable*
+   and reportable — "these three interventions, measured properly, did not close the gap, and here is what
+   that rules out" is a defensible thesis, but only if the measurements are trustworthy. Also prefer the
+   prongs with independent value: better pose features and the negative-composition census are useful
+   findings whether or not the headline method succeeds.
+2. **The streaming leg does not converge cleanly.** It caps how good *any* streaming-trained model can look,
+   new methods included, and it costs ~21 hours per attempt (67 min/epoch versus 3 for anchored). This is
+   both a risk and, framed differently, part of the contribution — "training under a realistic base rate is
+   itself unstable" is a finding worth reporting, and the stabilisation recipe is a deliverable.
+3. **Published-baseline retraining remains the schedule killer.** Comparing against other papers' models
+   requires retraining them. Still explicitly de-scoped; the method is measured against our own four runs.
+4. **Two-machine latency.** ~97% of coding is 💻; every 🖥️ item is a lab batch. Front-load laptop work so the
+   lab machine only ever executes and never blocks *thinking*. Concretely: write the check scripts, the
+   metrics, and the feature math before travelling, and bundle the lab passes into one ordered visit.
+5. **Baseline drift.** With the four runs now serving as baselines, any un-audited configuration difference
+   silently invalidates a comparison. Mitigated by the config-diff step now written into the results
+   procedure — but it only works if it is actually run at fill time.

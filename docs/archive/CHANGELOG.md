@@ -1,9 +1,20 @@
+> # ⛔ RETIRED — 2026-08-19
+>
+> **Abandoned, not maintained.** The last entry is 2026-06-12. Everything after it went unlogged: the
+> `data.protocol` switch, the S1 onset fields, the pose arm, the timm backbone, `active_tasks`,
+> per-protocol thresholds, and `run_arm.py`. A changelog nobody updates is worse than none, so it is
+> retired rather than backfilled — this is a single-author research repo where `git log` and
+> [`../THESIS_ROADMAP.md`](../THESIS_ROADMAP.md) already carry the history at both altitudes.
+>
+> Its one still-true line was the warning that the Dataset Statistics table was stale pending a re-pin.
+> That was closed 2026-08-19: the golden fixture now holds the v2 counts and the drift gate passes.
+
 # Changelog
 
 ## Unreleased — v2 data contract (hole audit, attack-order step 2 code) (2026-06-12)
 
-All dataset-touching fixes from [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md), bundled for the ONE v2
-rebuild (execution: [setup.md](setup.md)). **Deliberate behavior changes** — v1 sequence pkls and
+All dataset-touching fixes from [docs/HOLE_AUDIT.md](HOLE_AUDIT.md), bundled for the ONE v2
+rebuild (execution: [setup.md](../../setup.md)). **Deliberate behavior changes** — v1 sequence pkls and
 LMDBs are obsolete; the runtime dataset hard-errors on v1 chunks.
 
 - **M3** — `actions`/`looks` relabeled as state-at-end-of-observation; `crosses` stays future-any.

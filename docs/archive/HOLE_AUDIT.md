@@ -1,3 +1,20 @@
+> # ⛔ RETIRED — 2026-08-19
+>
+> **Fully executed; kept as the long-form rationale record.** This two-pass audit of the v1.0 baseline
+> catalogued every validity / architecture / correctness issue and resolved each one. Its **Final attack
+> order is complete** through the v2 rebuild and the registry wave, so there is nothing left here to *do*.
+>
+> The decisions it produced now live where they are enforced:
+> - The **v2 labeling contract** (M3–M6, M9, A4) is stated with its rationale in
+>   [`../../CLAUDE.md`](../../CLAUDE.md) § Data Pipeline — that is the load-bearing copy.
+> - The **imbalance policy** (M1) is in CLAUDE.md § Imbalance Policy.
+> - The **experimental-validity rules** (M2, M7, M8) are in CLAUDE.md § Evaluation.
+> - The **research framing** (M1/M2/M10 recast as the base-rate finding) is in
+>   [`../THESIS_ROADMAP.md`](../THESIS_ROADMAP.md).
+>
+> Come here only for the *why behind a why* — the traced code paths, the arithmetic, and the alternatives
+> that were rejected.
+
 # Hole Audit — v1.0 baseline
 
 **Date:** 2026-06-11 · **Scope:** all of `src/pedpredict/`, `scripts/`, `configs/`, tests at coverage level.
@@ -32,7 +49,7 @@ resolved together, and they map directly onto the calibration/uncertainty resear
 > **July 2026 re-reading (streaming pivot).** That 2.8% test rate is not a nuisance to be tuned away — it
 > **is the true deployment base rate** of an imminent crossing-onset, and the M1 collapse is the textbook
 > "raw ~37:1 collapses a from-scratch ViT." Under the thesis pivot (see
-> [THESIS_ROADMAP.md](THESIS_ROADMAP.md)), M1/M2/M10 are recast: the imbalance is the
+> [THESIS_ROADMAP.md](../THESIS_ROADMAP.md)), M1/M2/M10 are recast: the imbalance is the
 > *streaming* condition, M2's val-tuned recalibration is the fixable half of the anchored→streaming gap
 > (`G_prior`), and the residual is the hard-negative half (`G_hardneg`). The fixes below still stand; only
 > their framing is elevated from "engineering hygiene" to "the measurement."
@@ -43,7 +60,7 @@ resolved together, and they map directly onto the calibration/uncertainty resear
 
 ### M1 · The imbalance levers triple-stack into an extreme, unmeasured training distribution
 **Severity: M (highest).**
-**Where:** [sampler.py:197-232](../src/pedpredict/data/sampler.py#L197-L232), [trainer.py:219-223](../src/pedpredict/training/trainer.py#L219-L223), [augment.py:186-195](../src/pedpredict/data/augment.py#L186-L195), defaults in `configs/train.yaml` + `configs/augment.yaml`.
+**Where:** [sampler.py:197-232](../../src/pedpredict/data/sampler.py#L197-L232), [trainer.py:219-223](../../src/pedpredict/training/trainer.py#L219-L223), [augment.py:186-195](../../src/pedpredict/data/augment.py#L186-L195), defaults in `configs/train.yaml` + `configs/augment.yaml`.
 
 The documented policy ("levers 2+3 ON, layered on augmentation") sounds mild. The arithmetic is not:
 
@@ -85,7 +102,7 @@ answered by the WP1 lever ablation (none / weights-only / sampler-only / aug-onl
 
 ### M2 · Decision thresholds are tuned on the test set
 **Severity: M (highest).**
-**Where:** [metrics.py:197-221](../src/pedpredict/training/metrics.py#L197-L221) (`optimal_threshold_metrics`), called in [evaluate.py:187](../src/pedpredict/eval/evaluate.py#L187) on whatever split is being evaluated (default: test).
+**Where:** [metrics.py:197-221](../../src/pedpredict/training/metrics.py#L197-L221) (`optimal_threshold_metrics`), called in [evaluate.py:187](../../src/pedpredict/eval/evaluate.py#L187) on whatever split is being evaluated (default: test).
 
 `run_evaluation` sweeps thresholds 0.10–0.90 and reports per-task metrics at the F1-maximizing
 threshold — computed **on the same test data it reports on**. The `opt_*` columns in `eval_log.csv`
@@ -108,7 +125,7 @@ and never reported. Q3's `overall_acc` rename rides this same change.
 
 ### M3 · All three labels are "any() over the future window" — the docs describe something else
 **Severity: M.**
-**Where:** [pie_sequences.py:101-119](../src/pedpredict/data/pie_sequences.py#L101-L119) (`_label_future_window`).
+**Where:** [pie_sequences.py:101-119](../../src/pedpredict/data/pie_sequences.py#L101-L119) (`_label_future_window`).
 
 `actions`, `looks`, **and** `crosses` are all labeled as `any(signal[end : end+future_offset+tol])` —
 i.e., every task is a *future* prediction: "will walk at least one frame in the next ~1s", "will look
@@ -137,7 +154,7 @@ weights and sampler weights adapt automatically (both computed from the metadata
 
 ### M4 · Right-censored windows: unobserved futures are silently labeled "0"
 **Severity: M.**
-**Where:** [pie_sequences.py:114](../src/pedpredict/data/pie_sequences.py#L114) — `future_end = min(end + future_offset + tol, n)`.
+**Where:** [pie_sequences.py:114](../../src/pedpredict/data/pie_sequences.py#L114) — `future_end = min(end + future_offset + tol, n)`.
 
 A window ending near the end of a track gets a *truncated* future window — down to zero frames — and
 an empty/short future yields labels of 0 by construction. A pedestrian whose track ends 3 frames after
@@ -185,7 +202,7 @@ early-anticipation choice, with the benchmark row as the externally-anchored com
 
 ### M6 · Window-level metrics over heavily correlated samples
 **Severity: M.**
-**Where:** [evaluate.py](../src/pedpredict/eval/evaluate.py) — metrics are computed over all windows.
+**Where:** [evaluate.py](../../src/pedpredict/eval/evaluate.py) — metrics are computed over all windows.
 
 Stride-3 windows from one track overlap by 17/20 frames; consecutive test samples are near-duplicates.
 Effects: (1) long, easy tracks dominate the metric; (2) the effective sample size is far below the
@@ -233,7 +250,7 @@ with 1 seed, confirm finalists/headline comparisons with 3, report mean±std.
 
 ### M8 · Model selection, early stopping, and LR schedule all hang off class-weighted val loss
 **Severity: M.**
-**Where:** [trainer.py:290-322,376-392](../src/pedpredict/training/trainer.py#L290-L322).
+**Where:** [trainer.py:290-322,376-392](../../src/pedpredict/training/trainer.py#L290-L322).
 
 `val_loss` is the *class-weighted* multitask loss. With crosses positives weighted ~5–19× and only
 ~570 positives in val, a handful of hard positive windows dominate the scalar that picks `best.pth`,
@@ -257,7 +274,7 @@ itself high-variance with ~570 val positives. Scheduler stays on `val_loss`.
 
 ### M9 · The ablation ladder is missing its most important rungs
 **Severity: M (it's the thesis).**
-**Where:** [registry.py](../src/pedpredict/models/registry.py) — four model types only.
+**Where:** [registry.py](../../src/pedpredict/models/registry.py) — four model types only.
 
 Missing, in order of importance:
 1. **Kinematics-only baseline** (bbox features → small GRU/MLP; *no pixels at all*). The literature's
@@ -303,7 +320,7 @@ dataset-touching decisions into ONE rebuild**).
 
 ### M10 · There is no coherent threshold/calibration policy anywhere in the system
 **Severity: M — and it is the bridge to the control-systems research scope.**
-**Where:** [inference.py:311-332](../src/pedpredict/eval/inference.py#L311-L332) (argmax = implicit 0.5), [metrics.py:197](../src/pedpredict/training/metrics.py#L197) (test-swept), training (no calibration).
+**Where:** [inference.py:311-332](../../src/pedpredict/eval/inference.py#L311-L332) (argmax = implicit 0.5), [metrics.py:197](../../src/pedpredict/training/metrics.py#L197) (test-swept), training (no calibration).
 
 Three different implicit answers to "when do we say *crossing*": training optimizes a weighted loss
 (M1), eval reports both 0.5-threshold and test-swept-threshold numbers (M2), and video inference
@@ -339,7 +356,7 @@ consumed by eval AND `infer_video`); (4) conformal prediction on top if the cont
 
 ### A1 · The ViT's stage schedule fights itself: 36→36→288→36 dims, and the 288-dim stage attends over 2×2 windows
 **Severity: A.**
-**Where:** `configs/model.yaml` (`stage_dims`, `window_size`), [vit.py](../src/pedpredict/models/vit.py).
+**Where:** `configs/model.yaml` (`stage_dims`, `window_size`), [vit.py](../../src/pedpredict/models/vit.py).
 
 Three compounding oddities, inherited from the undergrad design:
 - **Dimension collapse:** the deepest features pass through 288 dims (stage 3, 5 layers, 16 heads) and
@@ -375,7 +392,7 @@ Prior favorite: TinyViT-5M (genuinely Swin-style, so the architecture narrative 
 
 ### A3 · The cross-attention "fusion" contains no motion content — only motion-shaped attention
 **Severity: A (analysis finding, not a bug).**
-**Where:** [cross_attention.py:87-105](../src/pedpredict/models/cross_attention.py#L87-L105).
+**Where:** [cross_attention.py:87-105](../../src/pedpredict/models/cross_attention.py#L87-L105).
 
 `attn_output = MHA(query=motion, key=image, value=image)` and there is **no residual connection** —
 the heads consume `attn_output` alone. Since MHA's output is a weighted sum of *value* vectors, the
@@ -404,7 +421,7 @@ RQ2 fusion grid* (compared against the hub like every other spoke), not a silent
 
 ### A4 · Per-sequence motion normalization destroys geometry and amplifies quantization noise — and the frame-0 quirk corrupts two channels
 **Severity: A.**
-**Where:** [motion_encoder.py:123](../src/pedpredict/models/motion_encoder.py#L123), [transforms.py:102-140](../src/pedpredict/data/transforms.py#L102-L140).
+**Where:** [motion_encoder.py:123](../../src/pedpredict/models/motion_encoder.py#L123), [transforms.py:102-140](../../src/pedpredict/data/transforms.py#L102-L140).
 
 `(motion - mean_T) / (std_T + 1e-6)` per sequence, per channel. Three consequences *(derived)*:
 1. **Absolute geometry is erased.** Position in frame (curb proximity!) and absolute box size
@@ -432,8 +449,8 @@ the **same** v2 data with no extra build. Keep absolute (image-normalized) cx, c
 
 ### A5 · The motion branch stacks three temporal mechanisms; the visual stream has none
 **Severity: A.**
-**Where:** [motion_encoder.py](../src/pedpredict/models/motion_encoder.py) (Conv1d + GRU + MHA, plus
-positional encoding added *after* the GRU), [vit.py:308-320](../src/pedpredict/models/vit.py#L308-L320)
+**Where:** [motion_encoder.py](../../src/pedpredict/models/motion_encoder.py) (Conv1d + GRU + MHA, plus
+positional encoding added *after* the GRU), [vit.py:308-320](../../src/pedpredict/models/vit.py#L308-L320)
 (strictly per-frame).
 
 Asymmetric and unexamined: temporal reasoning is CNN→GRU→self-attention piled in one branch (never
@@ -449,7 +466,7 @@ spoke behind backbone/fusion/motion-v2. The factorization citation covers the vi
 
 ### A6 · `motion_only` is not motion-only — it sees the pedestrian's pixels
 **Severity: A (interpretation hazard).**
-**Where:** [ablations.py:71-115](../src/pedpredict/models/ablations.py#L71-L115) — `MotionOnlyModel`
+**Where:** [ablations.py:71-115](../../src/pedpredict/models/ablations.py#L71-L115) — `MotionOnlyModel`
 consumes `images_tight` through the MotionEncoder's CNN.
 
 The ablation suite's naming will cause a wrong conclusion: `motion_only` is really *pedestrian-local*
@@ -468,7 +485,7 @@ before any results table exists.
 
 ### C1 · Chunks are silently skipped on warm timeout — including validation chunks
 **Severity: P1.**
-**Where:** [chunk_loader.py:125-138, 181-198](../src/pedpredict/training/chunk_loader.py#L125-L198).
+**Where:** [chunk_loader.py:125-138, 181-198](../../src/pedpredict/training/chunk_loader.py#L125-L198).
 
 If a warm worker doesn't report within `chunk_queue_timeout=300s`, `_await_chunk` returns `None` and
 `__next__` silently `continue`s — **no log line whatsoever** (verified: no print/raise on that path).
@@ -484,8 +501,8 @@ edits in `_await_chunk`/callers + a config flag if you want skip-tolerant traini
 
 ### C2 · Incremental-build resume trusts a partial final chunk — silent data loss
 **Severity: P1 (live risk for *your next action* — finishing the train LMDB).**
-**Where:** [incremental.py:56-58](../src/pedpredict/data/incremental.py#L56-L58) (`next_chunk_start`),
-[build_lmdb_incremental.py:57-61](../scripts/build_lmdb_incremental.py#L57-L61).
+**Where:** [incremental.py:56-58](../../src/pedpredict/data/incremental.py#L56-L58) (`next_chunk_start`),
+[build_lmdb_incremental.py:57-61](../../scripts/build_lmdb_incremental.py#L57-L61).
 
 `next_chunk_start` resumes one past the *highest existing* `chunk_*.lmdb` dir. If the previous run
 died mid-write (your disk-full crash is exactly this), the highest chunk exists but is **incomplete**,
@@ -502,7 +519,7 @@ rebuild that chunk). ~15 lines; add a test. **Do this before resuming your train
 
 ### C3 · LMDB `map_size` over-reserves ~2× on Windows
 **Severity: P1 (operational — this is plausibly why your disk filled).**
-**Where:** [lmdb_writer.py:53-72](../src/pedpredict/data/lmdb_writer.py#L53-L72).
+**Where:** [lmdb_writer.py:53-72](../../src/pedpredict/data/lmdb_writer.py#L53-L72).
 
 The heuristic gives ≈7.4 GB map_size per 5000-sample chunk *(derived: 5000·2·512²·3·0.25·5·1.5)*;
 actual JPEG payload is ≈2–3 GB. The code's own comment notes Windows **pre-allocates the file at
@@ -516,7 +533,7 @@ Cheap, immediate disk relief.
 
 ### C4 · The "NOISE" augmentation is a de-facto identity, and the plan emits exact duplicates by design
 **Severity: P1 (silent ineffectiveness, not corruption).**
-**Where:** [augment.py:116-118, 163-183](../src/pedpredict/data/augment.py#L116-L183), `motion_noise_std: 0.02` in `configs/augment.yaml`.
+**Where:** [augment.py:116-118, 163-183](../../src/pedpredict/data/augment.py#L116-L183), `motion_noise_std: 0.02` in `configs/augment.yaml`.
 
 `motion_noise` adds N(0, **0.02 px**) to raw pixel-unit channels (cx ~ hundreds, dx ~ units). After
 the encoder's per-sequence normalization, that's ~0.004–0.02σ — imperceptible *(derived)*. So one of
@@ -533,7 +550,7 @@ channel), drop identity copies (the sampler already oversamples), and dedupe the
 
 ### C5 · `min_track_size=10` admits tracks the windower then silently discards
 **Severity: P3 (config lies).**
-**Where:** `configs/data.yaml`, [pie_sequences.py:139](../src/pedpredict/data/pie_sequences.py#L139).
+**Where:** `configs/data.yaml`, [pie_sequences.py:139](../../src/pedpredict/data/pie_sequences.py#L139).
 PIE filters tracks ≥10 frames; `window_track` needs ≥20. Tracks of length 10–19 flow through and
 produce zero windows. Harmless, but the config field implies a control it doesn't have. Set it to
 `seq_len` or document it.
@@ -553,7 +570,7 @@ because the v2 build itself needs them; C1 lands before any training run (val sk
 
 ## Section Q — Quality / performance (no validity risk)
 
-- **Q1 · The warm machinery doesn't warm.** [lmdb_warm.py:24-43](../src/pedpredict/data/lmdb_warm.py#L24-L43)
+- **Q1 · The warm machinery doesn't warm.** [lmdb_warm.py:24-43](../../src/pedpredict/data/lmdb_warm.py#L24-L43)
   reads exactly *one* `_meta` key — the whole spawn/queue/RAM-gate apparatus pre-loads a few KB of a
   multi-GB chunk. On the HDD this means the prefetcher delivers ~none of its intended benefit. Either
   warm for real (sequential full-file read, cheap on HDD) or delete the machinery when Phase B item 7
@@ -561,11 +578,11 @@ because the v2 build itself needs them; C1 lands before any training run (val sk
 - **Q2 · Windows worker-respawn per chunk.** `persistent_workers=False` + spawn + 4 workers + ~30+
   chunks/epoch = re-importing torch ~120×/epoch (minutes of pure overhead). Same fate as Q1. -> keep them alive then gng
 - **Q3 · Two different `overall_acc` semantics** — pooled-micro in `compute()` vs. mean-of-task-accs in
-  `optimal_threshold_metrics` ([metrics.py:189-220](../src/pedpredict/training/metrics.py#L189-L220)).
+  `optimal_threshold_metrics` ([metrics.py:189-220](../../src/pedpredict/training/metrics.py#L189-L220)).
   Same column name in different artifacts. Rename one. -> what rename capture this better?
 - **Q4 · Per-batch `float(total)`** in `train_chunk` forces a GPU sync every step; accumulate on-device
   and sync per chunk. Minor.
-- **Q5 · `smooth_track` computes smoothed centers the model never reads** ([inference.py:258-272](../src/pedpredict/eval/inference.py#L258-L272)) — preserved dead computation; delete or actually use. -> if confirmed dead code then can delete safely. this is old, old, OLD artifact.
+- **Q5 · `smooth_track` computes smoothed centers the model never reads** ([inference.py:258-272](../../src/pedpredict/eval/inference.py#L258-L272)) — preserved dead computation; delete or actually use. -> if confirmed dead code then can delete safely. this is old, old, OLD artifact.
 - **Q6 · `LMDBChunkDataset.__init__` prints per open** — with per-epoch re-opening × chunks this is log
   spam that buries real warnings (like the C1 fix). Route through `logging`/verbosity flag.
 - **Q7 · No CI coverage floor** (Phase B item 10, unchanged).
@@ -612,7 +629,7 @@ every module touched).
 > **Execution progress (2026-06-15):** step 1 (code fixes) merged to `main` (`4c2120b`); step 2 *code*
 > — the v2 data-contract changes — merged to `main` (`66c6000`). **Remaining before WP0 baselines:**
 > run the actual regeneration on real PIE data and re-pin the STALE Dataset Statistics
-> (per [setup.md](../setup.md)), then the step-3 registry/rename wave.
+> (per [setup.md](../../setup.md)), then the step-3 registry/rename wave.
 
 The one structural change from the original suggestion: the v1 train build is **abandoned, not
 resumed** — every dataset-touching decision landed `fix`, so there is exactly one v2 rebuild of all

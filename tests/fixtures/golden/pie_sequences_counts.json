@@ -1,13 +1,13 @@
 {
   "module": "src/pedpredict/data/pie_sequences.py",
-  "source": "OLD scripts/generate_sequences.py (seq_type='all', seq_len=20, stride=3, future_offset=30, tol=2)",
-  "src_repo": "OLD/Undergrad_thesis_project",
-  "captured": "2026-06-03",
+  "source": "v2 data contract (seq_type='all', seq_len=20, stride=3, future_offset=30, tol=2)",
+  "contract": "v2",
+  "captured": "2026-08-19",
   "tol": 0,
-  "note": "Exact integer label counts read from the legacy sequences_{split}.pkl. The PIE 'all' path is deterministic (sorted iteration, no RNG) and labels are integers, so parity is EXACT equality, not float tolerance. Regenerating any split that changes these counts is a behavior break (flag it).",
+  "note": "Exact integer label counts for the v2 sequence contract, re-pinned from the lab-PC regen (the counts printed by scripts/count_labels.py and mirrored in the CLAUDE.md Dataset Statistics table). Supersedes the 2026-06-03 legacy-parity capture, which pinned the pre-v2 counts (train N=95684, actions=43310, looks=16394) and had been failing the drift gate ever since the regen: M3 relabelled actions/looks as state-at-end-of-observation (both rates drop) and M4 dropped right-censored windows (N drops). The crosses counts are unchanged by both -- M3 does not touch the crosses label, and no positive window was right-censored. The PIE 'all' path is deterministic (sorted iteration, no RNG) and labels are integers, so parity is EXACT equality, not float tolerance. Regenerating any split that changes these counts is a behavior break (flag it).",
   "splits": {
-    "train": {"N": 95684, "actions": 43310, "looks": 16394, "crosses": 2530},
-    "val":   {"N": 22665, "actions": 9483,  "looks": 2688,  "crosses": 569},
-    "test":  {"N": 76048, "actions": 33068, "looks": 12013, "crosses": 2140}
+    "train": {"N": 88214, "actions": 38320, "looks": 9266, "crosses": 2530},
+    "val":   {"N": 20490, "actions": 8261,  "looks": 1376, "crosses": 569},
+    "test":  {"N": 69875, "actions": 29489, "looks": 6815, "crosses": 2140}
   }
 }

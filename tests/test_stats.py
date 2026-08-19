@@ -141,10 +141,10 @@ def test_check_drift_passes_and_detects():
 def test_reference_fixture_matches_claude_table():
     """The 1.1 fixture's derived rates round to the CLAUDE.md table (doc/fixture drift catcher)."""
     ref = load_reference(_FIXTURE)
-    expected = {  # CLAUDE.md "Dataset Statistics" table
-        "train": (95684, 45.3, 17.1, 2.6),
-        "val": (22665, 41.8, 11.9, 2.5),
-        "test": (76048, 43.5, 15.8, 2.8),
+    expected = {  # CLAUDE.md "Dataset Statistics" table (v2 contract)
+        "train": (88214, 43.4, 10.5, 2.9),
+        "val": (20490, 40.3, 6.7, 2.8),
+        "test": (69875, 42.2, 9.8, 3.1),
     }
     for split, (n, a, lo, cr) in expected.items():
         r = ref[split]

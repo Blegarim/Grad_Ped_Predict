@@ -1,3 +1,18 @@
+> # ⛔ RETIRED — 2026-08-19
+>
+> **Superseded in full; the only doc that never received a pivot banner.** This is the June 2026 proposal,
+> written when the thesis was "make an overclaiming model honest" (imbalance + calibration). Two pivots
+> later the thesis is *streaming crossing-onset detection, as a methods thesis*. The headline line at the
+> bottom of this file is no longer the headline.
+>
+> **Current equivalents:** the argument is
+> [`../project-context-streaming-crossing-onset.md`](../project-context-streaming-crossing-onset.md), the
+> plan is [`../THESIS_ROADMAP.md`](../THESIS_ROADMAP.md), the method is
+> [`../METHODOLOGY.md`](../METHODOLOGY.md).
+>
+> Kept because it is the best plain-language explanation of the *problem* (why rare-event crossing
+> prediction is hard) written for a non-specialist reader — useful raw material for a thesis intro.
+
 # Research Proposal — Will the Pedestrian Cross?
 
 **Nguyen Bao Viet · Master's research · June 2026**

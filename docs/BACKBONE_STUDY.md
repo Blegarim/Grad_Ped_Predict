@@ -1,15 +1,23 @@
 # Backbone Candidate Study (RQ1 / A1–A2) — design note
 
-**Status:** audit complete; **step 1 (wrapper + config + shape/wiring tests) landed** — the drop-in
-mechanism is in `src/pedpredict/models/timm_backbone.py` (`TimmBackbone` + `build_visual_backbone`),
-selected by `model.vit_backbone` (`legacy` default | timm name) with `model.vit_pretrained` gating the
-weights; `tests/test_timm_backbone.py` covers factory dispatch + the `[B,T,3,H,W]→[B,T,d_model]` contract
-(offline, `pretrained=False`). **Steps 2–4 (the actual pretrained-vs-legacy training comparisons, the
-Pareto, the mechanism check) are pending — they are lab-PC runs.** This note picks concrete pretrained
-backbones to drop in for the visual stream and records *why*. It is the WP2 deliverable that
-[RESEARCH_PLAN.md](RESEARCH_PLAN.md) §WP2 calls for. Numbers below are **measured against the installed
-`timm` 1.0.20** (built offline, `pretrained=False`, `num_classes=0`, `global_pool='avg'`), not recalled —
-re-run the query in [Appendix](#appendix-reproduce-the-numbers) to reproduce.
+**Status: 🧊 frozen design note** (swept 2026-08-19) — this note picks concrete pretrained backbones for the
+visual stream and records *why*. The mechanism it specifies is **built and in use**; what remains is
+comparison work, tracked in [THESIS_ROADMAP.md](THESIS_ROADMAP.md) § Supporting studies (RQ1), not here.
+
+- **Step 1 — landed.** `src/pedpredict/models/timm_backbone.py` (`TimmBackbone` + `build_visual_backbone`),
+  selected by `model.vit_backbone` (`legacy` default | timm name), `model.vit_pretrained` gating weights;
+  `tests/test_timm_backbone.py` covers factory dispatch + the `[B,T,3,H,W]→[B,T,d_model]` contract.
+- **Steps 2–4 — partially answered by other work.** The primary pick (**TinyViT-5M**) has since been
+  trained on both protocols, **frozen**, as the visual stream of the four `pose_full` baseline runs. That
+  is not the head-to-head this note asked for — no legacy-vs-pretrained pair at a matched budget, no
+  Pareto, no mechanism check, and frozen rather than fine-tuned — so RQ1 stays `[~]`, but the backbone is
+  no longer untested.
+- **Not yet touched:** PVTv2-B0, the TinyViT-21M Pareto point, and the flagged avg-pool follow-up (the
+  context-crop dilution this note warns about is still inherited by every run above).
+
+Numbers below are **measured against the installed `timm` 1.0.20** (built offline, `pretrained=False`,
+`num_classes=0`, `global_pool='avg'`), not recalled — re-run the query in
+[Appendix](#appendix-reproduce-the-numbers) to reproduce.
 
 ## Why swap (the motivation, from the hole audit)
 

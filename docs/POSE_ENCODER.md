@@ -1,10 +1,23 @@
 # Pose-Keypoint Motion Arm — design + implementation plan
 
-**Prepared:** July 2026 · **Status:** steps 0–4 implemented on `pose-encoder-arm` (💻 code complete,
-gate green); steps 5–8 (🖥️ extraction pass, experiments, verdict) pending. **Companions:**
-[THESIS_ROADMAP.md](THESIS_ROADMAP.md) (the data pass this piggybacks on — read Stage 3),
-[BACKBONE_STUDY.md](BACKBONE_STUDY.md) (RQ1 — must be locked before the `pose_full` comparison),
-[project-context-streaming-crossing-onset.md](project-context-streaming-crossing-onset.md) (the thesis spine).
+**Prepared:** July 2026 · **Status: 🧊 frozen design note** (swept 2026-08-19) — the arm is **built and
+running**, so this file is the record of *how it was designed*, not a live plan. Where it stands:
+
+| §10 step | State |
+|---|---|
+| 0–4 — config, pose math, model surface, data plumbing, extraction script | ✅ merged to `main` |
+| 5 — 🖥️ extraction pass over PIE → `pose_cache/` | ✅ ran on the lab PC |
+| 6 — experiments | 🟡 partial — four `pose_full` (frozen TinyViT-5M) runs exist across both protocols; `pose_kinematics`, `kinematics_only`, and the `full`-vs-`pose_full` comparison are **not** run, so §6's table is unfilled |
+| 7–8 — verdict + "is the crop noise?" answer | ⬜ open |
+
+Those four `pose_full` runs are now the **thesis baselines** — see
+[`../outputs/runs/RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md). §11 records the deviations that
+were actually implemented; read it before trusting §5/§7 sketches. Live tracking of what remains is in
+[THESIS_ROADMAP.md](THESIS_ROADMAP.md), not here.
+
+**Companions:** [THESIS_ROADMAP.md](THESIS_ROADMAP.md) (the tracker),
+[BACKBONE_STUDY.md](BACKBONE_STUDY.md) (RQ1 — the visual stream under `pose_full`),
+[project-context-streaming-crossing-onset.md](project-context-streaming-crossing-onset.md) (the argument).
 
 > **What this is.** A concrete, code-grounded plan to add a **pose-keypoint motion arm**: replace the
 > tight-crop image in the motion branch with 2D pose-keypoint features, keeping the ViT context stream and

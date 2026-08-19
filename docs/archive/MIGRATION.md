@@ -1,7 +1,7 @@
 # MIGRATION.md
 
 Running log of the Phase-A ground-up rebuild (behavior-preserving restructure). One row per ported
-module. See [REBUILD_SCHEMATIC.md](REBUILD_SCHEMATIC.md) for the prompts and [CLAUDE.md](CLAUDE.md) for the
+module. See [REBUILD_SCHEMATIC.md](REBUILD_SCHEMATIC.md) for the prompts and [CLAUDE.md](../../CLAUDE.md) for the
 architecture, band-aid table (B1–B13), and imbalance policy. The porting workflow itself is the
 `behavior-preserving-port` skill.
 

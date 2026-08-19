@@ -1,3 +1,10 @@
+> # ⛔ RETIRED — 2026-08-19
+>
+> Already superseded by the hole audit in June 2026 and kept "for reference only" since; now archived
+> outright. Its three non-audit items have been resolved or rehomed: **online augmentation** shipped as
+> `augment.runtime`; the **unified crosses head** and **variable-length sequences** moved to
+> [`../THESIS_ROADMAP.md`](../THESIS_ROADMAP.md) § Supporting studies → Remaining spoke work.
+
 # Phase B — Architecture redesign backlog
 
 > **SUPERSEDED (2026-06-11):** the answered [HOLE_AUDIT.md](HOLE_AUDIT.md) is now the working setlist
@@ -9,7 +16,7 @@
 Phase A (the behavior-preserving rebuild) is locked at the **v1.0 clean baseline**. Phase B is the
 architecture-redesign phase: it may deliberately change model math and outputs. Each item below was
 deferred during Phase A and flagged in the (now archived) migration ledger
-([docs/archive/MIGRATION.md](archive/MIGRATION.md)). Each should get its own design doc + golden
+([docs/archive/MIGRATION.md](MIGRATION.md)). Each should get its own design doc + golden
 re-baseline before it lands.
 
 ## Model architecture
@@ -41,4 +48,4 @@ re-baseline before it lands.
 ## Tooling
 10. **Hard CI coverage floor** (Phase A left `--cov` soft / advisory).
 11. **End-to-end parity report** — once PIE + GPU are available, run `scripts/evaluate.py` per
-    `model_type` and record clean baselines in [docs/archive/legacy_baselines.md](archive/legacy_baselines.md).
+    `model_type` and record clean baselines in [docs/archive/legacy_baselines.md](legacy_baselines.md).

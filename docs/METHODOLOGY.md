@@ -16,7 +16,10 @@ How it sits next to the other documents:
 | [`THESIS_ROADMAP.md`](THESIS_ROADMAP.md) | The overall tracker — every stage, what's done, what's left |
 | **`METHODOLOGY.md`** (this file) | **The method itself — the three directions and how they were chosen** |
 | [`../outputs/runs/RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md) | The numbers, the baselines, and the caveats attached to them |
-| [`RESEARCH_PLAN.md`](RESEARCH_PLAN.md) | The supporting side-studies (backbone choice, fusion, imbalance levers) |
+
+The supporting side-studies (backbone choice, fusion, imbalance levers, calibration) used to live in a
+separate research plan; that document was retired 2026-08-19 and the surviving RQ list now sits in
+[`THESIS_ROADMAP.md`](THESIS_ROADMAP.md) § Supporting studies.
 
 Write in plain language here. This document has to still make sense in six months, to a reader who has been
 away from it, and to an examiner who has never seen the code.
@@ -25,7 +28,7 @@ away from it, and to an examiner who has never seen the code.
 
 ## Why we are building a method
 
-Short version, with the full story in the roadmap's August reframe section.
+Short version; the roadmap's "Where the thesis stands" header carries the same framing at tracker altitude.
 
 We measured something real: take a model trained the standard way — on a dataset built around crossing
 events, where roughly one in three examples is a crossing — and test it on a realistic continuous stream,

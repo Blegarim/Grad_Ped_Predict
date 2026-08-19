@@ -1,3 +1,16 @@
+> # ⛔ RETIRED — 2026-08-19
+>
+> **Do not use this as a plan.** The thesis spine it describes (an architecture / imbalance / calibration
+> ablation study, RQ1–RQ6) was superseded by the July 2026 streaming pivot and again by the August 2026
+> methods reframe. It was demoted twice by prepending banners and its body was never rewritten, so several
+> statements below are simply **wrong today** — the imbalance figure ("50–85% positive"), the v2 rebuild
+> described as the remaining gate (done), and the timm backbone described as pending (landed and trained).
+>
+> **What survived lives in [`../THESIS_ROADMAP.md`](../THESIS_ROADMAP.md) § Supporting studies (the RQ
+> spokes)** — the RQ definitions, their current state, and the hub-and-spoke rule. Read that instead.
+>
+> Kept for the record: the WP0–WP4 framing, the original scope contract, and the reference list.
+
 # Research Plan — Multimodal Pedestrian Behavior Prediction
 
 **Student:** Nguyen Bao Viet
@@ -14,15 +27,15 @@
 > **⚠️ Thesis spine pivoted (July 2026) — read this first.** The thesis is no longer structured around
 > the architecture / imbalance / calibration ablation study below. The new spine is **online detection
 > of pedestrian crossing-onset and the decomposition of the anchored→streaming performance gap** — see
-> [project-context-streaming-crossing-onset.md](project-context-streaming-crossing-onset.md) (the brief)
-> and [THESIS_ROADMAP.md](THESIS_ROADMAP.md) (the execution plan). **This document is
+> [project-context-streaming-crossing-onset.md](../project-context-streaming-crossing-onset.md) (the brief)
+> and [THESIS_ROADMAP.md](../THESIS_ROADMAP.md) (the execution plan). **This document is
 > retained, not discarded:** the existing dense-window pipeline *is* the streaming formulation, so the
 > engineering foundation (WP0) and every RQ below survive as **supporting studies** under the new spine —
 > RQ3 (imbalance) and RQ6 (calibration) are elevated (they become the two halves of the gap
 > decomposition), RQ1 (backbone) feeds the curated streaming model, and RQ2/RQ4/RQ5 (fusion, motion,
 > efficiency) become within-model analyses. Read the RQs and work packages below as the *supporting*
 > layer; read the two streaming docs for the *headline*. The re-slot mapping is in
-> [THESIS_ROADMAP.md §Stage 7](THESIS_ROADMAP.md).
+> [THESIS_ROADMAP.md §Stage 7](../THESIS_ROADMAP.md).
 
 ---
 
@@ -197,7 +210,7 @@ is tested; the grid is never searched.
    - a benchmark-protocol eval mode (`make_sequences.py --benchmark`, test-split only) for literature
      comparison.
 3. **Run the rebuild + re-pin — the remaining WP0 gate.** Execute the regeneration on real PIE data
-   (per [`setup.md`](../setup.md)): regenerate sequences + build LMDBs for all
+   (per [`setup.md`](../../setup.md)): regenerate sequences + build LMDBs for all
    three splits + the benchmark set; then doc-sync the now-STALE numbers — re-pin the Dataset
    Statistics table (recording the M3 class-rate shift and the M4 censored-window count as
    thesis-reportable figures), restore the `count_labels` drift gate to exact counts, update the
@@ -220,7 +233,7 @@ is tested; the grid is never searched.
   imbalance-policy recommendation.
 
 ### WP2 — Architecture spokes (months 5–8, RQ1, RQ2)
-- **Backbone study (RQ1):** the desk study is **done** — [BACKBONE_STUDY.md](BACKBONE_STUDY.md) ranks the
+- **Backbone study (RQ1):** the desk study is **done** — [BACKBONE_STUDY.md](../BACKBONE_STUDY.md) ranks the
   candidates against the installed `timm`, with the drop-in contract and picks: **TinyViT-5M** (primary,
   param-matched, 224 res-match, 22k-distilled), **PVTv2-B0** (non-window diversity), and **TinyViT-21M**
   (~20M punch-above for the RQ5 Pareto; FastViT-SA12 latency fallback). Implementation (a thin timm

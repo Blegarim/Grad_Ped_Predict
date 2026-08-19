@@ -3,7 +3,21 @@
 
 > **Purpose of this document.** Self-contained context read for a new standalone research project, meant to be dropped into a fresh project thread so none of the reasoning below has to be re-derived. It is fully technical; nothing is dumbed down. It records not only the proposed angle but the *dead ends already ruled out*, so future-you does not re-tread them. It assumes familiarity with the author's existing pipeline (multimodal ViT + Motion Encoder + Cross-Attention + Ensemble, per-frame multi-task heads, LMDB data, PIE dataset).
 
-**Prepared:** July 2026
+**Prepared:** July 2026 · **Status: 🧊 frozen reference** (as of 2026-08-19) — the argument here is still
+correct and is not maintained further. Two updates apply on top of it and are **not** folded back in:
+
+1. **§4–§5 Phase 4 is done.** The decomposition was measured: `G_prior ≈ 0`, `G_hardneg ≈ G_total`. The
+   §4 fork ("if G ≈ G_prior … demote to a cautionary short paper") resolved to the *other* branch —
+   G_hardneg is the whole gap. Numbers: [`../outputs/runs/RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md).
+2. **The result was reclassified as the motivation** (August 2026). This document treats the decomposition
+   as the headline contribution; the thesis now treats it as the *justification* for a method. Phase 5's
+   "constructive close" is therefore the centre, not the epilogue — see
+   [`METHODOLOGY.md`](METHODOLOGY.md) and [`THESIS_ROADMAP.md`](THESIS_ROADMAP.md).
+
+Read it for: the two task formulations, why the ratios differ, the hard-temporal-negative definition, the
+base-rate-fallacy primer, the **dead ends already ruled out** (§1 — do not re-tread them), the reviewer
+objections (§7), the reading list (§9), and the glossary (§10).
+
 **Working title (one line):** *The pedestrian-intention benchmark never learned to run in a stream — and the case it hides is the one that matters.*
 
 ---

@@ -15,20 +15,38 @@ pedestrian — **actions** (walking/standing), **looks** (looking at traffic or 
 soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 
 > The project began as a behavior-preserving rebuild of an undergraduate thesis. That history — the legacy
-> reference repo, the phase plan, and the resolved band-aid inventory — is archived under
-> [`docs/archive/`](docs/archive/) and in the `legacy-archive` git tag; it is no longer load-bearing.
+> reference repo, the phase plan, the resolved engineering audit, and the pre-pivot research plan — is
+> archived under [`docs/archive/`](docs/archive/) and in the `legacy-archive` git tag; none of it is
+> load-bearing.
 
-> **Thesis direction (July 2026 pivot — read this before RESEARCH_PLAN).** The thesis spine is now
-> **online detection of pedestrian crossing-onset**: the standard PIE protocol is event-anchored (~2.5:1)
-> and hides the deployed streaming case (~37:1, full of "will-cross-soon" hard negatives); the
-> contribution is to re-evaluate under a streaming protocol and **decompose** the anchored→streaming
-> performance gap into a recalibration-fixable part and a residual hard-negative part. Crucially, the
-> existing dense-sliding-window pipeline **is** that streaming formulation, so the codebase stands — the
-> architecture / imbalance / calibration work (the old RQs, [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md),
-> [docs/RESEARCH_PLAN.md](docs/RESEARCH_PLAN.md)) is retained as **supporting** studies, not the thesis
-> structure. The brief is [docs/project-context-streaming-crossing-onset.md](docs/project-context-streaming-crossing-onset.md)
-> and the execution plan is [docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md). HOLE_AUDIT's
-> Final attack order still governs the data/engineering steps; docs/PHASE_B_BACKLOG.md is superseded.
+## Thesis Direction (current — as of August 2026)
+
+**A methods thesis on streaming crossing-onset detection.** The standard PIE protocol is event-anchored
+(~2.5:1) and hides the deployed streaming case (~37:1, full of "will-cross-soon" hard negatives). The
+existing dense-sliding-window pipeline **is** that streaming formulation, so the codebase stands.
+
+*The motivation* (measured, done — [outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md)): a
+model trained on the anchored benchmark loses almost all ranking ability on the stream (AUC 0.88 → 0.53)
+and re-tuning thresholds recovers ~nothing (`G_prior ≈ 0`, `G_hardneg ≈ G_total`). On its own that is a
+negative result — "the usual benchmark flatters models" — so it became the *justification* rather than the
+contribution.
+
+*The contribution* (in progress): a training method for streaming crossing-onset that the standard setup
+cannot produce — three prongs, being pose *movement* features, onset-time supervision, and a rare-event
+mechanism imported from the online-action-detection literature.
+
+| Doc | Role |
+|---|---|
+| [docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md) | **The tracker** — every stage, what's done, what's left, plus the supporting-study spokes |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | **The method** — the three prongs and how they were chosen (active working reference) |
+| [outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) | **The numbers** — the cross-protocol matrix, the baselines, the caveats |
+| [docs/project-context-streaming-crossing-onset.md](docs/project-context-streaming-crossing-onset.md) | **The argument** — why streaming evaluation matters (frozen reference) |
+
+**Two consequences that bite when touching anything experimental:** (1) the four existing `pose_full` runs
+are now **baselines**, so an accidental config difference between two legs invalidates a comparison rather
+than merely footnoting a caveat; (2) the three S1 onset fields are computed but dropped before the trainer
+can see them (see the S1 bullet under Data Pipeline), which blocks two of the four candidate method
+directions.
 
 ## Execution Environment (two machines)
 
@@ -108,23 +126,42 @@ is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim mo
 read time); consumers slice motions to `data.motion_dim` (8 = no ego, 9 = with ego; 58 = pose arm, where
 the read path builds the pose feature block instead of slicing).
 
-**v2 labeling contract — deliberate departures from v1/legacy; do not "fix" these as bugs.** Full rationale
-in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
+**v2 labeling contract — deliberate departures from v1/legacy; do not "fix" these as bugs.** Each carries
+its *why* inline (they were decided in the 2026-06 engineering audit, now archived at
+[docs/archive/HOLE_AUDIT.md](docs/archive/HOLE_AUDIT.md) — items M3–M9, A4 — which remains the long-form
+record but is no longer required reading):
 - **M3** — `actions`/`looks` label the **state at the last observed frame**, not the future; only `crosses`
-  is a future label (`any()` over the fully-observed future window).
-- **M4** — right-censored windows (truncated future) are **dropped, not labeled 0**.
+  is a future label (`any()` over the fully-observed future window). *Why:* `any()` over a 32-frame future
+  can only inflate positives, and for a present-state attribute it is simply the wrong question — a single
+  one-frame glance anywhere in the future flipped `looks` to 1, which is why its rate fell hardest on the
+  v2 regen (17.1% → 10.5%).
+- **M4** — right-censored windows (truncated future) are **dropped, not labeled 0**. *Why:* when the future
+  was never observed, "did not cross" is a fabricated label, not a missing one. The per-split censored
+  count is recorded (`WindowStats` → `sequences_<split>_stats.json`) and is thesis-reportable.
 - **M5** — a separate TTE **benchmark** (anchored-protocol) set labels `crosses` by the crossing *event*
   and carries `tte`; built via `make_sequences.py --benchmark --split {train,val,test}` +
   `build_lmdb[_incremental].py --split {train,val,test}_benchmark` → `preprocessed_{split}_benchmark`.
   Which set train/eval read is the runtime switch **`data.protocol`** (`streaming` default = standard v2
   LMDBs, ~37:1 | `anchored` = benchmark LMDBs, ~2.5:1), resolved once in `paths.protocol_lmdb_dirs` and
   honored by train.py / `ChunkPrefetcher` / `evaluate.py` — this is the **cross-protocol-matrix axis**
-  (train × test over {anchored, streaming}); see [setup.md §9](setup.md).
-- **M6** — every meta carries `track_id` for eval-side track aggregation.
+  (train × test over {anchored, streaming}); see [setup.md §9](setup.md). *Why an added set rather than a
+  reprotocol:* training is untouched — the benchmark set is an *additional evaluation* of the
+  already-trained model, so the project's 20-frame/~1 s early-anticipation windowing stays primary (its
+  rationale: pedestrians appear suddenly, so the model must commit on short evidence, and the decision
+  must hold for the immediate future to be actionable) with the benchmark row as the caveated,
+  externally-anchored comparison.
+- **M6** — every meta carries `track_id` for eval-side track aggregation. *Why:* at `seq_len=20, stride=3`
+  two consecutive windows of the same pedestrian share 17 of 20 frames. A pedestrian tracked 600 frames
+  contributes ~200 near-copies, one tracked 25 frames contributes 2 — so long easy tracks dominate the
+  score, the ~70k test "samples" behave like far fewer independent ones, and per-*pedestrian* performance
+  (what the safety task actually asks) is invisible. Track metrics are reported **alongside** window
+  metrics, not instead of them.
 - **M9 / A4** — motion is stored **9-dim** (`MOTION_STORE_DIM`), frame-0 deltas true zeros; normalization is
   a runtime flag `model.motion_norm` (`image` default | `per_sequence` legacy/A4 arm, golden-pinned).
   `horizontal_flip` **must** negate `dx` (idx 2) and reflect `cx` (idx 0) about `data.source_width`, or
-  augmented data corrupts silently.
+  augmented data corrupts silently. *Why store wide and slice narrow:* with-ego and without-ego are two
+  configs → two trained models (an ablation retrains anyway), so a fixed input width buys nothing and
+  zero-padding a dead channel would only inject noise into a param-matched comparison.
 - **Pose (additive meta key)** — when `pose.enabled`, every meta also stores raw keypoints `pose[T,23,3]`
   (COCO-WholeBody body-17+feet-6, absolute px, from the `extract_pose.py` cache); existing consumers
   ignore it. Features are built at **read time** (`data/pose.py`), so `motions` leaves the dataset as
@@ -135,30 +172,31 @@ in [docs/HOLE_AUDIT.md](docs/HOLE_AUDIT.md) (M3–M9, A4):
   `onset_offset` (frames from end-of-obs to the first future crossing; `-1` if none), `future_observed`
   (`n − end`), and `track_crosses` (track ever crosses). These do **not** change the `crosses` label or
   which windows are emitted — they let eval re-label at any horizon H and type the streaming negatives
-  (genuine / hard-temporal / already-crossed). See [docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md).
+  (genuine / hard-temporal / already-crossed).
+  > ⚠️ **These three fields are computed but never reach the trainer.** `pie_sequences.py` writes them into
+  > the sequence pkls; `lmdb_writer.pack_meta` drops them when packing the LMDBs that training and eval
+  > actually read. **This is the single canonical statement of that gap** — other docs point here rather
+  > than re-explaining it. The fix is three parts: (a) add them to `pack_meta` + the read path so future
+  > builds carry them; (b) a patch script that reopens existing LMDBs and backfills them; (c) run it on the
+  > lab PC. Images are untouched — meta lives under separate keys, so this is a fast metadata pass, not a
+  > rebuild. Tracked as the last open item of [THESIS_ROADMAP](docs/THESIS_ROADMAP.md) Stage 3.
 
 ### Dataset Statistics
 
-(.venv) D:\Grad_Ped_Predict>python scripts/count_labels.py
+**v2 contract**, re-pinned 2026-08-19 from the lab-PC regen (`scripts/count_labels.py`):
+
 | Split | N | actions=1 | looks=1 | crosses=1 |
 |---|---|---|---|---|
-| train | 88214 | 43.4% | 10.5% | 2.9% |
-| val | 20490 | 40.3% | 6.7% | 2.8% |
-| test | 69875 | 42.2% | 9.8% | 3.1% |
+| train | 88214 | 43.4% (38320) | 10.5% (9266) | 2.9% (2530) |
+| val | 20490 | 40.3% (8261) | 6.7% (1376) | 2.8% (569) |
+| test | 69875 | 42.2% (29489) | 9.8% (6815) | 3.1% (2140) |
 
-Wrote D:\Grad_Ped_Predict\training_log\label_count.csv
-Label-count drift vs documented table:
-  [train] N drift: got 88214, expected 95684
-  [train] actions=1 drift: got 38320, expected 43310
-  [train] looks=1 drift: got 9266, expected 16394
-  [val] N drift: got 20490, expected 22665
-  [val] actions=1 drift: got 8261, expected 9483
-  [val] looks=1 drift: got 1376, expected 2688
-  [test] N drift: got 69875, expected 76048
-  [test] actions=1 drift: got 29489, expected 33068
-  [test] looks=1 drift: got 6815, expected 12013
+Shifts vs the pre-v2 table are **expected and thesis-reportable**, not drift: M3 relabelled
+`actions`/`looks` as state-at-end-of-observation (both rates drop — `looks` most, 17.1% → 10.5%) and M4
+dropped right-censored windows (N drops ~8%). `crosses` counts are untouched by both, so the rate *rises*
+slightly as the denominator shrinks.
 
-`crosses` is severely imbalanced (~37:1); `looks` moderately (~5:1); `actions` roughly balanced. Aggregate
+`crosses` is severely imbalanced (~37:1); `looks` moderately (~9:1); `actions` roughly balanced. Aggregate
 accuracy is misleading on `crosses` — rely on F1/AUC/recall. This table is the data-layer drift check
 (`scripts/count_labels.py` exits nonzero on drift); re-run it and update the table in the same change as
 any sequence-gen / PIE-annotation change.
@@ -234,6 +272,26 @@ early-stop counted from epoch 2. `active_tasks` makes that impossible; always pa
 - **Naming/style**: PascalCase classes, snake_case functions, UPPER_SNAKE_CASE constants, `_` prefix private;
   imports stdlib → third-party → local; type hints on signatures, functions ≤50 lines, lines ≤120 chars.
 
+### Response Style (how to talk to me, not how to write code)
+
+Write so the reply is *navigable* — something to think and decide with, not a display of reading volume.
+
+- **Plain words first.** Say the thing in ordinary language, then name the technical term once if it earns
+  its place. Never use a term or abbreviation the reader hasn't been given: spell out field names,
+  metrics, and paper acronyms on first use in a reply (`onset_offset` → "how many frames until the person
+  starts crossing"). An unexplained acronym is a dead end for the reader, not a shortcut.
+- **Grounded.** Claims come from files actually read, numbers actually in the logs, or sources actually
+  fetched — and say which. Distinguish "I verified this" from "I believe this" from "this needs checking."
+  Flag when a search was shallow rather than implying it was exhaustive.
+- **Comprehensive, not padded.** Cover the whole question, including the parts that complicate it. Length
+  should come from substance; cut anything that is just demonstrating effort.
+- **No highlight reels.** Don't recount how many files were scanned or how much was read. Report what was
+  found and what it means. Findings, not receipts.
+- **Answer the question asked.** If the ask is "what are my options," give options — not a plan, a
+  schedule, or next steps, unless asked. Recommendations are welcome at the end, briefly.
+- **Structure for scanning.** Headers and short blocks so the reader can find their way back in. Tables
+  only when comparing things along shared axes.
+
 ### Skill Invocation Policy
 
 Skill *descriptions* are always in context (free to scan); only loading a `SKILL.md` *body* costs tokens,
@@ -257,10 +315,24 @@ When you change… update (in the same change):
 
 | Change | Update |
 |---|---|
-| Sequence-gen params / PIE annotations | Dataset Statistics table + re-run `count_labels.py` (gate) + `test_stats` fixture |
+| Sequence-gen params / PIE annotations | Dataset Statistics table + `tests/fixtures/golden/pie_sequences_counts.json` + the expected dict in `test_stats.py::test_reference_fixture_matches_claude_table` + re-run `count_labels.py` (gate) — **all four move together or the gate lies** |
+| A run's eval numbers | `outputs/runs/RESULTS_MATRIX.md` (prose ledger, hand-maintained) + `rebuild_index` for `index.csv` (machine table) — never put prose in the CSV |
 | Output-dict keys / head wiring | Architecture output-keys note + `heads.py`/`ensemble.py` docstrings |
 | Imbalance levers (balance / sampler / loss weights) | Imbalance Policy section — all three levers together |
 | `d_model` / module dims | Architecture table (CLAUDE.md + README) — never one module alone |
 | Add / move / remove a `src/` module or `scripts/` CLI | README layout + README command list (+ the orientation note in CLAUDE.md if a whole subsystem moves) |
 | Config schema field / default | `configs/*.yaml` + schema docstrings; Config note if the CLI surface changes |
 | New extra / dependency | README Install extras |
+| Thesis direction / stage progress | THESIS_ROADMAP (the tracker) — and the Thesis Direction section here **only** if the spine itself moves |
+
+**Doc layout (consolidated 2026-08-19 — keep it this shape).** Six maintained docs: `CLAUDE.md` (agent
+orientation + contracts), [README.md](README.md) (repo overview), [setup.md](setup.md) (runbook),
+[docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md) (tracker + RQ spokes),
+[docs/METHODOLOGY.md](docs/METHODOLOGY.md) (the method),
+[outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) (the numbers). Three frozen references
+(the streaming brief, [docs/POSE_ENCODER.md](docs/POSE_ENCODER.md),
+[docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md)) — each carries a 🧊 status header stating what is
+actually built; correct them if they go stale, don't grow them. Everything else is in
+[docs/archive/](docs/archive/) behind a ⛔ RETIRED banner. **When a doc's premise is superseded, rewrite or
+retire it — do not prepend another banner.** Three stacked banners is what made the pre-consolidation set
+unreadable.
