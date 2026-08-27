@@ -52,6 +52,7 @@ from pedpredict.models.cross_attention import CrossAttentionModule
 from pedpredict.models.heads import (
     FramePool,
     build_crosses_frame_head,
+    build_onset_hazard_head,
     build_pool_mlp,
     build_task_classifiers,
     emit_task_logits,
@@ -72,6 +73,8 @@ def _head_kwargs(cfg: ModelCfg) -> dict:
         "use_frame_crosses": cfg.use_frame_crosses,
         "frame_pool": cfg.frame_pool,
         "emit_crosses_pooled": cfg.emit_crosses_pooled,
+        "onset_bins": cfg.onset_bins,
+        "onset_horizon_bins": cfg.onset_horizon_bins,
     }
 
 
@@ -90,6 +93,8 @@ class PedLocalModel(nn.Module):
         use_frame_crosses: bool = True,
         frame_pool: FramePool = "logsumexp",
         emit_crosses_pooled: bool = True,
+        onset_bins: int = 0,
+        onset_horizon_bins: int = 0,
     ) -> None:
         super().__init__()
         if num_classes_dict is None:
@@ -104,6 +109,9 @@ class PedLocalModel(nn.Module):
         self.pool_mlp = build_pool_mlp(d_model)
         self.classifier = build_task_classifiers(num_classes_dict, d_model, dropout)
         self.crosses_frame_head = build_crosses_frame_head(d_model, num_classes_dict["crosses"])
+        # Onset head: allocated ONLY when on — default off keeps the parameter layout identical.
+        self.onset_horizon_bins = onset_horizon_bins
+        self.onset_head = build_onset_hazard_head(d_model, onset_bins) if onset_bins else None
 
     @classmethod
     def from_config(cls, cfg: ModelCfg, img_size: int) -> PedLocalModel:
@@ -122,6 +130,8 @@ class PedLocalModel(nn.Module):
             use_frame_crosses=self.use_frame_crosses,
             emit_crosses_pooled=self.emit_crosses_pooled,
             emit_temporal_weights=False,
+            onset_head=self.onset_head,
+            onset_horizon_bins=self.onset_horizon_bins,
         )
 
 
@@ -244,6 +254,8 @@ class KinematicsOnlyModel(nn.Module):
         use_frame_crosses: bool = True,
         frame_pool: FramePool = "logsumexp",
         emit_crosses_pooled: bool = True,
+        onset_bins: int = 0,
+        onset_horizon_bins: int = 0,
     ) -> None:
         super().__init__()
         if num_classes_dict is None:
@@ -258,6 +270,9 @@ class KinematicsOnlyModel(nn.Module):
         self.pool_mlp = build_pool_mlp(d_model)
         self.classifier = build_task_classifiers(num_classes_dict, d_model, dropout)
         self.crosses_frame_head = build_crosses_frame_head(d_model, num_classes_dict["crosses"])
+        # Onset head: allocated ONLY when on — default off keeps the parameter layout identical.
+        self.onset_horizon_bins = onset_horizon_bins
+        self.onset_head = build_onset_hazard_head(d_model, onset_bins) if onset_bins else None
 
     @classmethod
     def from_config(cls, cfg: ModelCfg, img_size: int) -> KinematicsOnlyModel:
@@ -276,6 +291,8 @@ class KinematicsOnlyModel(nn.Module):
             use_frame_crosses=self.use_frame_crosses,
             emit_crosses_pooled=self.emit_crosses_pooled,
             emit_temporal_weights=False,
+            onset_head=self.onset_head,
+            onset_horizon_bins=self.onset_horizon_bins,
         )
 
 
@@ -291,6 +308,8 @@ class VisualOnlyModel(nn.Module):
         use_frame_crosses: bool = True,
         frame_pool: FramePool = "logsumexp",
         emit_crosses_pooled: bool = True,
+        onset_bins: int = 0,
+        onset_horizon_bins: int = 0,
     ) -> None:
         super().__init__()
         if num_classes_dict is None:
@@ -305,6 +324,9 @@ class VisualOnlyModel(nn.Module):
         self.pool_mlp = build_pool_mlp(d_model)
         self.classifier = build_task_classifiers(num_classes_dict, d_model, dropout)
         self.crosses_frame_head = build_crosses_frame_head(d_model, num_classes_dict["crosses"])
+        # Onset head: allocated ONLY when on — default off keeps the parameter layout identical.
+        self.onset_horizon_bins = onset_horizon_bins
+        self.onset_head = build_onset_hazard_head(d_model, onset_bins) if onset_bins else None
 
     @classmethod
     def from_config(cls, cfg: ModelCfg, img_size: int) -> VisualOnlyModel:
@@ -323,6 +345,8 @@ class VisualOnlyModel(nn.Module):
             use_frame_crosses=self.use_frame_crosses,
             emit_crosses_pooled=self.emit_crosses_pooled,
             emit_temporal_weights=False,
+            onset_head=self.onset_head,
+            onset_horizon_bins=self.onset_horizon_bins,
         )
 
 
@@ -342,6 +366,8 @@ class VanillaConcatModel(nn.Module):
         use_frame_crosses: bool = True,
         frame_pool: FramePool = "logsumexp",
         emit_crosses_pooled: bool = True,
+        onset_bins: int = 0,
+        onset_horizon_bins: int = 0,
     ) -> None:
         super().__init__()
         if num_classes_dict is None:
@@ -365,6 +391,9 @@ class VanillaConcatModel(nn.Module):
         self.pool_mlp = build_pool_mlp(d_model)
         self.classifier = build_task_classifiers(num_classes_dict, d_model, dropout)
         self.crosses_frame_head = build_crosses_frame_head(d_model, num_classes_dict["crosses"])
+        # Onset head: allocated ONLY when on — default off keeps the parameter layout identical.
+        self.onset_horizon_bins = onset_horizon_bins
+        self.onset_head = build_onset_hazard_head(d_model, onset_bins) if onset_bins else None
 
     @classmethod
     def from_config(cls, cfg: ModelCfg, img_size: int) -> VanillaConcatModel:
@@ -395,6 +424,8 @@ class VanillaConcatModel(nn.Module):
             use_frame_crosses=self.use_frame_crosses,
             emit_crosses_pooled=self.emit_crosses_pooled,
             emit_temporal_weights=False,
+            onset_head=self.onset_head,
+            onset_horizon_bins=self.onset_horizon_bins,
         )
 
 

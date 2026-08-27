@@ -309,3 +309,39 @@ def test_pkl_counts_match_fixture() -> None:
         assert sum(r["actions"] for r in records) == exp["actions"]
         assert sum(r["looks"] for r in records) == exp["looks"]
         assert sum(r["crosses"] for r in records) == exp["crosses"]
+
+
+def _annotation_source():
+    """First PIE annotation set that exists: the zipped archive or an unpacked tree (else None)."""
+    from pedpredict.config import PathsCfg
+    from pedpredict.paths import find_project_root, resolve_paths
+
+    root = find_project_root()
+    candidates = (root / "PIE" / "annotations" / "annotations.zip",
+                  resolve_paths(PathsCfg()).pie_root / "annotations")
+    return next((c for c in candidates if c.exists()), None)
+
+
+@pytest.mark.slow
+def test_annotation_xml_counts_match_fixture() -> None:
+    """The laptop-side twin of the pkl gate: re-window PIE's XMLs and hit the same counts.
+
+    PIE's behaviour tags are ~25 MB of XML, so this reproduces the entire label contract on a machine
+    that holds neither the frames nor the LMDBs. Skips when the annotation set is absent.
+    """
+    from pedpredict.data.pie_annotations import load_annotation_tracks
+
+    source = _annotation_source()
+    if source is None:
+        pytest.skip("PIE annotation XMLs not available")
+    golden = _golden()
+    cfg = DataCfg()
+    for split, exp in golden["splits"].items():
+        records = []
+        for track in load_annotation_tracks(source, split):
+            records += window_track(track.images, track.bboxes, track.actions, track.looks,
+                                    track.crosses, cfg, track_id=track.track_id,
+                                    ego_speed=track.ego_speed)
+        assert len(records) == exp["N"], f"{split}: window count drifted"
+        for task in ("actions", "looks", "crosses"):
+            assert sum(r[task] for r in records) == exp[task], f"{split}: {task} count drifted"

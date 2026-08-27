@@ -32,6 +32,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from pedpredict.config.schema import DataCfg
+from pedpredict.data.pie_sequences import ONSET_FIELDS
 from pedpredict.data.transforms import (
     ProcessedSample,
     build_read_transforms,
@@ -83,6 +84,8 @@ def read_raw_sample(txn: lmdb.Transaction, seq_id: str, lmdb_path: str = "") -> 
         track_id=meta["track_id"],
         tte=meta.get("tte"),
         pose=meta.get("pose"),
+        # S1: carried verbatim so an offline re-augment round-trip (augment_dataset.py) preserves them.
+        **{key: meta.get(key) for key in ONSET_FIELDS},
     )
 
 # Q6: per-open chatter goes through logging at DEBUG (the dataset is re-opened per chunk per epoch —
@@ -173,9 +176,20 @@ class LMDBChunkDataset(Dataset):
         state["_pid"] = None
         return state
 
-    def __del__(self) -> None:
+    def close(self) -> None:
+        """Release this process's LMDB handle (idempotent; the next read lazily reopens).
+
+        Windows refuses to open a file for write while a memory-mapped section is live, so any tool
+        that reopens a chunk for writing — ``scripts/backfill_onset_meta.py`` above all — must see
+        every reader closed first. Explicit beats relying on ``__del__`` and GC timing.
+        """
         if self._env is not None:
             self._env.close()
+            self._env = None
+            self._pid = None
+
+    def __del__(self) -> None:
+        self.close()
 
     def _get_env(self) -> lmdb.Environment:
         pid = os.getpid()
@@ -246,6 +260,9 @@ class LMDBChunkDataset(Dataset):
                 actions=torch.as_tensor(actions), looks=torch.as_tensor(looks),
                 crosses=torch.as_tensor(crosses), track_id=track_id, tte=meta.get("tte"),
                 pose=pose,
+                # S1 labels describe the FUTURE, so no augmentation can alter them — carried
+                # through only so `ps` stays a faithful sample for any augmentor that inspects it.
+                **{key: meta.get(key) for key in ONSET_FIELDS},
             )
             ps = self._augmentor(ps, random.Random(self._aug_seed * 1_000_003 + idx))
             tight = self._normalize(ps.images_tight)
@@ -266,4 +283,10 @@ class LMDBChunkDataset(Dataset):
         }
         if "tte" in meta:  # M5 benchmark-protocol chunks only
             sample["tte"] = meta["tte"]
+        # S1 onset annotation — present only in S1-annotated builds (or after the backfill script).
+        # Emitted as 0-dim long tensors so `collate_sequences` can stack them like any other label;
+        # all-or-nothing per chunk, matching how the writer packs them.
+        for key in ONSET_FIELDS:
+            if key in meta:
+                sample[key] = torch.as_tensor(meta[key], dtype=torch.long)
         return sample

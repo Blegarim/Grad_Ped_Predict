@@ -205,6 +205,44 @@ def apply_overrides(root: RootCfg, flat: dict[str, str]) -> RootCfg:
 # --------------------------------------------------------------------------- validation
 
 
+def _validate_onset(m: ModelCfg, d: DataCfg) -> None:
+    """Onset-head geometry (docs/METHODOLOGY.md prong 2), checked only when the head is on.
+
+    Delegates the shape rules to :class:`~pedpredict.data.onset_target.OnsetSpec` so the objective and
+    the config cannot disagree about what a bin is; adds the two rules the spec cannot see:
+
+    * ``onset_horizon`` must equal the generator's label horizon (``future_offset + tol``). The readout
+      is what the four baseline runs are compared against, so a mismatch makes it answer a different
+      question while every metric name stays the same — a silent invalidation.
+    * ``onset_lookahead`` must EXCEED that horizon. At equality, a crossing just past the boundary is
+      still a flat negative, which is the exact failure the onset formulation exists to remove; the
+      head would be a more expensive way to get the old answer.
+    """
+    if not m.onset_head:
+        return
+    from pedpredict.data.onset_target import OnsetSpec  # local: keeps config import-light
+
+    label_horizon = d.future_offset + d.tol
+    if m.onset_horizon != label_horizon:
+        raise ConfigError(
+            f"model.onset_horizon ({m.onset_horizon}) must equal data.future_offset + data.tol "
+            f"({d.future_offset} + {d.tol} = {label_horizon}) — otherwise the reported readout stops "
+            f"answering the question the binary baselines answered."
+        )
+    if m.onset_lookahead <= m.onset_horizon:
+        raise ConfigError(
+            f"model.onset_lookahead ({m.onset_lookahead}) must be GREATER than model.onset_horizon "
+            f"({m.onset_horizon}). At or below it, a crossing just past the horizon is still labelled a "
+            f"flat negative and the onset head buys nothing over the binary head."
+        )
+    try:
+        OnsetSpec(
+            lookahead=m.onset_lookahead, bin_width=m.onset_bin_width, horizon=m.onset_horizon
+        )
+    except ValueError as exc:
+        raise ConfigError(f"model.onset_* geometry invalid: {exc}") from exc
+
+
 def validate_config(root: RootCfg) -> None:
     """Structural invariants. Raises ``ConfigError`` on violation (no silent passthrough)."""
     m, d, t, e, b, a = root.model, root.data, root.train, root.eval, root.balance, root.augment
@@ -309,6 +347,8 @@ def validate_config(root: RootCfg) -> None:
 
     if set(m.num_classes) != _TASK_KEYS:
         raise ConfigError(f"model.num_classes keys must be {sorted(_TASK_KEYS)}; got {sorted(m.num_classes)}")
+
+    _validate_onset(m, d)
 
     positives = {
         "model.d_model": m.d_model,

@@ -35,6 +35,24 @@ crossing-detection gap.
   - `G_hardneg = (streaming-trained, streaming-test, tuned-F1)  −  (anchored-trained, streaming-test, tuned-F1)`  ← residual hard-negative skill gap
   - By construction `G_total = G_prior + G_hardneg`.
 
+### Caveat: train and test differ in what their negatives are made of
+
+Measured 2026-08-20 (`scripts/report_negative_composition.py`; reasoning in
+[METHODOLOGY.md](../../docs/METHODOLOGY.md) § What the negatives are actually made of). The streaming
+splits are not two samples of one distribution:
+
+| Split | positive | never crosses | will cross, later | already crossed |
+|---|---|---|---|---|
+| train | 2.9% | 64.3% | **25.7%** | 7.2% |
+| val | 2.8% | 77.5% | **15.2%** | 4.6% |
+| test | 3.1% | 53.4% | **39.2%** | 4.3% |
+
+The test split carries half again as many "will cross, just not yet" windows as train, and val carries
+far fewer than either. So a train-to-test drop is **not purely a generalisation gap** — the test set is
+structurally harder in the exact way this thesis is about, and val is the *easiest* of the three, which
+also makes val-tuned thresholds optimistic for test in a way the M2 rule does not correct. Applies to
+every streaming column below; the anchored columns are unaffected (different windowing entirely).
+
 ---
 
 ## Run register

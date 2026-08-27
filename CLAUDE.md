@@ -31,22 +31,26 @@ and re-tuning thresholds recovers ~nothing (`G_prior ≈ 0`, `G_hardneg ≈ G_to
 negative result — "the usual benchmark flatters models" — so it became the *justification* rather than the
 contribution.
 
-*The contribution* (in progress): a training method for streaming crossing-onset that the standard setup
-cannot produce — three prongs, being pose *movement* features, onset-time supervision, and a rare-event
-mechanism imported from the online-action-detection literature.
+*The contribution* (in progress, spine set 2026-08-20): treat streaming crossing prediction as **onset
+timing under censoring** rather than yes/no classification at a fixed horizon. A window whose future ran
+out is a censored observation, not a negative; with no fixed cut-off the "will cross, just not yet"
+population stops being mislabeled by construction. Two supporting parts: pose *movement* features (the cue
+a one-second horizon actually has) and the online-action-detection literature (its metrics as the
+instrument, its objectives as comparison baselines). **Hard constraint on any timing model: it must still
+emit P(onset within 32 frames), or the four baseline runs stop being comparable.**
 
 | Doc | Role |
 |---|---|
 | [docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md) | **The tracker** — every stage, what's done, what's left, plus the supporting-study spokes |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | **The method** — the three prongs and how they were chosen (active working reference) |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | **The method** — onset timing under censoring, the two supporting parts, and how they were chosen (active working reference) |
 | [outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) | **The numbers** — the cross-protocol matrix, the baselines, the caveats |
 | [docs/project-context-streaming-crossing-onset.md](docs/project-context-streaming-crossing-onset.md) | **The argument** — why streaming evaluation matters (frozen reference) |
 
 **Two consequences that bite when touching anything experimental:** (1) the four existing `pose_full` runs
 are now **baselines**, so an accidental config difference between two legs invalidates a comparison rather
 than merely footnoting a caveat; (2) the three S1 onset fields are computed but dropped before the trainer
-can see them (see the S1 bullet under Data Pipeline), which blocks two of the four candidate method
-directions.
+can see them (see the S1 bullet under Data Pipeline), which blocks the method itself — onset timing has
+nothing to train against until they arrive.
 
 ## Execution Environment (two machines)
 
@@ -77,11 +81,18 @@ tight crop + motion → MotionEncoder    ───┘
 | Pose arm | [docs/POSE_ENCODER.md](docs/POSE_ENCODER.md): `pose_kinematics` (= `KinematicsOnlyModel` fed the 58-dim pose+motion vector, pixel-free) and `pose_full` (`PoseFullModel` — that vector as the cross-attention query over the ViT context, no tight crop; emits `temporal_weights` like `full`). Needs a pose-enabled LMDB build: `pose.enabled` + `data`/`model.motion_dim=58` + `model.motion_norm=none` (validated as a bundle). Pose math + cache reader: `data/pose.py`; extraction: `scripts/extract_pose.py` (`--dry-run` fabricates keypoints so the pipeline runs without frames/extractor). |
 
 - **Unified `d_model = 128`** across ALL modules. Never change one module's dim without the others.
-- **Output dict keys**: `actions`, `looks`, `crosses_pooled`, `crosses_frame`, `temporal_weights`.
+- **Output dict keys**: `actions`, `looks`, `crosses_pooled`, `crosses_frame`, `temporal_weights`, plus
+  the gated `crosses_hazard` / `crosses_readout`.
   Training & eval supervise **ONLY `crosses_frame`** (logsumexp-pooled over frames). `crosses_pooled` is a
   **live-but-unsupervised** auxiliary head (`ModelCfg.emit_crosses_pooled=True`, default on) — kept ready
   to swap in but **never routed to loss/metrics**; `emit_crosses_pooled=false` drops it without perturbing
   the 4 supervised keys. `temporal_weights` is `[B, T]` softmax from the pooling MLP (full model only).
+- **Onset head** (`ModelCfg.onset_head`, **default off** — golden-pinned): adds `crosses_hazard [B, K]`
+  (one hazard logit per future bin) and `crosses_readout [B, 2]` (those bins collapsed to
+  `P(onset ≤ onset_horizon) = 1 − Π(1 − h_k)`). Off, there is no extra key and **no extra parameter**, so
+  every existing checkpoint still loads `strict=True`. The head hangs off the pooled `[B, D]` vector, so
+  its `K` axis indexes the **future** — distinct from `crosses_frame`, whose `T` axis indexes the observed
+  past. See the Onset Timing section below.
 
 ## Tech Stack
 
@@ -138,6 +149,13 @@ record but is no longer required reading):
 - **M4** — right-censored windows (truncated future) are **dropped, not labeled 0**. *Why:* when the future
   was never observed, "did not cross" is a fabricated label, not a missing one. The per-split censored
   count is recorded (`WindowStats` → `sequences_<split>_stats.json`) and is thesis-reportable.
+  **Refinement (`data.emit_determined_positives`, default off).** The filter asks only "was the full future
+  observed?", so it *also* binned windows whose crossing was plainly **seen** inside the truncated
+  remainder — labels that were never in doubt, and positives, the scarcest class. On, those are kept
+  (`WindowStats.determined_positive` counts them); truncated windows with no observed crossing are still
+  dropped. This is the full knowability rule `data/onset_stats.is_usable` already stated but generation
+  never applied. **It changes the window population** — regen + a four-way Dataset Statistics re-pin, and
+  it invalidates comparisons against runs built without it.
 - **M5** — a separate TTE **benchmark** (anchored-protocol) set labels `crosses` by the crossing *event*
   and carries `tte`; built via `make_sequences.py --benchmark --split {train,val,test}` +
   `build_lmdb[_incremental].py --split {train,val,test}_benchmark` → `preprocessed_{split}_benchmark`.
@@ -173,13 +191,18 @@ record but is no longer required reading):
   (`n − end`), and `track_crosses` (track ever crosses). These do **not** change the `crosses` label or
   which windows are emitted — they let eval re-label at any horizon H and type the streaming negatives
   (genuine / hard-temporal / already-crossed).
-  > ⚠️ **These three fields are computed but never reach the trainer.** `pie_sequences.py` writes them into
-  > the sequence pkls; `lmdb_writer.pack_meta` drops them when packing the LMDBs that training and eval
-  > actually read. **This is the single canonical statement of that gap** — other docs point here rather
-  > than re-explaining it. The fix is three parts: (a) add them to `pack_meta` + the read path so future
-  > builds carry them; (b) a patch script that reopens existing LMDBs and backfills them; (c) run it on the
-  > lab PC. Images are untouched — meta lives under separate keys, so this is a fast metadata pass, not a
-  > rebuild. Tracked as the last open item of [THESIS_ROADMAP](docs/THESIS_ROADMAP.md) Stage 3.
+  > ✅ **Plumbed 2026-08-26.** `pack_meta` writes the three fields, the read path tensorises them, and
+  > `collate_sequences` lifts them into the `labels` dict so they reach the loss through the existing
+  > Trainer path. The keys are **additive and optional** — chunks built before S1 still load, and a batch
+  > that mixes vintages fails loudly rather than silently dropping them.
+  > **Existing LMDBs still need the one-time backfill** (`scripts/backfill_onset_meta.py`, 🖥️ lab PC):
+  > a metadata-only pass that never touches an image blob. It matches samples to records positionally and
+  > verifies `track_id` + `crosses` per sample before writing, so a mismatched pkl aborts instead of
+  > corrupting. Augmented dirs are not backfillable (oversampling breaks the positional map) — backfill
+  > the base dir and re-run `augment_dataset.py`, which now carries the keys through.
+  > **The M4-dropped windows do NOT come back from the backfill**: `window_track` skips them at
+  > generation, so they were never written to the pkls. Recovering them needs a regen with the M4 filter
+  > relaxed — a separate experiment, deliberately not bundled with the objective change.
 
 ### Dataset Statistics
 
@@ -195,6 +218,9 @@ Shifts vs the pre-v2 table are **expected and thesis-reportable**, not drift: M3
 `actions`/`looks` as state-at-end-of-observation (both rates drop — `looks` most, 17.1% → 10.5%) and M4
 dropped right-censored windows (N drops ~8%). `crosses` counts are untouched by both, so the rate *rises*
 slightly as the denominator shrinks.
+
+> ⚠️ Pinned with `data.emit_determined_positives=false`. The 2026-08 regen turns it on, which **raises N
+> and the `crosses` rate** (it recovers confirmed positives only). Re-pin all four sites from that run.
 
 `crosses` is severely imbalanced (~37:1); `looks` moderately (~9:1); `actions` roughly balanced. Aggregate
 accuracy is misleading on `crosses` — rely on F1/AUC/recall. This table is the data-layer drift check
@@ -227,6 +253,67 @@ scan feeds 2 + 3 only; offline balance scans the sequence pkls (a separate offli
 per-task positive rate of sampler draws vs. the stored base rate — under the tuned-down default stack the
 `crosses` training distribution sits at ~26%, still well above the 2.8% deployment rate (the gap the
 instrument exposes), but far below the ~89% the old aggressive stack produced.
+
+## Onset Timing (the method — single source of truth for its contracts)
+
+Streaming crossing onset as **timing under censoring** rather than yes/no at a fixed horizon
+([docs/METHODOLOGY.md](docs/METHODOLOGY.md) prong 2). Implemented 2026-08-26, **default off**; nothing
+below changes any existing run until `model.onset_head=true`.
+
+The binary `crosses` label answers "does a crossing start within `H` frames?" and gets two cases wrong by
+construction: a window whose future ran out is labelled 0 (fabricated) or dropped (M4), and a window whose
+crossing lands at `H+5` is labelled 0 beside a genuine non-crosser. The hazard head asks `K` smaller
+questions instead — *given no crossing has started yet, does one start in bin `k`?* — each of which can be
+**masked out** when the answer was never observed.
+
+| Piece | Where |
+|---|---|
+| Bin geometry, four-case target + mask | [data/onset_target.py](src/pedpredict/data/onset_target.py) (`OnsetSpec`, `hazard_targets`, `readout_targets`) |
+| Head + horizon readout | [models/heads.py](src/pedpredict/models/heads.py) (`build_onset_hazard_head`, `hazard_to_horizon_logits`) |
+| Loss | [losses/onset.py](src/pedpredict/losses/onset.py) (`OnsetHazardLoss`) — added to `MultiTaskLoss`, not a second call site |
+| Backfill for pre-S1 chunks | [data/onset_backfill.py](src/pedpredict/data/onset_backfill.py) + `scripts/backfill_onset_meta.py` |
+| Composition / horizon reporting | [data/onset_stats.py](src/pedpredict/data/onset_stats.py) |
+
+**Four cases, from the three S1 fields** — the supervision the binary label cannot express:
+
+| Case | Recognised by | Supervision |
+|---|---|---|
+| event in range | `0 ≤ onset_offset < L` | bins `0..e-1` → 0, bin `e` → 1, **after `e` masked** |
+| event beyond range | `onset_offset ≥ L` | all `K` bins → 0 (honest: the crossing *was* observed) |
+| censored | `onset_offset < 0`, some future observed | bins covered by `future_observed` → 0, **rest masked** |
+| already crossed | `onset_offset < 0` **and** `track_crosses` | **dropped** — not at risk of a *first* crossing |
+
+Row 3 is what the binary label cannot say; row 4 is a bug it cannot avoid (today both land in
+`crosses = 0` beside genuine non-crossers).
+
+**Non-negotiables:**
+- **`onset_lookahead > onset_horizon`** (validated). A head only as wide as the reported horizon still
+  labels a crossing at `H+5` a flat negative — the exact failure the method exists to remove.
+- **`onset_horizon == data.future_offset + data.tol`** (validated). The readout is what the four
+  `pose_full` baselines are compared against; a mismatch makes it answer a different question under
+  identical metric names. `tests/test_onset_target.py::test_readout_label_reproduces_stored_crosses`
+  pins the readout label against the generator's own `crosses` over a real track.
+- **Unobserved bins get exactly zero gradient**, never a confident zero. That is the whole contribution;
+  asserted with autograd in `tests/test_onset_loss.py::test_no_gradient_past_the_event_or_censor_point`.
+- **`onset_report_crosses` affects metrics only**, never loss routing — so "auxiliary" and "pure
+  reformulation" are two configs of one code path, with only one gradient path onto any head.
+
+**Three formulations, selected by weights alone** (no code branches):
+
+| `loss_weight.crosses` | `onset_hazard_weight` | `onset_readout_weight` | `onset_report_crosses` | Arm |
+|---|---|---|---|---|
+| 1.2 | ~0.03 | 0 | false | **auxiliary** — reported number comes from the same head as the baselines. Start here. |
+| 0 | 1.0 | 0 | true | pure reformulation — the methodological claim |
+| 0 | 1.0 | w | true | the hedge — the hazard term never optimises the number actually reported |
+
+⚠️ **Scale.** The hazard term *sums* over a window's observed bins (likelihood-correct), so at `L=60` it
+starts ~40× a per-task CE (`~0.69 × 60` at init) and falls as hazards saturate low. Hence ~0.03 in the
+auxiliary arm and 1.0 where it *is* the objective. `OnsetLossOutput.hazard` logs the raw unweighted value
+so the ratio is observable rather than inferred.
+
+**Known risk, by design:** with `K` bins the per-bin positive rate is ~`2.9%/K`, so the head can collapse
+to `h ≈ 0` everywhere and the readout saturates near zero. The lever is `onset_bin_width` (4 quadruples
+the positives per bin, costing timing resolution). Check it on a short run before committing GPU hours.
 
 ## Evaluation
 
@@ -321,6 +408,7 @@ When you change… update (in the same change):
 | Imbalance levers (balance / sampler / loss weights) | Imbalance Policy section — all three levers together |
 | `d_model` / module dims | Architecture table (CLAUDE.md + README) — never one module alone |
 | Add / move / remove a `src/` module or `scripts/` CLI | README layout + README command list (+ the orientation note in CLAUDE.md if a whole subsystem moves) |
+| Onset-timing head / loss / targets | Onset Timing section (the four-case table, the three-arm table, the non-negotiables) — all in one place, never split across docs |
 | Config schema field / default | `configs/*.yaml` + schema docstrings; Config note if the CLI surface changes |
 | New extra / dependency | README Install extras |
 | Thesis direction / stage progress | THESIS_ROADMAP (the tracker) — and the Thesis Direction section here **only** if the spine itself moves |

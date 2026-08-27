@@ -150,8 +150,14 @@ class MetricAccumulator:
     softmax probs + targets; ``compute`` runs ``sklearn`` once over the concatenation.
     """
 
-    def __init__(self, tasks: tuple[str, ...] = TASKS) -> None:
+    def __init__(
+        self, tasks: tuple[str, ...] = TASKS, *, output_keys: dict[str, str] | None = None
+    ) -> None:
         self._tasks = tuple(tasks)
+        # Which output key scores each task. Defaults to the shared contract (crosses -> crosses_frame);
+        # the onset arm overrides `crosses` to `crosses_readout` via `crosses_metric_keys`, which is the
+        # ONLY thing model.onset_report_crosses changes — the loss routing stays fixed either way.
+        self._output_keys = dict(TASK_OUTPUT_KEY if output_keys is None else output_keys)
         self._probs: dict[str, list[Tensor]] = {t: [] for t in self._tasks}
         self._targets: dict[str, list[Tensor]] = {t: [] for t in self._tasks}
 
@@ -169,7 +175,7 @@ class MetricAccumulator:
         """Accumulate one batch. ``outputs`` must hold each task's contract key (:data:`TASK_OUTPUT_KEY`)."""
         floated = to_float_logits(outputs)  # B8: single upcast site (no-op outside autocast)
         for task in self._tasks:
-            key = TASK_OUTPUT_KEY[task]
+            key = self._output_keys[task]
             if key not in floated:
                 raise KeyError(
                     f"MetricAccumulator: task '{task}' requires output key '{key}', "

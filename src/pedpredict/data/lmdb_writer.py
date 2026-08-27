@@ -14,7 +14,8 @@ key (utf-8)           value                       decodes to
 ``f"{j}_{t}_tight"``   JPEG bytes                  uint8 ``[3, img_height, img_width]``
 ``f"{j}_{t}_context"`` JPEG bytes                  uint8 ``[3, H*scale, W*scale]``
 ``f"{j}_meta"``        ``pickle`` dict             ``{motions[T,9], actions, looks, crosses,
-                                                   track_id, (tte), (pose)}``
+                                                   track_id, (tte), (pose), (onset_offset,
+                                                   future_observed, track_crosses)}``
 ====================  ==========================  =====================================================
 
 v2 meta (hole audit): ``motions`` is the full ``MOTION_STORE_DIM`` (9) vector — 8 bbox channels with
@@ -22,6 +23,13 @@ true-zero frame-0 deltas + ego-speed (A4/M9); ``track_id`` is the PIE pedestrian
 present only in M5 benchmark-protocol chunks; ``pose`` (``[T, 23, 3]`` raw keypoints, additive key —
 existing consumers ignore it) only in pose-enabled builds (docs/POSE_ENCODER.md). ``bboxes`` stays
 dropped (motions encode the geometry).
+
+**S1 onset keys** (``onset_offset`` / ``future_observed`` / ``track_crosses``, plain ints — see
+:data:`pedpredict.data.pie_sequences.ONSET_FIELDS`) are additive and **optional**: written by any build
+from S1-annotated records, absent from chunks built before S1. Existing consumers ignore them; the onset
+head (``model.onset_head``) requires them and fails loudly when they are missing. Chunks built before S1
+are upgraded in place by ``scripts/backfill_onset_meta.py`` — a metadata-only pass that never touches an
+image blob, since meta lives under its own key.
 """
 
 from __future__ import annotations
@@ -38,7 +46,7 @@ from torchvision.io import encode_jpeg
 from tqdm.auto import tqdm
 
 from pedpredict.config.schema import DataCfg
-from pedpredict.data.pie_sequences import SequenceRecord
+from pedpredict.data.pie_sequences import ONSET_FIELDS, SequenceRecord
 from pedpredict.data.pose import PoseCache
 from pedpredict.data.transforms import CropSequenceDataset, ProcessedSample
 
@@ -94,6 +102,10 @@ def pack_meta(sample: ProcessedSample) -> bytes:
         meta["tte"] = sample.tte
     if sample.pose is not None:  # pose-enabled builds only (docs/POSE_ENCODER.md)
         meta["pose"] = sample.pose
+    for key in ONSET_FIELDS:  # S1 — plain ints, additive keys; absent on pre-S1 records
+        value = getattr(sample, key)
+        if value is not None:
+            meta[key] = int(value)
     return pickle.dumps(meta)
 
 

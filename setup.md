@@ -41,8 +41,34 @@ python scripts/make_sequences.py --split all       # sequences_{train,val,test}.
 python scripts/make_sequences.py --benchmark       # M5 TTE-protocol test set
 python scripts/count_labels.py --from-sequences    # drift canary — run NOW, before LMDBs
 ```
-Record the printed `censored` count. v2 counts differ from the stale v1 ~95k/22k/76k figures by design; re-pin
-the Dataset Statistics table + `tests/fixtures/golden/pie_sequences_counts.json` from this run.
+Record the printed `censored` **and `determined_positive`** counts. v2 counts differ from the stale v1
+~95k/22k/76k figures by design; re-pin the Dataset Statistics table +
+`tests/fixtures/golden/pie_sequences_counts.json` + the expected dict in
+`tests/test_stats.py::test_reference_fixture_matches_claude_table` from this run — **all four move together
+or the gate lies**.
+
+**Recovering the confirmed positives M4 bins (`data.emit_determined_positives`).** The censor filter asks
+only "was the full future observed?", so it also discards windows where the crossing was plainly *seen*
+inside the truncated remainder. Those labels were never in doubt, and they are positives — the scarcest
+class at ~2.9%. Turning the flag on keeps them; windows with a truncated future and **no** observed
+crossing are still dropped either way, because that label really would be fabricated.
+```powershell
+python scripts/make_sequences.py --split all --set data.emit_determined_positives=true
+python scripts/make_sequences.py --benchmark --set data.emit_determined_positives=true
+python scripts/count_labels.py --from-sequences     # reads the pkls — the flag does NOT belong here
+```
+The flag belongs on `make_sequences.py` **only**. It decides which windows get written to the pkl; every
+later step (`count_labels --from-sequences`, `build_lmdb*`, training) just reads what is already there.
+⚠️ **This changes the window population**, so it invalidates comparisons against runs built without it —
+the four `pose_full` baselines included. Use it only as part of a full regen where every arm is retrained,
+and treat the RESULTS_MATRIX numbers from before the regen as historical. `determined_positive` in the
+printed stats is exactly how many windows it recovered; report it.
+
+> **Doing a FULL regen and you want the pose arm?** Extract pose (§11) **before** §4 and build the LMDBs
+> once with the pose bundle. Extraction streams frames from `PIE_clips` in memory, so it does not need
+> staged frames and is unaffected by the incremental build deleting them — but building §4 plain and then
+> rebuilding with `pose.enabled` is two full LMDB passes for one result. Order: §3 → §11 extract → §4 with
+> the bundle.
 
 ## 4. Build LMDBs (pkl → chunks; ImageNet norm applied at read, not here)
 ```powershell
@@ -150,6 +176,139 @@ python scripts/train.py --set eval.model_type=pose_full <bundle>
 Pose-enabled chunks stay readable by non-pose runs (drop the bundle → 9-dim contract, key ignored);
 reading pose from a chunk built without it fails loudly. `pose.include_arms=true` ⇒ `motion_dim=70`.
 
+## 12. Onset-timing arm (crossing onset as timing under censoring)
+[docs/METHODOLOGY.md](docs/METHODOLOGY.md) prong 2; contracts in [CLAUDE.md](CLAUDE.md) § Onset Timing.
+**Default off** — the four `pose_full` baselines were trained without it, and off means no extra output
+key and no extra parameter, so their checkpoints still load `strict=True`.
+
+**Data.** The three S1 fields (`onset_offset` / `future_observed` / `track_crosses`) are written by any
+build from S1-annotated pkls. Chunks built before S1 need a one-off **metadata-only** upgrade — image
+blobs are never touched, so this is minutes, not a rebuild:
+```powershell
+python scripts/backfill_onset_meta.py --split train --split val --split test --dry-run  # verify first
+python scripts/backfill_onset_meta.py --split train --split val --split test
+python scripts/backfill_onset_meta.py --split test_benchmark                            # anchored too
+python scripts/augment_dataset.py --set augment.enabled=true   # aug dirs inherit via the write path
+```
+Stop any training/eval job first — Windows refuses a write-open while a chunk is memory-mapped
+(`--dry-run` opens read-only and is safe while readers are live). **Augmented dirs are not
+backfillable**: oversampling breaks the positional sample→record map, and the script aborts rather than
+guessing. Backfill the base dir and re-run augmentation instead.
+
+*Rebuilding from scratch instead?* Then skip the backfill entirely — steps 3–4 carry the fields already.
+
+**Train.** Three arms, selected by weights alone (no code branches). Start with the auxiliary arm: the
+reported `crosses` number still comes from `crosses_frame`, so the baselines stay exactly comparable and
+any movement is attributable to the trunk learning timing.
+```powershell
+# 0) smoke: does the head collapse to h~0? (the predicted failure mode — check before spending hours)
+python scripts/train.py --set model.onset_head=true --set train.num_epochs=2 --tag onset_smoke
+
+# 1) AUXILIARY — hazard as a side task; crosses still reported from crosses_frame
+python scripts/train.py --set model.onset_head=true --set train.onset_hazard_weight=0.03 --tag onset_aux
+
+# 2) PURE REFORMULATION and 3) HEDGE — full one-liners in "Copy-paste training recipes" below
+```
+⚠️ **Scale.** The hazard term *sums* over each window's observed bins (likelihood-correct), so at
+`onset_lookahead=60` it starts ~40× a per-task CE and falls as hazards saturate low. Hence ~0.03 when it
+rides alongside the old objective, 1.0 when it *is* the objective. The per-epoch `onset_hazard` value is
+the raw unweighted number — read it in the first minute, like `train_distribution.json`.
+
+**If the head goes dead** (readout saturates near 0, `crosses_f1` collapses): the per-bin positive rate is
+~`2.9%/K`. Raise `model.onset_bin_width` to 4 — it quadruples the positives each bin sees, costing timing
+resolution. `onset_lookahead` and `onset_horizon` must both stay divisible by it.
+
+**Eval** needs no new flags: `evaluate.py` inherits the whole `model` section from the checkpoint's
+`resolved_config.yaml`, so head width and metric routing follow the checkpoint automatically.
+
+## Copy-paste training recipes
+Every line below is a **single line** (no continuations — they break differently in PowerShell and bash)
+and every one has been checked to parse and pass `validate_config`. Change `--tag` per run; it becomes the
+run-id suffix and the `index.csv` tag column. Defaults are spelled out where they define the experiment,
+so a recipe keeps doing what it says even if someone edits `configs/`.
+
+The pose bundle appears in full in each pose recipe — validation rejects it partially applied, so it is
+written out rather than abbreviated.
+
+**The workhorse — pose_full, streaming, onset head as an auxiliary task, runtime augmentation.**
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set train.onset_hazard_weight=0.03 --tag pose_onset_aux
+```
+The reported `crosses` number still comes from `crosses_frame`, so this stays directly comparable with the
+four `pose_full` baselines. Same line with `--set data.protocol=anchored --tag pose_onset_aux_anch` for the
+anchored leg.
+
+**Its baseline twin — identical, onset head off.** Run this if you need the comparison re-made under
+today's code rather than trusting a months-old run dir.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --tag pose_baseline
+```
+
+**Whole cross-protocol matrix in one command** — trains both protocols and runs val+test x anchored+streaming
+per leg (10 steps). The runner owns `data.protocol`, so never pass it here. `--dry-run` prints the plan.
+```powershell
+python scripts/run_arm.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set augment.runtime=true --set model.onset_head=true --set train.onset_hazard_weight=0.03 --tag pose_onset_aux --save-predictions
+```
+
+### Onset arm
+**Smoke test first — 2 epochs, does the head collapse to `h~0`?** Cheap insurance before a long run.
+```powershell
+python scripts/train.py --set model.onset_head=true --set train.num_epochs=2 --tag onset_smoke
+```
+**Pure reformulation** — the original crossing head switched off, reported number from the hazard readout.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_pure
+```
+**Hedge** — as above plus a direct gradient on the number actually reported.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set train.onset_readout_weight=0.5 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_hedge
+```
+**Collapse rescue** — 4-frame bins quadruple the positives each bin sees, costing timing resolution. Reach
+for this only if the smoke run shows a dead head.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_bin_width=4 --set train.onset_hazard_weight=0.03 --tag onset_w4
+```
+
+### Ablations
+**Crosses-only** — always pair the two flags; `selection_metric` alone is the epoch-1 dead-head trap.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --tag crosses_only
+```
+**A3 — fusion residual off** (motion reaches the heads only as an attention mask; golden-pinned arm).
+```powershell
+python scripts/train.py --set eval.model_type=full --set model.fusion_residual=false --tag a3_no_residual
+```
+**A4 — legacy per-sequence motion norm.**
+```powershell
+python scripts/train.py --set eval.model_type=full --set model.motion_norm=per_sequence --tag a4_per_seq
+```
+**RQ1 — pretrained TinyViT, frozen.** The field-standard recipe on the small anchored set.
+```powershell
+python scripts/train.py --set eval.model_type=full --set model.vit_backbone=tiny_vit_5m_224 --set model.freeze_vit_backbone=true --set augment.runtime=true --tag rq1_tinyvit_frozen
+```
+**RQ3 — imbalance levers.** One lever per run; confirm the effect in `train_distribution.json`, not by eye.
+```powershell
+python scripts/train.py --set eval.model_type=full --set train.use_weighted_sampler=false --tag rq3_no_sampler
+python scripts/train.py --set eval.model_type=full --set train.use_class_weights=true --tag rq3_class_weights
+```
+**Model-type sweep** — the hub-and-spoke ablations. `kinematics_only` is the pixel-free floor.
+```powershell
+python scripts/train.py --set eval.model_type=kinematics_only --tag abl_kinematics
+python scripts/train.py --set eval.model_type=visual_only --tag abl_visual
+python scripts/train.py --set eval.model_type=vanilla_concat --tag abl_concat
+python scripts/train.py --set eval.model_type=ped_local --tag abl_pedlocal
+python scripts/train.py --set eval.model_type=pose_kinematics --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --tag abl_pose_kin
+```
+
+### Evaluation (always this order — thresholds tune on val, apply to test)
+```powershell
+python scripts/evaluate.py --checkpoint outputs/runs/<run_id>/checkpoints/best.pth --split val
+python scripts/evaluate.py --checkpoint outputs/runs/<run_id>/checkpoints/best.pth --split test --save-predictions --benchmark
+```
+`evaluate.py` inherits the whole `model` + `pose` section from the checkpoint's `resolved_config.yaml`, so
+no architecture flags here — not the pose bundle, not the onset settings. Only runtime choices
+(`data.protocol`, `eval.batch_size`) belong on this line.
+
 ## Run-defining knobs (pre-flight)
 A wrong value here does **not** crash — it silently produces an unusable run. Every run dumps
 `resolved_config.yaml` at start; skim it (and `train_distribution.json` for effective imbalance rates) in
@@ -166,6 +325,10 @@ the first minute rather than at hour three. Defaults in **bold**.
 | `train.use_weighted_sampler` / `use_class_weights` | **true** / **false** | effective training distribution (imbalance levers) — confirm in `train_distribution.json` |
 | `augment.runtime` | **false** \| true | on-the-fly train-time aug (scarcity regularizer); offline `augment.enabled` is a *build* flag |
 | `model.motion_norm` | **image** \| per_sequence \| none | motion-feature semantics (A4 arm); `none` is pose-only (validated ⇔ `pose.enabled`) |
+| `model.onset_head` | **false** \| true | builds the onset hazard head (§12). `false` = the binary baseline, byte-identical to the four `pose_full` runs |
+| `model.onset_lookahead` / `onset_bin_width` | **60** / **1** | how far ahead the head predicts, and at what resolution. `lookahead` MUST exceed `onset_horizon` (validated) — at equality a crossing just past the horizon is still a flat negative, which is the failure the arm exists to remove |
+| `model.onset_report_crosses` | **false** \| true | which head `crosses` is SCORED on: `crosses_frame` (= the baselines) vs the hazard readout. **Metrics only** — never the loss routing |
+| `train.onset_hazard_weight` / `onset_readout_weight` | **1.0** / **0.0** | selects the arm (§12). The hazard term sums over bins, so it starts ~40× a CE — use ~0.03 in the auxiliary arm, 1.0 where it is the objective |
 | `train.num_epochs` / `lr` / `lr_schedule` | **30** / **1e-4** / **warmup_cosine** | training budget + optimization (wrong `lr` = diverge / no-learn) |
 | `train.warmup_epochs` / `warmup_start_factor` | **1** / **0.1** | `warmup_cosine` linear-warmup length **in epochs** (not steps — the scheduler steps once per epoch; `0` disables warmup) + its start LR (`warmup_start_factor * lr`, = 1e-5 at default `lr`) |
 

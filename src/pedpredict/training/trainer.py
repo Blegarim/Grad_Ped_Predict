@@ -42,6 +42,7 @@ from tqdm.auto import tqdm
 from pedpredict.config.schema import PhaseCfg, RootCfg
 from pedpredict.data.sampler import LabelScanCache, class_weights_ce
 from pedpredict.losses.multitask import TASKS, MultiTaskLoss, build_multitask_loss
+from pedpredict.losses.onset import crosses_metric_keys
 from pedpredict.models.registry import build_model, forward_model
 from pedpredict.training.callbacks import CheckpointManager, EarlyStopping
 from pedpredict.training.distribution import write_distribution_report
@@ -242,10 +243,10 @@ class Trainer:
         """
         if not self.cfg.train.use_class_weights:
             uniform = {task: torch.ones(2, device=self.device) for task in TASKS}
-            return build_multitask_loss(self.cfg.train, uniform)
+            return build_multitask_loss(self.cfg.train, uniform, model_cfg=self.cfg.model)
         counts = self.scan_cache.aggregate_counts(self.chunks.train_lmdb_paths)
         class_weights = class_weights_ce(counts, device=self.device)
-        return build_multitask_loss(self.cfg.train, class_weights)
+        return build_multitask_loss(self.cfg.train, class_weights, model_cfg=self.cfg.model)
 
     def _build_optimizer(self) -> torch.optim.Optimizer:
         """Adam over the trainable params (OLD train.py:346). No dummy forward needed (B2)."""
@@ -402,7 +403,9 @@ class Trainer:
         :class:`MetricAccumulator` (3.2); crosses routes to ``crosses_frame`` (B4).
         """
         self.model.eval()
-        acc = MetricAccumulator(tasks=self.active_tasks)
+        acc = MetricAccumulator(
+            tasks=self.active_tasks, output_keys=crosses_metric_keys(self.cfg.model)
+        )
         loss_sum = 0.0
         n_samples = 0
         n_batches = 0

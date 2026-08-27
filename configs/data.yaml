@@ -25,6 +25,12 @@ seq_len: 20
 stride: 3
 future_offset: 30
 tol: 2
+# M4 refinement — see DataCfg.emit_determined_positives. The censor filter asks only "was the full
+# future observed?", so it also bins windows where the crossing was plainly SEEN inside the truncated
+# remainder — confirmed positives, in a task with ~2.9% of them. true keeps those (label never in
+# doubt); windows with no observed crossing and a truncated future are still dropped either way.
+# CHANGES THE WINDOW POPULATION — flipping it needs a regen + a Dataset Statistics re-pin.
+emit_determined_positives: false
 # M5 benchmark-protocol eval set (test split only): fixed-TTE windows before the PIE crossing_point,
 # labeled by the crossing EVENT (Kotseruba et al. WACV 2021 protocol). stride = obs_len*(1-overlap).
 benchmark_obs_len: 20
@@ -34,13 +40,20 @@ benchmark_overlap: 0.7
 # S1 pivot — LMDB set for train/eval (the cross-protocol-matrix switch): "streaming" (standard ~37:1
 # v2 windows) | "anchored" (Kotseruba benchmark ~2.5:1). Does not change how windows are generated.
 protocol: streaming
-# PIE source opts (generate_data_trajectory_sequence) — mirror the OLD data_opts literals
-min_track_size: 10
-fstride: 1
+# PIE source opts (generate_data_trajectory_sequence) — mirror the OLD data_opts literals.
+# ⚠️ Under seq_type=all, PIE's `_get_all` reads ONLY `data_split_type` and `seq_type`. It applies no
+# min_track_size, no fstride, no height_rng and no squarify_ratio — it returns every behaviour-annotated
+# pedestrian track at full length (verified 2026-08-20 against PIE/utilities/pie_data.py). The four fields
+# below are therefore INERT on the standard path. Harmless at these values (fstride 1 = no skip,
+# squarify 0 = off, height unbounded, and window_track's `n < seq_len` drop substitutes for
+# min_track_size) — but changing one to filter an ablation will silently do NOTHING. Filter in
+# window_track / the LMDB writer instead, and re-pin the stats table when you do.
+min_track_size: 10       # inert (see above)
+fstride: 1               # inert (see above)
 data_split_type: default
 seq_type: all
-squarify_ratio: 0.0
-height_min: 0.0
-height_max: null         # null -> float('inf')
+squarify_ratio: 0.0      # inert (see above)
+height_min: 0.0          # inert (see above)
+height_max: null         # inert (see above); null -> float('inf')
 norm_mean: [0.485, 0.456, 0.406]
 norm_std:  [0.229, 0.224, 0.225]

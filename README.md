@@ -53,10 +53,11 @@ src/pedpredict/        # installable package (pip install -e .)
   config/   schema.py loader.py    # yaml → dataclass → argparse override merge
   paths.py
   utils/    seed device amp memory logging
-  data/     pie_sequences transforms lmdb_writer lmdb_dataset lmdb_warm
+  data/     pie_sequences pie_annotations transforms lmdb_writer lmdb_dataset lmdb_warm
             balance augment collate sampler stats pose
+            onset_stats onset_target onset_backfill      # onset-timing arm (METHODOLOGY prong 2)
   models/   vit timm_backbone geometry motion_encoder cross_attention ensemble ablations heads registry
-  losses/   multitask.py
+  losses/   multitask onset
   training/ trainer chunk_loader callbacks schedule metrics distribution
   eval/     evaluate benchmark inference
   viz/      plots qualitative
@@ -126,6 +127,15 @@ python scripts/run_arm.py  --set eval.model_type=full ...         # full cross-p
                                                  # same --set surface as train.py; --dry-run previews
 python scripts/report_distribution.py            # effective per-task sampler-draw distribution
 python scripts/count_labels.py                   # dataset-stats drift gate (nonzero exit on drift)
+python scripts/report_negative_composition.py    # streaming-negative composition + horizon sweep;
+                                                 # --annotations <annotations.zip> reads PIE's XMLs
+                                                 # directly, so it runs with no LMDB and no frames
+python scripts/backfill_onset_meta.py --dry-run  # write the S1 onset keys into LMDBs built before S1;
+                                                 # metadata-only (image blobs untouched), idempotent,
+                                                 # verifies track_id+crosses per sample before writing.
+                                                 # --split train|val|test|*_benchmark (repeatable).
+                                                 # Stop any training job first: Windows blocks a
+                                                 # write-open while a chunk is memory-mapped.
 python scripts/visualize.py    ...               # plots / qualitative panels
 python scripts/infer_video.py  ...               # needs [infer] (YOLO detect/track)
 python scripts/export_onnx.py  ...               # needs [export]; runs an onnxruntime parity check

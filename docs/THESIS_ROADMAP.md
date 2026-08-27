@@ -1,12 +1,12 @@
 # Thesis Roadmap — Streaming Crossing-Onset Detection
 
-**Prepared:** July 2026 · **Last swept:** 2026-08-19.
+**Prepared:** July 2026 · **Last swept:** 2026-08-20.
 
 > **What this document is.** The single, findable, end-to-end checklist for the whole thesis — from the
 > pre-migration prototype through to the defense — plus the supporting-study spokes at the bottom. It is
 > the **tracker**. The *why* lives in two companions and is not repeated here:
 > - **The argument** — [`project-context-streaming-crossing-onset.md`](project-context-streaming-crossing-onset.md): the thesis case, the dead ends already ruled out, the reviewer objections. Frozen reference.
-> - **The method** — [`METHODOLOGY.md`](METHODOLOGY.md): the three prongs and how they were chosen. The active working reference.
+> - **The method** — [`METHODOLOGY.md`](METHODOLOGY.md): onset timing under censoring, plus the two supporting parts and how they were chosen. The active working reference.
 >
 > The numbers live in [`RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md), which is authoritative for
 > every figure — this file never restates a metric it does not own.
@@ -17,6 +17,15 @@ rank pedestrians by risk collapse to near-chance while threshold re-tuning recov
 is *done* (Stage 4). But on its own that is a negative result: "the usual benchmark flatters models." So it
 became the **motivation**, and the contribution is what follows from it: *a way to train for streaming
 crossing-onset that the standard setup cannot produce.*
+
+**The method has a spine (2026-08-20).** It is no longer three parallel prongs: the contribution is to
+treat streaming crossing prediction as **onset timing under censoring** rather than yes/no classification
+at a fixed horizon. What forced the change was an objection with no good answer inside the binary framing
+— a pedestrian who walks normally and then turns abruptly is *unpredictable* a few seconds out, so part
+of the confusing population is not hard but impossible, and any claim to "handle the hard negatives"
+overclaims. Dropping the fixed cut-off removes that population by construction instead of fighting it.
+Pose-movement features and the online-action-detection material stay, in support. Full reasoning, and the
+measurements that back it, in [`METHODOLOGY.md`](METHODOLOGY.md).
 
 Three things follow, and they govern how to read the stages below:
 
@@ -42,11 +51,11 @@ checkable.
 | **0** | Prototype → clean rebuild (behavior-preserving port) | ✅ done |
 | **1** | Engineering audit + v2 data-contract *code* | ✅ done |
 | **2** | v2 data regeneration + baseline runs | ✅ done (streaming + anchored builds exist, trained) |
-| **3** | Streaming pivot: onset metadata + protocol switch + pose arm | 🟡 code + pose extraction done · onset fields still stranded (see below) |
+| **3** | Streaming pivot: onset metadata + protocol switch + pose arm | 🟡 code done incl. onset plumbing + head + loss (2026-08-26) · awaiting the lab-PC backfill run |
 | **4** | The decomposition (G_prior / G_hardneg) — **now the motivation, not the headline** | ✅ measured + written up ([RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md)) |
 | **5** | Streaming-leg convergence + baseline hygiene | 🟡 demoted from headline — one real config mismatch found, must be fixed |
-| **6** | Rare-event metrics + negative-composition report | 🟢 **NEXT — all 💻, no GPU, no data** |
-| **7** | **The method** (was "constructive close") + supporting studies | 🟢 **the thesis now lives here** → [METHODOLOGY.md](METHODOLOGY.md) |
+| **6** | Rare-event metrics + negative-composition report | 🟡 composition + horizon sweep ✅ done 2026-08-20 · metric suite still 💻 **NEXT** |
+| **7** | **The method** — onset timing under censoring + supporting studies | 🟢 **the thesis now lives here** → [METHODOLOGY.md](METHODOLOGY.md) |
 | **8** | Write-up, defense, release | ⬜ not started |
 
 The critical path is now **6 → 7 → 8** (Stage 4 is done). Stage 6 comes first because it is entirely
@@ -58,8 +67,10 @@ mismatch that would corrupt any comparison built on it.
 
 **The two dependencies worth knowing before planning any lab visit:**
 - The three onset fields never reach the database the trainer reads (Stage 3, last unchecked item; the gap
-  is described in CLAUDE.md § Data Pipeline, S1 bullet). Two of the four candidate method directions cannot
-  start until they do. The fix is small and mostly 💻.
+  is described in CLAUDE.md § Data Pipeline, S1 bullet). Since 2026-08-20 this blocks **the method itself**,
+  not just two of four candidate directions — onset timing has nothing to train against until the fields
+  arrive. The fix is small and mostly 💻. *(It does not block the negative-composition report, which is
+  done: that reads the sequence pkls or PIE's annotation XMLs, both upstream of the packing step.)*
 - Nothing in Stages 6–7 needs a *training* run to make progress. Metrics, features, and the negative
   census are all written and tested on the laptop; the lab machine only executes.
 
@@ -128,13 +139,14 @@ The July reframe. Code is landed; the pose extraction pass ran on the lab PC.
 - [x] 💻 `future_observed` (`n − end`) — makes the H-sweep rigorous against right-censoring
 - [x] 💻 `track_crosses` (track ever crosses) — separates genuine non-crosser from will-/already-crossed
 - [x] 💻 Tests: genuine-non-crosser, in-horizon positive, hard-temporal-negative, already-crossed
-- [ ] 💻+🖥️ **Get the three onset fields into the trainer's reach — the one blocking item left in Stage 3.**
-      They are computed but dropped before the trainer can see them; the gap and its three-part fix are
-      stated once, in the **S1 bullet of [CLAUDE.md](../CLAUDE.md) § Data Pipeline**. Blocks two of the four
-      candidate method directions. Sub-checkboxes:
-      - [ ] 💻 (a) add the three fields to `pack_meta` + the read path, so future builds carry them
-      - [ ] 💻 (b) write the backfill patch script for the existing LMDBs
-      - [ ] 🖥️ (c) run it (fast metadata pass — images untouched)
+- [x] 💻+🖥️ **Get the three onset fields into the trainer's reach.** Done 2026-08-26 except the lab-PC run.
+      - [x] 💻 (a) `pack_meta` + read path + collate (the fields ride in `labels`, so no new Trainer wiring)
+      - [x] 💻 (b) backfill script — `scripts/backfill_onset_meta.py`, verifies `track_id` + `crosses`
+            per sample before writing, aborts on a mismatched pkl
+      - [ ] 🖥️ (c) **run it** (metadata-only pass — images untouched). Stop any training job first:
+            Windows refuses a write-open while a chunk is memory-mapped. `--dry-run` verifies safely.
+      - [ ] 🖥️ (d) re-run `augment_dataset.py` so `preprocessed_train_aug` inherits the keys
+            (augmented dirs are not backfillable — oversampling breaks the positional sample→record map)
 
 **Protocol switch (`data.protocol`)**
 - [x] 💻 `data.protocol={streaming,anchored}` resolved once in `paths.protocol_lmdb_dirs`
@@ -242,35 +254,66 @@ is cheap and decides how much is on the table.
 - [ ] 💻 Unit tests on synthetic streams (no data)
 - [ ] 🖥️ Apply the suite across the matrix cells
 
-**Negative-composition report (brief §2.3, from S1)**
-- [ ] 💻 Classify every streaming negative into: genuine non-crosser / hard-temporal / already-crossed (from `track_crosses` + `onset_offset`)
-- [ ] 💻 Pick + implement a **junk** signal (bbox height below threshold / occlusion / low `future_observed`)
-- [ ] 🖥️ Report the composition (fraction hard-temporal vs junk vs genuine) — the "what the benchmark omits" figure
+**Negative-composition report (brief §2.3, from S1)** — ✅ **done 2026-08-20**, and it landed on the
+laptop rather than the lab PC: PIE's behaviour tags are a ~25 MB XML set, so the whole label contract can
+be re-derived without frames, LMDBs or a GPU. Numbers in [METHODOLOGY.md](METHODOLOGY.md) § What the
+negatives are actually made of.
+- [x] 💻 Classify every streaming negative into: genuine non-crosser / hard-temporal / already-crossed (from `track_crosses` + `onset_offset`) — `data/onset_stats.py`
+- [x] 💻 Report the composition — **hard-temporal is 25.7% of train / 39.2% of test windows**, i.e. 8.9× and 12.8× the positives; the direction is confirmed
+- [x] 💻 Bucket it by time-to-onset — two-thirds of that mass sits >5 s out; the genuinely confusable 1–3 s band is ~1.7× the positive set
+- [x] 💻 **Horizon sweep** (was filed under Stage 7) — what a longer horizon buys and costs; justifies keeping ~1 s
+- [x] 💻 CLI + unit tests + a laptop-side drift gate on the golden counts (`scripts/report_negative_composition.py`, `tests/test_onset_stats.py`)
+- [ ] 💻 Pick + implement a **junk** signal (bbox height below threshold / occlusion) — the one composition axis still unmeasured
 - [ ] 🖥️ **Confirm residual failures concentrate in the will-cross-soon windows** (validates the hard-negative story — brief §5 supporting analysis a)
+- [ ] 🖥️ **The ceiling measurement** — separability stratified by time-to-onset; the distance at which prediction decays to chance. New, and it is what keeps the claim honest.
+
+**Train/test asymmetry found while doing this.** The two splits differ structurally in what their
+negatives are made of (25.7% vs 39.2% hard-temporal; 64.3% vs 53.4% never-crossers), so a train-to-test
+difference is not purely a generalisation gap. Caveat recorded in [RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md).
 
 ---
 
 ## Stage 7 — 🟢 THE METHOD (was "constructive close") + supporting studies
 
 **This is where the thesis contribution now lives.** It used to be the optional upgrade; after the August
-reframe it is the centre. The detailed direction — three prongs, what has been tried in the literature, what
+reframe it is the centre. The detailed direction — the method and its two supporting parts, what has been tried in the literature, what
 transfers, the open decision points — is in **[`METHODOLOGY.md`](METHODOLOGY.md)**, which is the working
 reference. Kept here in summary so the tracker stays complete:
 
-1. **Pose-motion features** — turn the raw keypoints into features that describe *movement*, not just
-   posture. All current pose features are single-frame. 💻, no re-extraction needed.
-2. **Onset-time supervision** — get the three onset fields into the trainer's reach, then teach the model
-   *when*, not just *whether*. 💻 plumbing + a small lab pass.
-3. **A rare-event mechanism imported from online action detection** — that community named this exact
-   failure in 2018 and proposed fixes for it; the two literatures do not currently talk to each other.
+1. **Onset timing under censoring — the method.** Get the three onset fields into the trainer's reach,
+   then predict *when* the crossing starts, treating a window whose future ran out as a censored
+   observation rather than a negative. This removes the confusing case by construction, recovers the
+   windows M4 currently discards, and lets any horizon be read off afterwards. 💻 plumbing + a small lab
+   pass. **Hard constraint: it must still emit the probability of onset within 32 frames**, or the four
+   baseline runs stop being comparable.
+2. **Pose-motion features** — turn the raw keypoints into features that describe *movement*, not just
+   posture. All current pose features are single-frame. 💻, no re-extraction needed. This is what gives a
+   timing model something to read at a one-second horizon.
+3. **Online-action-detection material** — that community named this exact failure in 2018, and solved the
+   measurement problem for it. Its metrics are the instrument (Stage 6); its objectives are available
+   where they fit; its obvious alternatives (focal, class-balanced) are the comparison baselines a methods
+   thesis has to run rather than dismiss.
 
-The items below are the pre-reframe version of this stage. They remain valid work; METHODOLOGY.md is what
-sequences them now.
+**Onset-timing build order** (supersedes the pre-reframe recipe list below)
+- [x] 💻 S1 fields into `pack_meta` + the read path + collate
+- [x] 💻 Backfill script over the existing LMDBs — 🖥️ **still to run**
+- [x] 💻 Timing output + a censoring-aware loss (`model.onset_head`, `losses/onset.py`; default off).
+      Contracts and the three-arm weight table live in **[CLAUDE.md](../CLAUDE.md) § Onset Timing**.
+- [x] 💻 Conversion back to the baseline question — `hazard_to_horizon_logits`, pinned against the
+      generator's own `crosses` label so the four baselines stay comparable
+- [ ] 🖥️ Short smoke run to check the head does not collapse to `h ~ 0` (the predicted failure mode)
+- [ ] 🖥️ Auxiliary-arm run first (reported number still from `crosses_frame` = baselines untouched),
+      then the pure-reformulation arm
+- [ ] 💻+🖥️ Censored windows restored — needs a **regen** with the M4 filter relaxed, NOT the backfill
+      (`window_track` skips them at generation, so they were never in the pkls). Separate experiment.
+- [ ] 🖥️ Restore censored windows to training — a data-quantity change, measured separately from the objective change
+- [ ] 💻 Two literature checks before any novelty wording: onset time as a training signal, and censoring-aware modelling, both specifically for crossing prediction
 
-**Curated streaming recipe (narrows G_hardneg — brief Phase 5)**
+**Curated streaming recipe (narrows G_hardneg — brief Phase 5).** Pre-reframe; still valid work, now
+comparison baselines rather than the plan.
 - [ ] 🖥️ Pretrained backbone (RQ1) + focal/class-balanced loss + hard-negative emphasis + junk filtering
 - [ ] 🖥️ Show the recipe measurably narrows G_hardneg vs the naive streaming-trained model
-- [ ] 🖥️ **H-sweep** (near-free via S1) — base rate + difficulty move with horizon H → rebuts objection #2 ("just the TTE sweep")
+- [x] 💻 **H-sweep** — done 2026-08-20 as a label-side study (no training needed); rebuts objection #2 and justifies keeping ~1 s. The *trained* version (does difficulty actually move with H?) is still open.
 - [ ] 🖥️ Ego-speed-under-streaming leakage probe (RQ4) — does streaming lean *harder* on the shortcut?
 
 ---
@@ -313,7 +356,7 @@ never against each other. Screen at 1 seed, confirm finalists at 3, report mean�
 - [ ] 💻 Related-work survey (brief §9 reading list; know the nearest neighbors cold — Coupling-Intent, Diving-Deeper, LIM, GTransPDM)
 - [ ] 💻 Draft: intro + the two-formulation background + the base-rate-fallacy primer
 - [ ] 💻 Draft: **motivation** — the two protocols, the decomposition, and why re-tuning the threshold cannot fix it (this is the old "results headline", moved forward to justify the method)
-- [ ] 💻 Draft: methods (both samplers, the protocol, the metric suite, the decomposition math, **and the three prongs from [METHODOLOGY.md](METHODOLOGY.md)**)
+- [ ] 💻 Draft: methods (both samplers, the protocol, the metric suite, the decomposition math, **and the onset-timing method from [METHODOLOGY.md](METHODOLOGY.md)**)
 - [ ] 💻 Draft: results (the method measured against the four baseline runs, the negative-composition figure, the H-sweep)
 - [ ] 💻 Draft: pre-empt the reviewer objections (brief §7) — especially "just recalibrate" (answered by §4) and "just the TTE sweep" (answered by H-sweep)
 - [ ] 💻 Discussion + limitations + the constructive close (protocol + recipe as community artifacts)

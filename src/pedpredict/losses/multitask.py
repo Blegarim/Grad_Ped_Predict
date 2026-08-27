@@ -33,7 +33,8 @@ from typing import NamedTuple
 
 from torch import Tensor, nn
 
-from pedpredict.config.schema import TrainCfg
+from pedpredict.config.schema import ModelCfg, TrainCfg
+from pedpredict.losses.onset import OnsetHazardLoss, build_onset_loss
 from pedpredict.utils.amp import to_float_logits
 
 __all__ = [
@@ -79,6 +80,7 @@ class MultiTaskLoss(nn.Module):
         loss_weight: dict[str, float],
         *,
         reduction: str = "mean",
+        onset_loss: OnsetHazardLoss | None = None,
     ) -> None:
         super().__init__()
         # nn.ModuleDict of CrossEntropyLoss mirrors OLD ``criterion`` (train.py:341-345). The per-task
@@ -90,6 +92,11 @@ class MultiTaskLoss(nn.Module):
         })
         # Plain floats (not parameters); ``.get(task, 1.0)`` matches OLD's defaulting (train.py:153).
         self.loss_weight: dict[str, float] = {task: float(loss_weight.get(task, 1.0)) for task in TASKS}
+        # Onset-timing objective (prong 2), ``None`` when off. Deliberately an ADDITIONAL term rather
+        # than a re-routing of the crosses CE: `crosses` keeps supervising `crosses_frame` at
+        # ``loss_weight['crosses']``, so the three formulations in the docstring table are selected by
+        # weights alone and there is never more than one gradient path onto the same head.
+        self.onset_loss = onset_loss
 
     def forward(
         self,
@@ -121,6 +128,12 @@ class MultiTaskLoss(nn.Module):
             per_task[task] = head_loss.detach()
             weighted[task] = contribution.detach()
         assert total is not None  # TASKS is non-empty
+        if self.onset_loss is not None:
+            onset = self.onset_loss(floated, labels)
+            total = total + onset.total
+            per_task["onset_hazard"] = onset.hazard
+            per_task["onset_readout"] = onset.readout
+            weighted["onset"] = onset.total.detach()
         return MultiTaskLossOutput(total=total, per_task=per_task, weighted=weighted)
 
 
@@ -129,6 +142,7 @@ def build_multitask_loss(
     class_weights: dict[str, Tensor],
     *,
     reduction: str = "mean",
+    model_cfg: ModelCfg | None = None,
 ) -> MultiTaskLoss:
     """Wire a :class:`MultiTaskLoss` from ``TrainCfg`` + precomputed class weights.
 
@@ -139,5 +153,11 @@ def build_multitask_loss(
     ``class_weights`` is produced ONCE by the Trainer via
     ``class_weights_ce(LabelScanCache.aggregate_counts(train_lmdbs), device=...)`` — this
     factory does not scan. Move the loss to the model device with ``loss.to(device)`` after building.
+
+    ``model_cfg`` (optional) enables the onset-timing term; without it, or with the head off / both
+    onset weights zero, the loss is exactly the three-task CE it has always been.
     """
-    return MultiTaskLoss(class_weights, cfg.effective_loss_weight(), reduction=reduction)
+    onset = build_onset_loss(model_cfg, cfg) if model_cfg is not None else None
+    return MultiTaskLoss(
+        class_weights, cfg.effective_loss_weight(), reduction=reduction, onset_loss=onset
+    )

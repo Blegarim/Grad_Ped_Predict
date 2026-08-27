@@ -39,3 +39,23 @@ use_frame_crosses: true
 frame_pool: logsumexp          # {logsumexp, max, mean}
 emit_crosses_pooled: true      # B4: live-but-unsupervised auxiliary head (kept ready to swap in)
 fusion_residual: true          # A3/RQ2: motion-query residual at fusion (project standard; false = ablation)
+
+# --- Onset-timing head (docs/METHODOLOGY.md prong 2) -------------------------------------------
+# OFF by default: the four pose_full baselines were trained without it, and off means no extra output
+# key and no extra parameter, so their checkpoints still load strict=True.
+# On, the model also emits `crosses_hazard [B, K]` (one hazard logit per future bin — "given no
+# crossing has started yet, does one start in bin k?") and `crosses_readout [B, 2]`, those bins
+# collapsed to P(onset within onset_horizon) = 1 - prod(1 - h_k).
+onset_head: false
+# L: future frames the head covers. MUST exceed onset_horizon — a head only as wide as the reported
+# horizon still labels a crossing at H+5 a flat negative, which is the failure the method removes.
+onset_lookahead: 60
+onset_bin_width: 1             # w: future frames per bin. 1 = per-frame. Raise (4) if the head
+                               # collapses to h~0: it multiplies the positives each bin sees, at the
+                               # cost of timing resolution. onset_lookahead and onset_horizon must
+                               # both divide by it.
+onset_horizon: 32              # H: must equal data.future_offset + data.tol (validated)
+# Which head `crosses` is SCORED on. false = crosses_frame, identical to the baselines, so the hazard
+# head can ride along as a pure auxiliary task without moving a single reported number. true =
+# crosses_readout, the pure-reformulation arm. Affects metrics ONLY, never the loss routing.
+onset_report_crosses: false

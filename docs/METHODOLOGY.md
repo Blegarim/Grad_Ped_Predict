@@ -14,7 +14,7 @@ How it sits next to the other documents:
 |---|---|
 | [`project-context-streaming-crossing-onset.md`](project-context-streaming-crossing-onset.md) | The research argument — why streaming evaluation matters at all |
 | [`THESIS_ROADMAP.md`](THESIS_ROADMAP.md) | The overall tracker — every stage, what's done, what's left |
-| **`METHODOLOGY.md`** (this file) | **The method itself — the three directions and how they were chosen** |
+| **`METHODOLOGY.md`** (this file) | **The method itself — onset timing under censoring, and how it was chosen** |
 | [`../outputs/runs/RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md) | The numbers, the baselines, and the caveats attached to them |
 
 The supporting side-studies (backbone choice, fusion, imbalance levers, calibration) used to live in a
@@ -70,6 +70,114 @@ of the work is making training *behave*, separate from making the model *better*
 **The two protocols train genuinely different models.** A model trained on the stream also does badly on the
 event-anchored test set (0.51 and 0.68 across the two model pairs). So this is not "one setting is simply
 harder." They are different problems, and a model good at both is a real achievement rather than a given.
+
+---
+
+## What the negatives are actually made of
+
+*Measured 2026-08-20. Rebuild with `python scripts/report_negative_composition.py --annotations
+PIE/annotations/annotations.zip` — laptop only, no database, no GPU, no image frames.*
+
+This was open decision #2, and it sized everything else. "Not crossing" splits three ways:
+
+| Split | N | positive | never crosses | **will cross, later** | already crossed |
+|---|---|---|---|---|---|
+| train | 88,214 | 2.9% (2,530) | 64.3% | **25.7% (22,634)** | 7.2% |
+| val | 20,490 | 2.8% (569) | 77.5% | **15.2% (3,108)** | 4.6% |
+| test | 69,875 | 3.1% (2,140) | 53.4% | **39.2% (27,411)** | 4.3% |
+
+Read the bold column as: one training window in four, and two test windows in five, show a person who
+*does* cross — just later than the question asks about. They outnumber the real positives 8.9 to 1 in
+train and 12.8 to 1 in test. The hard case is a large slice, so the direction holds.
+
+Two things fell out that nobody was looking for.
+
+**Train and test are not built the same way.** 25.7% hard-temporal in train against 39.2% in test, and
+64.3% never-crossers against 53.4%. The test split is harder in a specific structural way, not merely
+bigger. Any train-to-test difference has to be read with that in mind, which is why it is also flagged
+in [`RESULTS_MATRIX.md`](../outputs/runs/RESULTS_MATRIX.md).
+
+**Most of the hard mass is not actually hard.** Bucketed by how far off the crossing is (train):
+
+| Time to onset | Windows | Share of hard-temporal |
+|---|---|---|
+| 1.1–2.1 s | 2,220 | 9.8% |
+| 2.1–3.2 s | 1,966 | 8.7% |
+| 3.2–5.0 s | 2,888 | 12.8% |
+| **more than 5 s** | **15,560** | **68.7%** |
+
+Two-thirds sit more than five seconds out — a person walking down a street who happens to cross
+eventually, which is not a confusing example by any useful definition. The genuinely confusable band
+is one to three seconds out: about **4,200 windows in train, roughly 1.7× the positive set** (test:
+3,700, 1.7×). That is the population matched-pair training would draw from, so one or two natural
+partners exist per positive. Enough to work with, not so many that they would swamp training.
+
+---
+
+## Why not simply predict further ahead
+
+The obvious reply to a 34:1 imbalance is to ask a longer question. Re-labelling the same windows at
+every horizon shows exactly what that buys (train; same script):
+
+| Horizon | usable | positives | imbalance | confusable band | band : pos | windows lost |
+|---|---|---|---|---|---|---|
+| 1.1 s *(current)* | 88,214 | 2,530 | 33.9:1 | 3,955 | 1.56:1 | 0% |
+| 2.0 s | 82,020 | 4,481 | 17.3:1 | 3,590 | 0.80:1 | 7% |
+| 3.0 s | 75,767 | 6,367 | 10.9:1 | 3,237 | 0.51:1 | 14% |
+| 5.0 s | 65,326 | 9,604 | 5.8:1 | 2,360 | 0.25:1 | 26% |
+| 10.0 s | 49,325 | 14,599 | 2.4:1 | 1,408 | 0.10:1 | 44% |
+
+It buys more than expected: 34:1 becomes 6:1 at five seconds, and the confusable band drops from 1.6×
+the positives to a quarter. That is a real effect and the table is worth reporting on its own. It is
+still the wrong move here, for three reasons.
+
+**The windows it deletes are the ones that matter.** A longer horizon needs more observed future, so
+26% of windows fall away at five seconds and 44% at ten — and they fall away *by track length*. Short
+tracks go first, meaning pedestrians who appear suddenly or are quickly occluded. Those are precisely
+the cases the project's short-window rationale exists to cover. That is buying balance by deleting the
+hard part of the dataset.
+
+**The band does not get easier, it gets relabelled.** The ratio improves because windows that were
+hard negatives at one second *become positives* at five. The model still cannot separate a 4.9-second
+window from a 5.1-second one; it simply now has to answer "yes" on the first, on evidence that is not
+in the frame. The errors move from false alarms to misses. The confusion is conserved.
+
+**The horizon picks which phenomenon you are detecting.** At about one second the observable signal is
+the *body committing* — foot lift, weight shift, the turn. At five seconds no such cue exists yet;
+what is observable is *where the person is heading* — position relative to the kerb, heading, distance
+to a crossing point. Those are two different problems needing two different feature sets. Prong 1 aims
+squarely at the first and would be close to useless for the second. A longer horizon does not extend
+the method, it replaces it.
+
+Worth noting where ten seconds lands: 2.4:1, which is essentially the event-anchored benchmark's
+2.5:1. Different mechanism, same arithmetic.
+
+**Decision: the canonical horizon stays at ~1 second** (32 frames), which is also inside the
+benchmark's own 1–2 s time-to-event band, so comparability is preserved. The sweep is reported as the
+justification for that choice rather than as a change to it.
+
+---
+
+## The ceiling, and what it does to the claim
+
+Take a pedestrian walking down the sidewalk exactly like everyone else, who then turns abruptly and
+steps out. Three seconds earlier, **the information is not in the video.** The decision has not been
+made, or has not reached the body. No feature, no architecture and no loss function recovers it.
+
+So an unknown fraction of the confusable band is not hard but *impossible*, and "handle the hard
+negatives" overclaims. Three consequences, accepted up front rather than discovered by an examiner:
+
+1. **The target is not accuracy on that band.** It is being confident where evidence exists and
+   uncertain where it does not — ranking and calibration rather than classification. That also matches
+   the measured failure: what collapsed on the stream was the *ordering*, and ordering is a weaker and
+   reachable goal.
+2. **Where the ceiling sits is itself a result.** Train once, then measure separability as a function
+   of how far off the crossing is. The distance at which performance decays to chance is the empirical
+   limit of prediction from body cues. No paper in this area appears to report it, and it converts the
+   objection above from a hole into a finding.
+3. **The binary label is our own doing.** A window at 0.9 s and a window at 1.1 s are near-identical
+   inputs carrying opposite labels. That is not a hard learning problem, it is a badly posed one, and
+   it is what prong 2 now exists to remove.
 
 ---
 
@@ -180,7 +288,11 @@ level, as an onset cue.** That is where this prong aims.
 
 ---
 
-## Prong 2 — Supervise *when*, not just *whether*
+## Prong 2 — Predict *when*, and treat "not yet" as censored rather than negative
+
+> **This is the spine of the method** (decided 2026-08-20). It began as one of three parallel
+> directions; the ceiling argument above promoted it, because it is the only one of the three that
+> removes the confusing case instead of fighting it.
 
 **Where the code is:** [`src/pedpredict/data/pie_sequences.py`](../src/pedpredict/data/pie_sequences.py)
 (the fields are computed here), [`src/pedpredict/data/lmdb_writer.py`](../src/pedpredict/data/lmdb_writer.py)
@@ -206,41 +318,81 @@ Why the second one matters: if a video ends five frames after a clip, you cannot
 did not cross in the following two seconds. You simply don't know. Right now those clips are labelled "no"
 anyway, which is a small but real source of wrong labels.
 
-### Where they get stranded
+### Where they used to get stranded — fixed 2026-08-26
 
-They are computed in `pie_sequences.py` and saved into the intermediate sequence files. When those files are
-packed into the database that training and evaluation actually read, the packing function keeps the three
-labels and the box motion and drops these three fields. **So they exist in the code and are invisible during
-training.** Nothing in the trainer, the sampler, or the loss can see them.
+They were computed in `pie_sequences.py` and saved into the intermediate sequence files, then dropped when
+those files were packed into the database training actually reads. They now survive the whole path, and the
+model has a head and a loss that use them. What is left is a one-off pass on the lab machine to write the
+fields into the databases that were built before the fix, plus the training runs themselves.
 
-### Four things they unlock
+The engineering contracts — the four cases, the two hard rules about horizon and look-ahead, and the weight
+table that selects between the three versions of the objective — are stated once in **CLAUDE.md § Onset
+Timing** and not repeated here. This document keeps the *reasoning*; that one keeps the *rules*.
 
-**1. Counting what the negatives are actually made of.** Today "not crossing" lumps together three
-completely different situations:
+### What these three numbers actually are
 
-- someone who never crosses at all;
-- someone who crosses four seconds from now — visually almost identical to a positive;
-- someone who has already finished crossing.
+They are a **time-to-event dataset**, which is a well-established shape of statistical problem with its
+own century of theory. The correspondence is exact, not loose:
 
-We currently cannot say how much of the 1-in-37 imbalance is each kind. **This count should come early,
-because it sizes everything else.** If the about-to-cross case is a small slice of the negatives, the
-hard-case story shrinks and attention should move elsewhere. If it is a large slice, the direction is
-confirmed. Either way it is a counting exercise, not a training run.
+| Our field | What it is in time-to-event terms |
+|---|---|
+| `onset_offset` | the time until the event, when the event was observed |
+| `future_observed` | how long we watched — the *censoring* time, for the ones we never saw cross |
+| `track_crosses` | which of the two situations a "no crossing seen" window is in |
 
-**2. Teaching the model the timing.** Add a second output that estimates how many frames until the person
-steps out, trained alongside the yes/no answer. One bit of supervision becomes a real number. Even if the
-timing estimate is never used at deployment, having to produce it forces the model to represent something
-about *when*, which is the information the current target discards.
+The vocabulary matters because it names the thing we keep getting wrong. A window where the person has
+not crossed *within the footage we have* is not a negative. It is an observation that was cut short —
+**censored**, in the technical sense. Right now the pipeline handles that in the only two ways a binary
+label allows: label it 0 and be wrong (the pre-M4 behaviour), or throw it away (M4, current). Time-to-event
+methods have a third option, which is to use it for what it does say: *no crossing before this point*.
 
-**3. Building matched comparisons.** Pair a clip where the person crosses with a clip of **the same person,
-in the same scene, a couple of seconds earlier**, before they crossed. Finding those pairs needs
-`track_crosses` (who eventually crosses) and `onset_offset` (when). See prong 3, direction (b), for what to
-do with them.
+### What that changes
 
-**4. Changing the question after the fact.** "Will they cross in the next two seconds" versus one second
-versus four — with these numbers the question can be re-asked at any horizon using clips already built, no
-regeneration needed. `future_observed` is what makes that honest, by excluding clips where the answer isn't
-knowable.
+**The confusing case stops existing.** With no fixed cut-off there is no boundary, so there is no pair
+of near-identical windows sitting either side of it. A window two seconds from onset is not a mislabelled
+negative; it is an example whose answer is "two seconds". The hardest examples become the most
+informative ones instead of label noise.
+
+**Some of the discarded windows come back — and one group matters much more than the rest.** M4 drops
+every window whose future was not fully observed: 7,470 in train at the canonical horizon. Looking at what
+those actually are, they split three ways:
+
+* **Confirmed positives.** The pedestrian was *seen* stepping off inside the truncated remainder. The label
+  was never in doubt; the filter binned them anyway, because it asks about time remaining without asking
+  whether anything happened in it. These are the most valuable windows in the dataset — imminent onsets, in
+  a task with 2.9% positives. Recovered by `data.emit_determined_positives`, and worth having **whether or
+  not the onset head is ever switched on**, since they are confirmed positives for the ordinary binary task
+  too.
+* **Genuinely censored.** Watched briefly, nothing seen. Real but weak information, and every one is a
+  partial *negative* — so it adds nothing to the positive class and slightly worsens the imbalance. Left
+  dropped: the gain is a few percent of extra supervision, against a fabricated `crosses` bit that would
+  only be safe in one of the three training arms.
+* **Already crossed.** Recovered by a regen, then dropped again by the hazard loss as not at risk. Net zero.
+
+The earlier framing here — "a straight recovery of data" — oversold the second group and missed the first.
+Note also that the censoring machinery is **already exercised without any regen**: at `lookahead=60` every
+window with `future_observed` between 32 and 60 is a censored observation, and generation only guarantees
+32. The demonstration does not depend on recovering the short-future windows.
+
+**Any horizon can be read afterwards.** The model estimates *when*; "will they cross within H" is then a
+question asked of the output, at whatever H the reader wants, rather than a decision frozen into the
+training labels.
+
+**Comparability is preserved, and this is a hard requirement.** The four existing runs are baselines at
+the binary 32-frame question. A model that predicts timing must still emit a directly comparable number —
+the probability of onset within 32 frames — or every existing comparison is lost. This maps cleanly, but
+it must be built in from the start, not bolted on.
+
+### What still holds from the binary view
+
+**Counting the negatives — done.** See [What the negatives are actually made of](#what-the-negatives-are-actually-made-of):
+it is a large slice, so the direction is confirmed. Answered on the laptop from the annotation XMLs; the
+database backfill was not needed for it.
+
+**Matched comparisons — still wanted.** Pair a window where the person crosses with a window of **the
+same person, same scene, a couple of seconds earlier**. Clothing, lighting, street and camera are held
+constant, so the only thing separating the pair is the onset cue itself. Measured above: roughly 1.7
+natural partners per positive. See prong 3, direction (b).
 
 ### What the field does with timing today
 
@@ -254,11 +406,42 @@ move.
 novel in writing, it needs a proper literature check. The direction is worth pursuing either way — if
 someone has done it, that is a baseline to compare against rather than a reason to stop.
 
+**The same flag applies twice as hard to the censoring framing**, which is the newer half of this prong.
+Time-to-event modelling with right-censoring is standard practice in other fields and is certainly not new
+in itself; the open question is whether anyone has applied it to pedestrian crossing prediction. That check
+is now **open decision #3** and it gates how the contribution is described, not whether it is built.
+
 ### What the fix involves
 
-1. Add the three fields to the packing function, so future builds carry them.
-2. Add them to the read path so they arrive with each training example.
-3. Write a patch script that reopens the existing databases and fills the fields into entries already there.
+Plumbing first — everything else depends on it, and it is the same three steps whichever way the
+supervision is finally shaped:
+
+1. ~~Add the three fields to the packing function.~~ **Done.**
+2. ~~Add them to the read path.~~ **Done** — they arrive with each training example, carried in the same
+   bundle as the ordinary labels, so nothing in the trainer had to change to receive them.
+3. ~~A patch script for the existing databases.~~ **Written; still to run on the lab machine.** It checks
+   each stored window against the record it is supposed to be before writing anything, so pointing it at
+   the wrong file stops rather than corrupts.
+
+Then the method itself:
+
+4. ~~A **timing output** and a loss that handles censored observations.~~ **Done.** Off by default. The
+   loss turned out to be an ordinary per-bin cross-entropy with a mask — the masking is the whole
+   contribution, and there is a test that checks with autograd that unobserved bins receive exactly zero
+   gradient rather than a small one.
+5. ~~A **conversion back to the baseline question**.~~ **Done**, and pinned by a test that reproduces the
+   generator's own yes/no label from the timing output over a real track. That test is what keeps the four
+   existing runs valid comparisons.
+6. **Censored windows restored** — still open, and it needs a **regeneration**, not the patch script. The
+   generator drops those windows before writing, so they are not in the files to be patched. Worth
+   measuring on its own: it is a data-quantity change, separable from the objective change.
+
+**One thing found while building it that is worth knowing.** The timing loss adds up a score for every
+future step a window actually saw. A window watched for sixty steps therefore contributes about sixty times
+as much as one watched for one step. That is correct — it genuinely knows sixty times more — but it means
+the timing term starts out roughly forty times larger than the ordinary label terms, and would drown them
+if it were simply switched on at equal weight. Its weight has to be turned down when it is riding alongside
+the old objective, and left at full strength when it *is* the objective.
 
 **The image data does not need to be touched.** Labels are stored under separate keys from the image blobs,
 so this is a fast pass over the small text-like part of each entry, not a rebuild. Steps 1–3 are laptop work;
@@ -366,19 +549,26 @@ ahead of Stage 7.
 
 ## How the three fit together
 
-- Prong 3 supplies a **mechanism** that a different community has already shown works on this shape of
-  problem.
-- Prong 2 supplies the **label** that mechanism needs.
-- Prong 1 supplies the **feature** that makes the distinction physically expressible.
+They are no longer three equal prongs. After the August 2026 reframe:
 
-One sentence: **port onset-detection supervision from the online-action-detection literature into pedestrian
-crossing prediction, using foot-level gait dynamics as the discriminative cue.** The decomposition finding is
-the motivation for why that is needed.
+- **Prong 2 is the method.** Predicting onset *time* under censoring removes the confusing case rather
+  than fighting it, which is the only one of the three responses the ceiling argument leaves standing.
+- **Prong 1 supplies the feature** that makes onset physically expressible at a one-second horizon.
+  Without movement features there is nothing in the input for a timing model to read.
+- **Prong 3 is now a source of mechanisms and, more importantly, of measurements.** That community
+  solved the metric problem for exactly this shape of data; its objectives remain available where they
+  fit the timing formulation, and its comparison baselines still have to be run.
 
-Each prong also has standalone value, which matters if the combination disappoints:
+One sentence: **treat streaming crossing prediction as onset timing under censoring rather than
+classification at a fixed horizon, with foot-level gait dynamics as the cue and the online-action-detection
+metric suite as the instrument.** The decomposition finding is the motivation for why that is needed.
+
+Each part also has standalone value, which matters if the combination disappoints:
 
 - better pose features are a useful result on their own, and cheap to ablate;
-- the negative-composition count is a publishable observation about what the standard benchmark leaves out;
+- the negative-composition count is already a reportable observation about what the standard benchmark
+  leaves out — measured, and it stands whatever happens to the method;
+- the ceiling measurement is a finding regardless of which side of it the method lands on;
 - the metric suite is a contribution to how this task gets evaluated.
 
 That spread is deliberate. It means a null result on the headline method still leaves reportable work.
@@ -390,15 +580,23 @@ That spread is deliberate. It means a null result on the headline method still l
 Recorded so they get made deliberately rather than by default.
 
 1. **Are the foot keypoints good enough?** Resolved by the confidence check. Determines whether prong 1's
-   strongest version is available or whether it falls back to knees and ankles.
-2. **How much of the imbalance is the hard case?** Resolved by the negative-composition count. Determines how
-   much prongs 2 and 3 have to work with. **This is the most decision-relevant number not yet measured.**
-3. **Has onset-time supervision been done for crossing prediction?** Needs a proper literature check. Changes
-   whether it is framed as novel or as improving on existing work.
-4. **Which rare-event mechanism to build first** — (a) frame-level, (b) matched pairs, (c) objective, or
-   (d) two-stage. Deliberately left open until decisions 1–3 land and both papers have been read properly.
+   strongest version is available or whether it falls back to knees and ankles. **Still open**, and now
+   the largest un-run laptop-blocked item — the cache is on the lab machine.
+2. ~~**How much of the imbalance is the hard case?**~~ **Answered 2026-08-20.** A large slice: 25.7% of
+   train windows and 39.2% of test windows are people who cross later, 8.9× and 12.8× the positives.
+   Of that mass, the genuinely confusable one-to-three-second band is ~1.7× the positive set. The
+   direction is confirmed and matched pairs have enough material.
+3. **Has this been done for crossing prediction?** Two separate checks, both needed before any novelty
+   claim reaches writing: onset *time* as a training signal, and time-to-event modelling with censoring.
+   Changes how the contribution is described, not whether it is built.
+4. **Which supporting mechanism to add on top** — (a) frame-level scoring, (b) matched pairs,
+   (c) a ranking objective, or (d) a two-stage cascade. Now a second-order choice rather than the main
+   fork, since the timing formulation is the method. Left open until the two papers are read properly.
 5. **Do we fix the streaming training instability, or report it?** It may be a finding in itself. Probably
    both — attempt a fix, report what the attempt reveals.
+6. **How far ahead is crossing predictable at all?** The ceiling measurement. Needs one trained model
+   plus a stratified evaluation, so it is cheap once anything is training; the answer shapes what the
+   thesis is allowed to claim.
 
 ---
 
@@ -418,12 +616,15 @@ Recorded so they get made deliberately rather than by default.
 
 ## Status
 
-| Prong | Where it stands | Next concrete step | Machine |
+| Part | Where it stands | Next concrete step | Machine |
 |---|---|---|---|
+| **2 — onset timing (the method)** | **built 2026-08-26**, default off, full test gate green | run the patch script, then a short run to check the head does not go dead, then the auxiliary arm | 🖥️ |
 | 1 — pose movement features | not started | confidence-check script, then the feature math with a configurable joint set | 💻 write · 🖥️ check |
-| 2 — onset supervision | fields computed, stranded | add to the packing function and read path; write the patch script | 💻 write · 🖥️ patch |
-| 3 — rare-event mechanism | reading not done | read both papers properly; queue the free pooling experiment | 💻 |
+| 3 — mechanisms + baselines | reading not done | read both papers properly; queue the free pooling experiment | 💻 |
 | Metrics (prerequisite) | not started | calibrated average precision + point-level score, tested on made-up streams | 💻 |
+| Negative composition | ✅ done 2026-08-20 | — (`scripts/report_negative_composition.py`) | 💻 |
+| Horizon sweep | ✅ done 2026-08-20 | reported as the justification for keeping ~1 s | 💻 |
+| Ceiling measurement | not started | stratify separability by time-to-onset on any trained model | 🖥️ |
 | Baseline hygiene | mismatch found | re-run the anchored crosses-only half with the sampler on | 🖥️ |
 
 💻 = laptop, no data needed · 🖥️ = needs the lab machine's data or GPU

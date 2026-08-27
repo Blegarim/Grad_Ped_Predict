@@ -212,6 +212,12 @@ class ProcessedSample:
     track_id: str = ""      # PIE pedestrian id (M6) — eval-side track aggregation
     tte: int | None = None  # M5 benchmark windows only: frames to crossing_point
     pose: Tensor | None = None  # [T, 23, 3] raw keypoints (x, y, conf, absolute px) — pose.enabled only
+    # S1 streaming-onset annotation (see pie_sequences.SequenceRecord). Plain ints, carried verbatim
+    # from the record: pure per-window facts about the FUTURE, so no transform (crop, resize, flip,
+    # colour jitter) may touch them. ``None`` on records generated before S1 / on benchmark windows.
+    onset_offset: int | None = None       # frames from end-of-obs to first future crossing; -1 = none
+    future_observed: int | None = None    # frames of future actually observed after the window
+    track_crosses: int | None = None      # 1 if the track ever crosses (before OR after this window)
 
 
 def process_record(
@@ -251,6 +257,9 @@ def process_record(
         track_id=rec["track_id"],
         tte=rec.get("tte"),
         pose=pose_cache.sequence(rec["images"], rec["track_id"]) if pose_cache is not None else None,
+        onset_offset=rec.get("onset_offset"),
+        future_observed=rec.get("future_observed"),
+        track_crosses=rec.get("track_crosses"),
     )
 
 

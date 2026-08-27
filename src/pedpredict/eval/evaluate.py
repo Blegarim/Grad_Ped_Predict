@@ -49,6 +49,7 @@ from pedpredict.data.collate import build_collate
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
 from pedpredict.data.pose import pose_motion_transform
 from pedpredict.losses.multitask import TASKS
+from pedpredict.losses.onset import crosses_metric_keys
 from pedpredict.models.registry import ModelType, build_model, forward_model
 from pedpredict.paths import protocol_lmdb_dirs, resolve_paths
 from pedpredict.training.chunk_loader import gather_lmdb_chunks
@@ -199,6 +200,7 @@ def evaluate_model(
     collect_temporal_weights: bool = False,
     tuned_thresholds: dict[str, float] | None = None,
     active_tasks: tuple[str, ...] = TASKS,
+    output_keys: dict[str, str] | None = None,
 ) -> EvalArtifacts:
     """Run ``model`` over every loader; return metrics (+ optional per-sample preds / temporal weights).
 
@@ -213,9 +215,14 @@ def evaluate_model(
 
     ``tuned_thresholds`` (M2): per-task cutoffs tuned on **val** — when given, ``artifacts.tuned``
     holds the metrics at those fixed cutoffs on this split (the reportable numbers).
+
+    ``output_keys`` (onset arm): overrides which output key scores each task. ``None`` keeps the shared
+    contract; ``crosses_metric_keys(cfg.model)`` supplies the ``crosses -> crosses_readout`` routing when
+    ``model.onset_report_crosses`` is on. Threshold sweeps and the predictions NPZ follow automatically,
+    since they all read the same accumulator.
     """
     model.eval()
-    acc = MetricAccumulator(tasks=active_tasks)
+    acc = MetricAccumulator(tasks=active_tasks, output_keys=output_keys)
     tw_chunks: list[torch.Tensor] = []
     pin = device.type == "cuda"
     # One bar over all test chunks; ``disable=None`` auto-hides when stderr is not a TTY (pytest).
@@ -480,6 +487,9 @@ def run_evaluation(
         collect_temporal_weights=save_temporal_weights and is_full,
         tuned_thresholds=stored_thresholds,
         active_tasks=active_tasks,
+        # Onset arm: the checkpoint's own model config (inherited via merge_eval_config) decides
+        # whether `crosses` is scored on crosses_frame or on the hazard readout.
+        output_keys=crosses_metric_keys(cfg.model),
     )
 
     if split == "val":

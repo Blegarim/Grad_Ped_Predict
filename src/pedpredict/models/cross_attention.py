@@ -46,6 +46,7 @@ from pedpredict.config import ModelCfg
 from pedpredict.models.heads import (
     FramePool,
     build_crosses_frame_head,
+    build_onset_hazard_head,
     build_pool_mlp,
     build_task_classifiers,
     emit_task_logits,
@@ -68,6 +69,8 @@ class CrossAttentionModule(nn.Module):
         frame_pool: FramePool = "logsumexp",
         emit_crosses_pooled: bool = True,
         fusion_residual: bool = False,
+        onset_bins: int = 0,
+        onset_horizon_bins: int = 0,
     ) -> None:
         super().__init__()
         if num_classes_dict is None:
@@ -89,6 +92,10 @@ class CrossAttentionModule(nn.Module):
         self.pool_mlp = build_pool_mlp(d_model)
         self.classifier = build_task_classifiers(num_classes_dict, d_model, dropout)
         self.crosses_frame_head = build_crosses_frame_head(d_model, num_classes_dict["crosses"])
+        # Onset head: allocated ONLY when on, so with the default off the parameter layout — and hence
+        # `strict=True` loading of every existing checkpoint — is untouched.
+        self.onset_horizon_bins = onset_horizon_bins
+        self.onset_head = build_onset_hazard_head(d_model, onset_bins) if onset_bins else None
 
     @classmethod
     def from_config(cls, cfg: ModelCfg) -> CrossAttentionModule:
@@ -97,6 +104,8 @@ class CrossAttentionModule(nn.Module):
             **cfg.cross_kwargs(),
             emit_crosses_pooled=cfg.emit_crosses_pooled,
             fusion_residual=cfg.fusion_residual,
+            onset_bins=cfg.onset_bins,
+            onset_horizon_bins=cfg.onset_horizon_bins,
         )
 
     def forward(self, motion_feats: torch.Tensor, image_feats: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -121,6 +130,8 @@ class CrossAttentionModule(nn.Module):
             use_frame_crosses=self.use_frame_crosses,
             emit_crosses_pooled=self.emit_crosses_pooled,
             emit_temporal_weights=True,
+            onset_head=self.onset_head,
+            onset_horizon_bins=self.onset_horizon_bins,
         )
 
 

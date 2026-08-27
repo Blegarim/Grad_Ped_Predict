@@ -25,6 +25,7 @@ import torch
 from torch import Tensor
 
 from pedpredict.config.schema import DataCfg
+from pedpredict.data.pie_sequences import ONSET_FIELDS
 
 __all__ = ["collate_sequences", "build_collate"]
 
@@ -44,6 +45,20 @@ def collate_sequences(
             f"{motion_dim}. Re-run the LMDB writer (1.2) — the legacy [..., :8] slice was removed."
         )
     labels = {k: torch.stack([item[k] for item in batch], dim=0) for k in _LABEL_KEYS}
+    # S1 onset annotation rides in `labels` (not a fourth tuple slot) so it reaches the loss through
+    # the existing Trainer path untouched; consumers that don't want it (the three CE tasks, the
+    # metric accumulator) key by name and ignore the extras. Present only in S1-annotated chunks —
+    # a partial batch means a mixed-vintage chunk dir, which is a build error, so fail loudly.
+    for key in ONSET_FIELDS:
+        present = sum(key in item for item in batch)
+        if present == len(batch):
+            labels[key] = torch.stack([item[key] for item in batch], dim=0)
+        elif present:
+            raise ValueError(
+                f"collate_sequences: '{key}' present on {present}/{len(batch)} samples — the chunk "
+                f"directory mixes S1-annotated and pre-S1 builds. Re-run scripts/backfill_onset_meta.py "
+                f"over every chunk, or rebuild."
+            )
     return images_tight, images_context, motions, labels
 
 

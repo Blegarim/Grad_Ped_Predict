@@ -66,6 +66,15 @@ class DataCfg:
     stride: int = 3
     future_offset: int = 30
     tol: int = 2
+    # M4 refinement. The censor filter asks only "was the full future window observed?", which drops a
+    # window even when a crossing was plainly SEEN inside the truncated remainder — its label is not in
+    # doubt, and those are confirmed positives in a task with ~2.9% of them. True applies the full
+    # knowability rule (== data.onset_stats.is_usable): keep the window when a crossing was observed OR
+    # when enough future was observed to rule one out. Windows with NO observed crossing and a truncated
+    # future are still dropped either way — that label really would be fabricated.
+    # CHANGES THE WINDOW POPULATION: flipping this needs a regen + a Dataset Statistics re-pin (see the
+    # Doc-Sync Checklist). Default false = the population every existing run was trained on.
+    emit_determined_positives: bool = False
     # Anchored benchmark eval set: fixed-TTE windows around the PIE crossing_point, labeled by the
     # crossing event. obs_len matches streaming seq_len; sampling stride = round(obs_len * (1 - overlap)).
     benchmark_obs_len: int = 20
@@ -137,6 +146,35 @@ class ModelCfg:
     # Fusion lever (default on): adds the motion query as a residual so motion content reaches the heads.
     # False = no-residual ablation (golden-pinned).
     fusion_residual: bool = True
+    # Onset-timing head (docs/METHODOLOGY.md prong 2) — DEFAULT OFF. On, the model additionally emits
+    # `crosses_hazard [B, K]` (one hazard logit per future bin) and `crosses_readout [B, 2]` (those bins
+    # collapsed to P(onset within onset_horizon), the baseline-comparable number). Off, the output dict
+    # and the parameter layout are exactly what every existing run was trained with — golden-pinned.
+    onset_head: bool = False
+    # L: future frames the head covers. A TRAINING decision, and it must exceed `onset_horizon` — a head
+    # only as wide as the reported horizon still labels a crossing at H+5 a flat negative, which is the
+    # failure the method exists to remove.
+    onset_lookahead: int = 60
+    onset_bin_width: int = 1         # w: future frames per bin. 1 = per-frame; >1 trades timing
+    #                                  resolution for a denser positive rate per bin (collapse lever).
+    # H: frames the reported readout covers. Must equal data.future_offset + data.tol (validated), or
+    # the readout stops answering the question the four baseline runs answered.
+    onset_horizon: int = 32
+    # Which head the `crosses` task is SCORED on. False (default) = `crosses_frame`, exactly as the four
+    # baseline runs were scored, so the hazard head can ride along as an auxiliary task without touching
+    # a single reported number. True = score `crosses` on `crosses_readout` — the pure-reformulation arm.
+    # Requires onset_head (validated); routes both the loss's CE term and the metric accumulator.
+    onset_report_crosses: bool = False
+
+    @property
+    def onset_bins(self) -> int:
+        """``K`` — the hazard head's output width. Zero when the head is off."""
+        return self.onset_lookahead // self.onset_bin_width if self.onset_head else 0
+
+    @property
+    def onset_horizon_bins(self) -> int:
+        """How many leading bins the reported readout multiplies over. Zero when the head is off."""
+        return self.onset_horizon // self.onset_bin_width if self.onset_head else 0
 
     def vit_kwargs(self) -> dict:
         """Build the ViT_Hierarchical constructor dict (parity surface — values as lists)."""
@@ -213,6 +251,24 @@ class TrainCfg:
         default_factory=lambda: {"actions": 0.8, "looks": 0.8, "crosses": 1.2}
     )
     use_class_weights: bool = False  # imbalance lever 3: inverse-freq CE weights (off in run #2)
+    # Onset-timing objective (docs/METHODOLOGY.md prong 2) — INERT unless model.onset_head. These two
+    # plus loss_weight["crosses"] are the three knobs that select which formulation is being trained:
+    #   loss_weight.crosses=1, hazard=1, readout=0  -> hazard as a pure AUXILIARY task; `crosses` is
+    #                                                  still reported from crosses_frame, so the four
+    #                                                  baselines stay exactly comparable. START HERE.
+    #   loss_weight.crosses=0, hazard=1, readout=0  -> pure reformulation (the methodological claim);
+    #                                                  pair with model.onset_report_crosses=true.
+    #   loss_weight.crosses=0, hazard=1, readout=w  -> the hedge: the reported readout also gets a
+    #                                                  direct gradient, since the hazard term alone
+    #                                                  never optimises the number actually reported.
+    # SCALE WARNING: the hazard term is a SUM over a window's observed bins (likelihood-correct — a
+    # window observed for 60 bins really does carry more information than one observed for 3), so at
+    # onset_lookahead=60 it starts around 40x a per-task CE term (~0.69 * 60 at init) and falls as the
+    # hazards saturate low. For the AUXILIARY arm, where it must not swamp the CE heads, start near
+    # 0.02-0.05; for the pure-reformulation arm, where it IS the objective, 1.0 is right. The per-epoch
+    # `onset_hazard` value in the loss output is the raw unweighted number, so this is observable.
+    onset_hazard_weight: float = 1.0    # weight on the masked per-bin hazard NLL
+    onset_readout_weight: float = 0.0   # weight on the direct BCE against P(onset within horizon)
     use_weighted_sampler: bool = True
     # imbalance lever 2, tuned down (run #2 canonical): ~26% effective crosses vs 2.8% base
     sampler_powers: dict[str, float] = field(
@@ -259,6 +315,16 @@ class TrainCfg:
         """Per-task sampler powers with INACTIVE tasks forced to 0 (sampler ignores them, sampler.py)."""
         active = set(self.active_tasks)
         return {t: (float(self.sampler_powers.get(t, 0.0)) if t in active else 0.0) for t in _CANONICAL_TASKS}
+
+    def effective_onset_weights(self) -> tuple[float, float]:
+        """``(hazard, readout)`` onset loss weights, forced to 0 when ``crosses`` is inactive.
+
+        Same discipline as the two helpers above: dropping ``crosses`` from ``active_tasks`` must kill
+        every gradient that supervises it, and the onset terms are crosses supervision by another name.
+        """
+        if "crosses" not in set(self.active_tasks):
+            return 0.0, 0.0
+        return float(self.onset_hazard_weight), float(self.onset_readout_weight)
 
 
 @dataclass(frozen=True, slots=True)

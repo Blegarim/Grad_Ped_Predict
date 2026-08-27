@@ -18,7 +18,10 @@ v2 labeling contract (hole audit, deliberate behavior changes vs the v1/legacy w
   remains a *future* label: ``any(crosses[end : end + future_offset + tol])``.
 * **M4** -- windows whose future window would extend past the end of the track are DROPPED, not
   silently labeled 0 (right-censoring fix). :class:`WindowStats` counts them so the exclusion is
-  reportable.
+  reportable. ``data.emit_determined_positives`` refines the rule: a truncated window whose crossing was
+  actually OBSERVED has a label that is not in doubt, so it is kept rather than binned (these are
+  confirmed positives, the scarcest class). Truncated windows with no observed crossing are still
+  dropped — that label really would be fabricated. Off by default: it changes the window population.
 * **M6** -- every record carries the PIE pedestrian id as ``track_id`` (eval-side track aggregation).
 * **M9** -- every record carries per-frame OBD ego-vehicle speed (``ego_speed``, km/h); the writer
   stores it as the 9th motion channel (see ``transforms.compute_motion``).
@@ -42,6 +45,7 @@ from typing import Any, NamedTuple, Protocol, TypedDict
 from pedpredict.config.schema import DataCfg
 
 __all__ = [
+    "ONSET_FIELDS",
     "SequenceRecord",
     "BenchmarkRecord",
     "PieTrack",
@@ -57,6 +61,13 @@ __all__ = [
     "save_sequences",
     "load_sequences",
 ]
+
+
+#: The three S1 streaming-onset fields, in canonical order — the SINGLE source of truth for the key
+#: names, shared by the record, ``ProcessedSample``, ``lmdb_writer.pack_meta``, the read path, the
+#: collate, and ``scripts/backfill_onset_meta.py``. All three are plain ``int`` everywhere they are
+#: stored; only the runtime read path tensorises them.
+ONSET_FIELDS: tuple[str, ...] = ("onset_offset", "future_observed", "track_crosses")
 
 
 class SequenceRecord(TypedDict):
@@ -116,10 +127,15 @@ class WindowStats:
 
     ``censored`` is the thesis-reportable number — windows that passed every other filter but whose
     future window extends past the end of the track (unobserved future, previously mislabeled 0).
+    ``determined_positive`` counts the subset of those the refined rule RECOVERS: the crossing was
+    actually seen inside the truncated remainder, so the label was never in doubt (0 unless
+    ``data.emit_determined_positives``). Reportable in its own right — it is how much of the M4 drop was
+    confirmed positives rather than genuine unknowns.
     """
 
     emitted: int = 0
-    censored: int = 0       # M4: dropped — future window not fully observed
+    censored: int = 0       # M4: dropped — future truncated AND no crossing seen (label unknowable)
+    determined_positive: int = 0  # recovered: future truncated but the crossing WAS seen
     obs_crossing: int = 0   # filter #2: dropped — crossing during the observation window
     short_tracks: int = 0   # tracks shorter than seq_len (zero candidate windows)
 
@@ -127,6 +143,7 @@ class WindowStats:
         return {
             "emitted": self.emitted,
             "censored": self.censored,
+            "determined_positive": self.determined_positive,
             "obs_crossing": self.obs_crossing,
             "short_tracks": self.short_tracks,
         }
@@ -189,8 +206,13 @@ def _label_window(
     """v2 labeling rule (M3), the single place it lives.
 
     ``actions``/``looks`` = state at the last observed frame (``end - 1``); ``crosses`` = any
-    crossing in the future window ``[end, end + future_offset + tol)``. Callers guarantee the
-    future window is fully observed (M4 censor filter), so no clipping happens here.
+    crossing in the future window ``[end, end + future_offset + tol)``.
+
+    The slice clips when the track ends first, which is reachable only under
+    ``emit_determined_positives`` — and there it is safe rather than merely tolerable: that path admits a
+    window ONLY when a crossing was observed before the track ended, and a crossing seen inside a
+    truncated remainder is necessarily inside the (longer) horizon, so the clipped ``any`` is still 1.
+    Windows whose truncated future contains no crossing never reach here.
     """
     return {
         "actions": int(actions[end - 1]),
@@ -256,10 +278,13 @@ def window_track(
             if stats is not None:
                 stats.obs_crossing += 1
             continue
-        if end + cfg.future_offset + cfg.tol > n:  # M4: unobserved future — drop, don't label 0
+        if end + cfg.future_offset + cfg.tol > n:  # M4: future window truncated
+            if not (cfg.emit_determined_positives and next_cross[end] < n):
+                if stats is not None:
+                    stats.censored += 1        # no crossing seen — "did not cross" would be fabricated
+                continue
             if stats is not None:
-                stats.censored += 1
-            continue
+                stats.determined_positive += 1  # crossing WAS seen: label determined, keep it
         records.append(
             {
                 "images": list(images[start:end]),
