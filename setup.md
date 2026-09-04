@@ -195,6 +195,14 @@ Stop any training/eval job first — Windows refuses a write-open while a chunk 
 backfillable**: oversampling breaks the positional sample→record map, and the script aborts rather than
 guessing. Backfill the base dir and re-run augmentation instead.
 
+**Disk, not just time.** Rewriting a meta is copy-on-write, so a chunk built with a tight
+`data.lmdb_map_size_bytes` (step 0's disk knob) can run out of room mid-split — the
+`MDB_MAP_FULL` / "environment mapsize limit reached" traceback. The pass handles that itself: writes
+commit in batches, and a chunk with no room has its `map_size` grown 64 MiB at a time. Windows
+pre-allocates, so growth is disk taken the moment it is asked for — `--dry-run` names the chunks short
+of room and the worst-case total first. If the volume is genuinely full the run aborts saying so, and
+re-running after freeing space resumes where it stopped (the pass is idempotent).
+
 *Rebuilding from scratch instead?* Then skip the backfill entirely — steps 3–4 carry the fields already.
 
 **Train.** Three arms, selected by weights alone (no code branches). Start with the auxiliary arm: the

@@ -9,7 +9,9 @@ start but dropped by ``pack_meta``, so the trainer never saw them. These tests p
 * the collate lifts them into ``labels`` so they reach the loss through the existing Trainer plumbing;
 * pre-S1 records still write, read and collate cleanly — the keys are additive, not required;
 * ``onset_backfill`` upgrades a chunk written without them, is idempotent, and **aborts** rather than
-  writing when the chunk and the pkl disagree (the positional-map integrity check).
+  writing when the chunk and the pkl disagree (the positional-map integrity check);
+* a chunk built with no free map — what setup.md step 0's tight-disk knob produces — still backfills,
+  by growing ``map_size`` rather than dying on ``MDB_MAP_FULL`` partway through a split.
 """
 
 from __future__ import annotations
@@ -24,10 +26,16 @@ import torch
 from PIL import Image
 
 from pedpredict.config import DataCfg
+from pedpredict.data import onset_backfill
 from pedpredict.data.collate import collate_sequences
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset, read_raw_sample
 from pedpredict.data.lmdb_writer import write_dataset_chunks
-from pedpredict.data.onset_backfill import backfill_chunk, backfill_dir, chunk_record_offset
+from pedpredict.data.onset_backfill import (
+    backfill_chunk,
+    backfill_dir,
+    chunk_record_offset,
+    format_reports,
+)
 from pedpredict.data.pie_sequences import ONSET_FIELDS
 
 _SEQ_LEN = 4
@@ -262,3 +270,76 @@ def test_backfill_aborts_on_short_record_list(stale) -> None:
     records, out_dir = stale
     with pytest.raises(ValueError, match="past the end"):
         backfill_chunk(out_dir / "chunk_000002.lmdb", records[:2])
+
+
+# ------------------------------------------------------------------- backfill: chunks with no headroom
+
+
+def _fill_to_capacity(chunk_path) -> None:
+    """Pack a chunk until its map has no usable room, the state a tight ``map_size`` build lands in.
+
+    The filler keys deliberately do not end in ``_meta``, so the backfill's sample scan ignores them —
+    only the free space is gone, which is precisely the failing condition on the lab PC's chunks.
+    Filling in shrinking value sizes squeezes out the last pages a large blob cannot use.
+    """
+    probe = lmdb.open(str(chunk_path), readonly=True, lock=False)
+    map_size = int(probe.info()["map_size"])
+    probe.close()
+    env = lmdb.open(str(chunk_path), map_size=map_size)
+    index = 0
+    try:
+        for size in (65536, 4096, 512, 64):
+            blob = b"x" * size
+            for _ in range(4096):
+                try:
+                    with env.begin(write=True) as txn:
+                        txn.put(f"filler_{index:06d}".encode(), blob)
+                        index += 1
+                except lmdb.MapFullError:
+                    break
+            else:
+                raise AssertionError(f"filler of {size} B never exhausted a {map_size} B map")
+    finally:
+        env.close()
+
+
+def test_backfill_grows_a_chunk_with_no_headroom(stale, monkeypatch) -> None:
+    """The MDB_MAP_FULL bug: rewriting metas is copy-on-write, so a full chunk needs a bigger map."""
+    records, out_dir = stale
+    monkeypatch.setattr(onset_backfill, "GROWTH_STEP_BYTES", 1024 * 1024)
+    chunk = out_dir / "chunk_000000.lmdb"
+    _fill_to_capacity(chunk)
+
+    report = backfill_chunk(chunk, records)
+
+    assert report.written == 2
+    assert report.grown_bytes > 0, "a chunk with no free map must be grown, not failed"
+    assert "grew map_size" in format_reports([report])
+    items = _read_items(chunk, _cfg(), 2)
+    assert int(items[0]["onset_offset"]) == _ONSETS[0]["onset_offset"]
+    assert int(items[1]["track_crosses"]) == _ONSETS[1]["track_crosses"]
+
+
+def test_backfill_map_full_names_the_cure(stale, monkeypatch) -> None:
+    """With growth forbidden, the abort names the cause and the fix — not a bare MDB_MAP_FULL."""
+    records, out_dir = stale
+    monkeypatch.setattr(onset_backfill, "MAX_GROWTH_STEPS", 0)
+    chunk = out_dir / "chunk_000000.lmdb"
+    _fill_to_capacity(chunk)
+    with pytest.raises(RuntimeError, match="still out of room"):
+        backfill_chunk(chunk, records)
+
+
+def test_dry_run_warns_before_the_real_pass_has_to_grow(stale, monkeypatch) -> None:
+    """The pre-flight: a dry run names the chunks short of room, and still writes nothing."""
+    records, out_dir = stale
+    monkeypatch.setattr(onset_backfill, "GROWTH_STEP_BYTES", 1024 * 1024)
+    chunk = out_dir / "chunk_000000.lmdb"
+    _fill_to_capacity(chunk)
+
+    reports = backfill_dir(out_dir, records, dry_run=True)
+
+    listed = format_reports(reports, dry_run=True).split("NOTE", 1)[1]
+    assert "chunk_000000.lmdb" in listed, "the chunk with no room must be named"
+    assert "chunk_000002.lmdb" not in listed, "a chunk with room must not be flagged"
+    assert not (set(ONSET_FIELDS) & set(_read_items(chunk, _cfg(), 1)[0]))

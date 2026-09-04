@@ -9,6 +9,15 @@ already exist, so the onset head can be trained without a rebuild.
 keys and are never touched, so this is a fast pass over the small pickled part of each entry — minutes,
 not the hours a rebuild costs.
 
+**Capacity.** Rewriting a meta is copy-on-write: LMDB allocates fresh pages for the new value and
+cannot reclaim the old ones until the transaction commits, so rewriting a whole chunk in one
+transaction transiently needs room for a second copy of every meta in it. Chunks built with a tight
+``data.lmdb_map_size_bytes`` (setup.md step 0's disk knob) have no such room, and used to fail with
+``MDB_MAP_FULL``. Writes are therefore committed in batches of :data:`BATCH_SIZE`, which bounds the
+transient cost to one batch; if even that does not fit, the chunk's ``map_size`` grows a step at a time
+(:data:`GROWTH_STEP_BYTES`) and the batch is retried. Growth costs real disk immediately on Windows,
+which pre-allocates, so it is bounded and reported rather than unlimited.
+
 Sample-to-record matching is **positional**, which is exactly how the writer laid the chunks down:
 ``write_dataset_chunks`` slices ``records[i : i + chunk_size]`` into ``chunk_{i:06d}.lmdb``, so the file
 name carries the record offset and the in-chunk index ``j`` is the offset from it. Position alone is a
@@ -35,7 +44,10 @@ import lmdb
 from pedpredict.data.pie_sequences import ONSET_FIELDS, SequenceRecord
 
 __all__ = [
+    "BATCH_SIZE",
     "CHUNK_PATTERN",
+    "GROWTH_STEP_BYTES",
+    "MAX_GROWTH_STEPS",
     "BackfillReport",
     "chunk_record_offset",
     "iter_chunk_paths",
@@ -47,15 +59,38 @@ __all__ = [
 #: ``chunk_{start_index:06d}.lmdb`` — the writer's name, whose number IS the record offset.
 CHUNK_PATTERN = re.compile(r"^chunk_(\d+)\.lmdb$")
 
+#: Samples per write transaction. Bounds the copy-on-write cost of the pass (see the module docstring)
+#: to one batch instead of a whole chunk. Lower it only if a chunk's metas are unusually large.
+BATCH_SIZE = 512
+
+#: One step of ``map_size`` growth when a batch still does not fit. LMDB PRE-ALLOCATES on Windows, so
+#: every byte is real disk the moment it is asked for — grow in fixed steps, never by doubling.
+GROWTH_STEP_BYTES = 64 * 1024**2
+
+#: Growth steps allowed per chunk before giving up, so a wrong pkl cannot silently eat the volume.
+MAX_GROWTH_STEPS = 8
+
 
 @dataclass(frozen=True)
 class BackfillReport:
-    """Per-chunk outcome. ``written + already_present == samples`` on a clean pass."""
+    """Per-chunk outcome. ``written + already_present == samples`` on a clean pass.
+
+    ``rewrite_bytes`` is what the pass has to write, ``free_bytes`` the room the chunk had left at the
+    end. The two do not compare directly — a write transaction also needs page, freelist and meta-page
+    overhead, so ``free_bytes`` comfortably above ``rewrite_bytes`` can still hit ``MDB_MAP_FULL``.
+    They are a report, not a predictor; the dry-run warning flags chunks with under one growth step of
+    room rather than pretending to compute the exact need.
+    """
 
     chunk: str
     samples: int
     written: int
     already_present: int
+    #: Capacity accounting, for the pre-flight warning and the growth note.
+    map_size: int = 0
+    free_bytes: int = 0
+    rewrite_bytes: int = 0
+    grown_bytes: int = 0
 
 
 def chunk_record_offset(path: Path) -> int:
@@ -126,54 +161,156 @@ def _open_for_backfill(path: Path, *, dry_run: bool) -> lmdb.Environment:
         ) from exc
 
 
+MAP_FULL_HINT = (
+    "[onset_backfill] {chunk}: still out of room after growing {grown} MiB. The chunk was built with a "
+    "map_size that leaves no headroom (setup.md step 0's tight-disk knob does exactly that). Free space "
+    "on the volume holding the chunks and re-run — the pass is idempotent, so it resumes where it "
+    "stopped, rewriting only the metas that are still missing the keys."
+)
+
+
+def _env_capacity(env: lmdb.Environment) -> tuple[int, int]:
+    """``(map_size, free_bytes)``, from the environment's own page accounting."""
+    info, stat = env.info(), env.stat()
+    used = (int(info["last_pgno"]) + 1) * int(stat["psize"])
+    map_size = int(info["map_size"])
+    return map_size, max(map_size - used, 0)
+
+
+def _grow_map(env: lmdb.Environment, *, chunk: str, grown: int) -> int:
+    """Add one :data:`GROWTH_STEP_BYTES` step to the chunk's ``map_size``; returns the bytes added."""
+    current = int(env.info()["map_size"])
+    try:
+        env.set_mapsize(current + GROWTH_STEP_BYTES)
+    except (lmdb.Error, OSError) as exc:
+        raise RuntimeError(
+            f"[onset_backfill] {chunk}: cannot grow map_size past {current / 1024 ** 3:.2f} GiB "
+            f"(grew {grown / 1024 ** 2:.0f} MiB already): {exc}. LMDB pre-allocates the file on "
+            f"Windows, so this is normally free disk on the volume holding the chunks."
+        ) from exc
+    return GROWTH_STEP_BYTES
+
+
+def _run_batch(
+    env: lmdb.Environment,
+    ids: Sequence[str],
+    records: Sequence[SequenceRecord],
+    offset: int,
+    *,
+    chunk: str,
+    dry_run: bool,
+) -> tuple[int, int, int]:
+    """Read, verify and (unless ``dry_run``) rewrite one batch of metas in a single transaction.
+
+    Returns ``(written, already_present, rewrite_bytes)``. A ``MapFullError`` propagates with the
+    transaction aborted, so the caller can grow the map and call again with the same ids.
+    """
+    written = present = rewrite_bytes = 0
+    with env.begin(write=not dry_run) as txn:
+        for seq_id in ids:
+            key = f"{seq_id}_meta".encode()
+            meta = pickle.loads(txn.get(key))
+            record_idx = offset + int(seq_id)
+            record = records[record_idx]
+            _verify(meta, record, chunk=chunk, seq_id=seq_id, record_idx=record_idx)
+            if all(field in meta for field in ONSET_FIELDS):
+                present += 1
+                continue
+            meta.update({field: int(record[field]) for field in ONSET_FIELDS})  # type: ignore[literal-required]
+            blob = pickle.dumps(meta)
+            rewrite_bytes += len(blob)
+            if not dry_run:
+                txn.put(key, blob)
+            written += 1
+    return written, present, rewrite_bytes
+
+
+def _run_batch_growing(
+    env: lmdb.Environment,
+    ids: Sequence[str],
+    records: Sequence[SequenceRecord],
+    offset: int,
+    *,
+    chunk: str,
+    dry_run: bool,
+) -> tuple[int, int, int, int]:
+    """:func:`_run_batch`, growing the chunk's map and retrying the batch when it runs out of room."""
+    grown = 0
+    for attempt in range(MAX_GROWTH_STEPS + 1):
+        try:
+            written, present, rewrite_bytes = _run_batch(
+                env, ids, records, offset, chunk=chunk, dry_run=dry_run
+            )
+        except lmdb.MapFullError as exc:
+            if dry_run or attempt == MAX_GROWTH_STEPS:
+                raise RuntimeError(MAP_FULL_HINT.format(chunk=chunk, grown=grown // 1024 ** 2)) from exc
+            grown += _grow_map(env, chunk=chunk, grown=grown)
+            continue
+        return written, present, rewrite_bytes, grown
+    raise AssertionError("unreachable: the loop returns or raises")  # pragma: no cover
+
+
 def backfill_chunk(
-    chunk_path: Path, records: Sequence[SequenceRecord], *, dry_run: bool = False
+    chunk_path: Path,
+    records: Sequence[SequenceRecord],
+    *,
+    dry_run: bool = False,
+    batch_size: int = BATCH_SIZE,
 ) -> BackfillReport:
-    """Write the three S1 keys into every meta in one chunk. Idempotent; one transaction.
+    """Write the three S1 keys into every meta in one chunk. Idempotent; batched transactions.
 
     ``records`` is the FULL split record list — the chunk's own slice is taken by file-name offset.
-    With ``dry_run`` every sample is still read and verified, but nothing is written.
+    With ``dry_run`` every sample is still read and verified, but nothing is written. Batching and the
+    ``map_size`` growth that backs it are explained in the module docstring.
     """
     offset = chunk_record_offset(chunk_path)
     env = _open_for_backfill(chunk_path, dry_run=dry_run)
-    written = present = 0
+    written = present = rewrite_bytes = grown = 0
     try:
-        with env.begin(write=not dry_run) as txn:
+        with env.begin() as txn:
             ids = _seq_ids(txn)
-            if offset + len(ids) > len(records):
-                raise ValueError(
-                    f"[onset_backfill] {chunk_path.name} holds {len(ids)} samples at record offset "
-                    f"{offset}, past the end of a {len(records)}-record pkl. Wrong pkl for this dir."
-                )
-            for seq_id in ids:
-                key = f"{seq_id}_meta".encode()
-                meta = pickle.loads(txn.get(key))
-                record_idx = offset + int(seq_id)
-                record = records[record_idx]
-                _verify(meta, record, chunk=chunk_path.name, seq_id=seq_id, record_idx=record_idx)
-                if all(field in meta for field in ONSET_FIELDS):
-                    present += 1
-                    continue
-                meta.update({field: int(record[field]) for field in ONSET_FIELDS})  # type: ignore[literal-required]
-                if not dry_run:
-                    txn.put(key, pickle.dumps(meta))
-                written += 1
+        if offset + len(ids) > len(records):
+            raise ValueError(
+                f"[onset_backfill] {chunk_path.name} holds {len(ids)} samples at record offset "
+                f"{offset}, past the end of a {len(records)}-record pkl. Wrong pkl for this dir."
+            )
+        for begin in range(0, len(ids), batch_size):
+            batch = _run_batch_growing(
+                env, ids[begin: begin + batch_size], records, offset,
+                chunk=chunk_path.name, dry_run=dry_run,
+            )
+            written, present = written + batch[0], present + batch[1]
+            rewrite_bytes, grown = rewrite_bytes + batch[2], grown + batch[3]
         if not dry_run:
             env.sync()
+        map_size, free_bytes = _env_capacity(env)
     finally:
         env.close()
-    return BackfillReport(chunk_path.name, len(ids), written, present)
+    return BackfillReport(
+        chunk_path.name, len(ids), written, present, map_size, free_bytes, rewrite_bytes, grown
+    )
 
 
 def backfill_dir(
-    chunk_dir: Path, records: Sequence[SequenceRecord], *, dry_run: bool = False
+    chunk_dir: Path,
+    records: Sequence[SequenceRecord],
+    *,
+    dry_run: bool = False,
+    batch_size: int = BATCH_SIZE,
 ) -> list[BackfillReport]:
     """Run :func:`backfill_chunk` over every chunk in ``chunk_dir``, in record order."""
-    return [backfill_chunk(path, records, dry_run=dry_run) for path in iter_chunk_paths(chunk_dir)]
+    return [
+        backfill_chunk(path, records, dry_run=dry_run, batch_size=batch_size)
+        for path in iter_chunk_paths(chunk_dir)
+    ]
 
 
 def format_reports(reports: Sequence[BackfillReport], *, dry_run: bool = False) -> str:
-    """Per-chunk lines plus a total, for the CLI."""
+    """Per-chunk lines, the total, and the capacity note.
+
+    In a dry run the note is the pre-flight warning — which chunks have less free map than the pass
+    must rewrite, i.e. the ones a real run will have to grow. In a real run it is what was grown.
+    """
     verb = "would write" if dry_run else "wrote"
     lines = [
         f"  {r.chunk:<24} {r.samples:>7} samples  {verb} {r.written:>7}  already present {r.already_present:>7}"
@@ -183,4 +320,25 @@ def format_reports(reports: Sequence[BackfillReport], *, dry_run: bool = False) 
     written = sum(r.written for r in reports)
     present = sum(r.already_present for r in reports)
     lines.append(f"  {'TOTAL':<24} {samples:>7} samples  {verb} {written:>7}  already present {present:>7}")
+    lines.extend(_capacity_lines(reports, dry_run=dry_run))
     return "\n".join(lines)
+
+
+def _capacity_lines(reports: Sequence[BackfillReport], *, dry_run: bool) -> list[str]:
+    """The map_size note: what a real pass will have to grow, or what this pass did grow."""
+    if not dry_run:
+        grown = sum(r.grown_bytes for r in reports)
+        chunks = sum(1 for r in reports if r.grown_bytes)
+        return [f"  grew map_size by {grown / 1024 ** 2:.0f} MiB across {chunks} chunk(s) — LMDB "
+                f"pre-allocates on Windows, so that is disk now in use"] if grown else []
+    tight = [r for r in reports if r.free_bytes < GROWTH_STEP_BYTES]
+    if not tight:
+        return []
+    step = GROWTH_STEP_BYTES // 1024 ** 2
+    return [
+        f"  NOTE {len(tight)} chunk(s) have under {step} MiB of free map. A real run grows map_size in "
+        f"{step} MiB steps as it needs to — up to {len(tight) * step} MiB of extra disk here, taken "
+        f"immediately on Windows, which pre-allocates:",
+        *(f"    {r.chunk:<24} free {r.free_bytes / 1024 ** 2:>8.1f} MiB   "
+          f"rewrite {r.rewrite_bytes / 1024 ** 2:>8.1f} MiB" for r in tight[:5]),
+    ]
