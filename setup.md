@@ -201,13 +201,24 @@ blobs are never touched, so this is minutes, not a rebuild:
 ```powershell
 python scripts/backfill_onset_meta.py --split train --split val --split test --dry-run  # verify first
 python scripts/backfill_onset_meta.py --split train --split val --split test
-python scripts/backfill_onset_meta.py --split test_benchmark                            # anchored too
+Remove-Item -Recurse -Force preprocessed_train_aug             # MUST delete first (see below)
 python scripts/augment_dataset.py --set augment.enabled=true   # aug dirs inherit via the write path
 ```
 Stop any training/eval job first — Windows refuses a write-open while a chunk is memory-mapped
 (`--dry-run` opens read-only and is safe while readers are live). **Augmented dirs are not
 backfillable**: oversampling breaks the positional sample→record map, and the script aborts rather than
 guessing. Backfill the base dir and re-run augmentation instead.
+
+**Delete the aug dir, do not write over it.** `write_dataset_to_lmdb` puts a whole chunk in ONE
+transaction at the exact `data.lmdb_map_size_bytes` (4 GiB), so writing over a populated chunk needs
+copy-on-write room for a second copy of it and dies with `MDB_MAP_FULL` — and unlike the backfill, this
+path has neither batching nor auto-growth. Regenerating is safe for comparability: `plan_oversample` is
+seeded by `augment.seed` (42) off labels the backfill never rewrites, so the rebuilt dir is identical
+apart from the three new meta keys. Budget ~9 chunks x 4 GiB pre-allocated; the delete frees that first.
+
+**Benchmark (anchored) chunks have no onset fields at all.** `window_track_benchmark` builds its records
+without calling `_onset_fields` — only the streaming `window_track` does — so `--split *_benchmark`
+aborts on the script's pre-check rather than backfilling. The onset head trains on streaming chunks.
 
 **Disk, not just time.** Rewriting a meta is copy-on-write, so a chunk built with a tight
 `data.lmdb_map_size_bytes` (step 0's disk knob) can run out of room mid-split — the
@@ -231,6 +242,10 @@ python scripts/train.py --set model.onset_head=true --set train.onset_hazard_wei
 
 # 2) PURE REFORMULATION and 3) HEDGE — full one-liners in "Copy-paste training recipes" below
 ```
+Both lines above are bare — no pose bundle, no `eval.model_type` — so they build the default `full`
+(from-scratch ViT). Fine for a first look at the head; use the pose-bundled recipes below for anything
+meant to sit beside the `pose_full` baselines.
+
 ⚠️ **Scale.** The hazard term *sums* over each window's observed bins (likelihood-correct), so it starts
 far above a per-task CE and falls as hazards saturate low. At the default `96/4` (24 bins) that is
 `~0.69 × observed_bins` at init — ~5.5 for a window carrying only the guaranteed 32 frames of future,
@@ -259,31 +274,44 @@ so a recipe keeps doing what it says even if someone edits `configs/`.
 The pose bundle appears in full in each pose recipe — validation rejects it partially applied, so it is
 written out rather than abbreviated.
 
-**The workhorse — pose_full, streaming, onset head as an auxiliary task, runtime augmentation.**
+**The workhorse — pose_full, streaming, crosses-only, onset head as an auxiliary task.**
 ```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set train.onset_hazard_weight=0.03 --tag pose_onset_aux
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set train.onset_hazard_weight=0.1 --tag pose_onset_aux
 ```
-The reported `crosses` number still comes from `crosses_frame`, so this stays directly comparable with the
-four `pose_full` baselines. Same line with `--set data.protocol=anchored --tag pose_onset_aux_anch` for the
-anchored leg.
+The reported `crosses` number still comes from `crosses_frame`, so the head is a side task and the
+number keeps its meaning. Same line with `--set data.protocol=anchored --tag pose_onset_aux_anch` for
+the anchored leg.
+
+⚠️ **What it is comparable to.** The four `pose_full` runs are two pairs, not one set (run table in
+[RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md)): **Model A** (`20260710_122947` / `20260710_152517`)
+is 3-head with the sampler OFF; **Model B** (`20260721_123011` / `20260714_134253`) is crosses-only.
+The flags above match Model B's streaming leg. For Model A instead, drop the two crosses-only flags and
+add `--set train.use_weighted_sampler=false`. Taking the config defaults matches NEITHER — 3-head *with*
+the sampler on — which is exactly the accidental-difference trap. Model B's own legs also still differ on
+the sampler (streaming on, anchored off); re-running its anchored leg with the sampler on is the
+outstanding fix.
 
 **Its baseline twin — identical, onset head off.** Run this if you need the comparison re-made under
 today's code rather than trusting a months-old run dir.
 ```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --tag pose_baseline
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --tag pose_baseline
 ```
 
 **Whole cross-protocol matrix in one command** — trains both protocols and runs val+test x anchored+streaming
 per leg (10 steps). The runner owns `data.protocol`, so never pass it here. `--dry-run` prints the plan.
 ```powershell
-python scripts/run_arm.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set augment.runtime=true --set model.onset_head=true --set train.onset_hazard_weight=0.03 --tag pose_onset_aux --save-predictions
+python scripts/run_arm.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set model.onset_head=true --set train.onset_hazard_weight=0.1 --tag pose_onset_aux --save-predictions
 ```
 
 ### Onset arm
 **Smoke test first — 2 epochs, does the head collapse to `h~0`?** Cheap insurance before a long run.
+Carries the pose bundle, so it tests the trunk the real runs use rather than the default `full`.
 ```powershell
-python scripts/train.py --set model.onset_head=true --set train.num_epochs=2 --tag onset_smoke
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set train.num_epochs=2 --tag onset_smoke
 ```
+The three arms below are 3-head — `actions`/`looks` still train. Add the two crosses-only flags
+(`train.active_tasks=[crosses]` + `train.selection_metric=crosses_f1`) to sit them beside Model B.
+
 **Pure reformulation** — the original crossing head switched off, reported number from the hazard readout.
 ```powershell
 python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_pure
