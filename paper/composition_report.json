@@ -1,0 +1,101 @@
+{
+  "horizon": 32,
+  "composition": [
+    {
+      "split": "train",
+      "horizon": 32,
+      "total": 88214,
+      "positive": 2530,
+      "genuine": 56679,
+      "hard_temporal": 22634,
+      "already_crossed": 6371,
+      "negatives": 85684,
+      "imbalance": 33.867193675889325
+    },
+    {
+      "split": "val",
+      "horizon": 32,
+      "total": 20490,
+      "positive": 569,
+      "genuine": 15880,
+      "hard_temporal": 3108,
+      "already_crossed": 933,
+      "negatives": 19921,
+      "imbalance": 35.01054481546573
+    },
+    {
+      "split": "test",
+      "horizon": 32,
+      "total": 69875,
+      "positive": 2140,
+      "genuine": 37316,
+      "hard_temporal": 27411,
+      "already_crossed": 3008,
+      "negatives": 67735,
+      "imbalance": 31.651869158878505
+    }
+  ],
+  "sweep_split": "train",
+  "sweep": [
+    {
+      "horizon": 32,
+      "usable": 88214,
+      "positive": 2530,
+      "band": 4186,
+      "band_frames": 64,
+      "censored_out": 0,
+      "imbalance": 33.867193675889325,
+      "band_per_positive": 1.6545454545454545
+    },
+    {
+      "horizon": 45,
+      "usable": 85297,
+      "positive": 3471,
+      "band": 4001,
+      "band_frames": 64,
+      "censored_out": 2917,
+      "imbalance": 23.574186113511956,
+      "band_per_positive": 1.1526937481993662
+    },
+    {
+      "horizon": 60,
+      "usable": 82020,
+      "positive": 4481,
+      "band": 3816,
+      "band_frames": 64,
+      "censored_out": 6194,
+      "imbalance": 17.303950011158225,
+      "band_per_positive": 0.8515956259763445
+    },
+    {
+      "horizon": 90,
+      "usable": 75767,
+      "positive": 6367,
+      "band": 3435,
+      "band_frames": 64,
+      "censored_out": 12447,
+      "imbalance": 10.89995288204806,
+      "band_per_positive": 0.5395005497094393
+    },
+    {
+      "horizon": 150,
+      "usable": 65326,
+      "positive": 9604,
+      "band": 2499,
+      "band_frames": 64,
+      "censored_out": 22888,
+      "imbalance": 5.801957517700958,
+      "band_per_positive": 0.2602040816326531
+    },
+    {
+      "horizon": 300,
+      "usable": 49325,
+      "positive": 14599,
+      "band": 1496,
+      "band_frames": 64,
+      "censored_out": 38889,
+      "imbalance": 2.3786560723337216,
+      "band_per_positive": 0.1024727721076786
+    }
+  ]
+}

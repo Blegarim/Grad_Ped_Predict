@@ -153,10 +153,15 @@ class ModelCfg:
     onset_head: bool = False
     # L: future frames the head covers. A TRAINING decision, and it must exceed `onset_horizon` — a head
     # only as wide as the reported horizon still labels a crossing at H+5 a flat negative, which is the
-    # failure the method exists to remove.
-    onset_lookahead: int = 60
-    onset_bin_width: int = 1         # w: future frames per bin. 1 = per-frame; >1 trades timing
+    # failure the method exists to remove. 96 (3.2 s) covers ~92% of the genuinely confusable 1–3 s band
+    # (METHODOLOGY "What the negatives are actually made of"); 60 covered ~47%. It also sits well past
+    # the 32 frames of future generation guarantees, so short-future windows land in the CENSORED case
+    # and the masking machinery — the contribution itself — is exercised on existing data without a regen.
+    onset_lookahead: int = 96
+    onset_bin_width: int = 4         # w: future frames per bin. 1 = per-frame; >1 trades timing
     #                                  resolution for a denser positive rate per bin (collapse lever).
+    #                                  4 (133 ms) keeps 8 bins inside the reported horizon while making
+    #                                  positives ~4x denser per bin than the old 60/1 setting.
     # H: frames the reported readout covers. Must equal data.future_offset + data.tol (validated), or
     # the readout stops answering the question the four baseline runs answered.
     onset_horizon: int = 32
@@ -253,7 +258,7 @@ class TrainCfg:
     use_class_weights: bool = False  # imbalance lever 3: inverse-freq CE weights (off in run #2)
     # Onset-timing objective (docs/METHODOLOGY.md prong 2) — INERT unless model.onset_head. These two
     # plus loss_weight["crosses"] are the three knobs that select which formulation is being trained:
-    #   loss_weight.crosses=1, hazard=1, readout=0  -> hazard as a pure AUXILIARY task; `crosses` is
+    #   loss_weight.crosses=1.2, hazard~0.1, readout=0 -> hazard as a pure AUXILIARY task; `crosses` is
     #                                                  still reported from crosses_frame, so the four
     #                                                  baselines stay exactly comparable. START HERE.
     #   loss_weight.crosses=0, hazard=1, readout=0  -> pure reformulation (the methodological claim);
@@ -262,11 +267,13 @@ class TrainCfg:
     #                                                  direct gradient, since the hazard term alone
     #                                                  never optimises the number actually reported.
     # SCALE WARNING: the hazard term is a SUM over a window's observed bins (likelihood-correct — a
-    # window observed for 60 bins really does carry more information than one observed for 3), so at
-    # onset_lookahead=60 it starts around 40x a per-task CE term (~0.69 * 60 at init) and falls as the
-    # hazards saturate low. For the AUXILIARY arm, where it must not swamp the CE heads, start near
-    # 0.02-0.05; for the pure-reformulation arm, where it IS the objective, 1.0 is right. The per-epoch
-    # `onset_hazard` value in the loss output is the raw unweighted number, so this is observable.
+    # window observed for 24 bins really does carry more information than one observed for 3), so it
+    # starts far above a per-task CE. At the default 96/4 (24 bins) that is ~0.69 * observed_bins at
+    # init: ~5.5 for a window carrying only the guaranteed 32 frames of future (8 bins), ~16.6 for a
+    # fully-observed one. For the AUXILIARY arm, where it must not swamp the CE heads, pick the weight
+    # so weight * hazard lands near loss_weight['crosses']; ~0.1 is the starting guess. For the
+    # pure-reformulation arm, where it IS the objective, 1.0 is right. The per-epoch `onset_hazard`
+    # value in the loss output is the raw unweighted number, so tune from epoch 1 instead of guessing.
     onset_hazard_weight: float = 1.0    # weight on the masked per-bin hazard NLL
     onset_readout_weight: float = 0.0   # weight on the direct BCE against P(onset within horizon)
     use_weighted_sampler: bool = True

@@ -370,9 +370,10 @@ those actually are, they split three ways:
 * **Already crossed.** Recovered by a regen, then dropped again by the hazard loss as not at risk. Net zero.
 
 The earlier framing here — "a straight recovery of data" — oversold the second group and missed the first.
-Note also that the censoring machinery is **already exercised without any regen**: at `lookahead=60` every
-window with `future_observed` between 32 and 60 is a censored observation, and generation only guarantees
-32. The demonstration does not depend on recovering the short-future windows.
+Note also that the censoring machinery is **already exercised without any regen**: at the default
+`lookahead=96` every window with `future_observed` between 32 and 96 is a censored observation, and
+generation only guarantees 32. This is part of why the look-ahead sits well above the reported horizon —
+at `lookahead=32` nothing would ever be censored and the centrepiece of the method would never execute. The demonstration does not depend on recovering the short-future windows.
 
 **Any horizon can be read afterwards.** The model estimates *when*; "will they cross within H" is then a
 question asked of the output, at whatever H the reader wants, rather than a decision frozen into the
@@ -382,6 +383,32 @@ training labels.
 the binary 32-frame question. A model that predicts timing must still emit a directly comparable number —
 the probability of onset within 32 frames — or every existing comparison is lost. This maps cleanly, but
 it must be built in from the start, not bolted on.
+
+### How far ahead the head looks — sized 2026-09-07
+
+The reported horizon is fixed at 32 frames and defended above. How far the *head* looks is a separate,
+free choice, and it had been sitting at 60 frames with no argument behind it. Sizing it against the
+negative composition measured earlier in this document:
+
+| Look-ahead | Windows whose onset falls inside it | New vs. a 32-frame head | Share of the confusable 1–3 s band |
+|---|---|---|---|
+| 32 (= horizon) | 2,530 | — | — |
+| 60 *(previous default)* | 4,481 | +1,951 | ~47% |
+| **96 = 3.2 s** *(current default)* | ~6,400 | **+3,900** | **~92%** |
+| 150 = 5.0 s | 9,604 | +7,074 | past the band, into the >5 s mass |
+
+Read the third column as: windows that stop being supervised as flat negatives and start carrying a real
+"crossing begins here" bin. At 96 that nearly triples the set of windows carrying any positive
+supervision, in a task with a 2.9% positive rate.
+
+Going further than 96 buys little. Two-thirds of the hard-temporal mass sits more than five seconds out —
+people who happen to cross eventually, not confusing examples — so a wider head spends bins on a
+population the method does not need to separate, while thinning the positives each bin sees.
+
+Paired with `onset_bin_width=4`, which also went in at the same time: 24 bins instead of 60 makes
+positives roughly 4× denser per bin, keeps 8 bins inside the reported horizon, and costs timing
+resolution of 133 ms. Both are training-side numbers; neither touches what gets reported. Unmeasured —
+the sizing is arithmetic over the composition study, not a run.
 
 ### What still holds from the binary view
 

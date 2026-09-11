@@ -12,6 +12,8 @@ import dataclasses
 import math
 from datetime import datetime
 
+import pytest
+
 from pedpredict.config.loader import load_resolved_config
 from pedpredict.config.schema import RootCfg
 from pedpredict.training.metrics import METRIC_COLUMNS, MetricResult, TaskMetrics
@@ -216,3 +218,40 @@ def test_trainer_append_index_row_end_to_end(tmp_path) -> None:
     assert int(row["epochs_run"]) == 2
     assert int(row["best_epoch"]) == 2                   # _best_epoch (0-based 1) + 1
     assert float(row["crosses_f1"]) == 0.40              # headline from the best epoch
+
+
+# --------------------------------------------------------------------- resume: adopt an existing run
+
+
+def test_init_run_resume_dir_adopts_existing_run(tmp_path) -> None:
+    """``resume_dir`` continues the original run dir instead of minting a new timestamped one, so an
+    interrupted run stays ONE run dir (and one index.csv row) however often it restarts."""
+    cfg = _cfg(tmp_path / "runs", model_type="pose_full")
+    original = init_run(cfg, tag="onset_aux", now=_NOW)
+
+    resumed = init_run(cfg, tag="onset_aux", resume_dir=original.path)
+
+    assert resumed.path == original.path
+    assert resumed.run_id == original.run_id           # NOT a fresh timestamp
+    assert resumed.checkpoints_dir.is_dir() and resumed.plots_dir.is_dir()
+
+
+def test_init_run_resume_dir_does_not_restamp_the_config_snapshot(tmp_path) -> None:
+    """The snapshot records what produced the earlier epochs. Resuming with a different config must
+    leave it alone rather than silently rewriting history to match the resumed settings."""
+    cfg = _cfg(tmp_path / "runs")
+    original = init_run(cfg, now=_NOW)
+    before = original.config_path.read_bytes()
+
+    drifted = dataclasses.replace(cfg, train=dataclasses.replace(cfg.train, lr=9.9e-3))
+    init_run(drifted, resume_dir=original.path)
+
+    assert original.config_path.read_bytes() == before
+    assert load_resolved_config(original.config_path).train.lr != 9.9e-3
+
+
+def test_init_run_resume_dir_rejects_a_missing_directory(tmp_path) -> None:
+    """A typo'd run dir must fail loudly, not quietly scaffold an empty one and lose the warm state."""
+    cfg = _cfg(tmp_path / "runs")
+    with pytest.raises(FileNotFoundError, match="not an existing run dir"):
+        init_run(cfg, resume_dir=tmp_path / "runs" / "no_such_run")

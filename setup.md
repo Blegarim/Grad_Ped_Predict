@@ -105,6 +105,20 @@ python scripts/train.py --set train.active_tasks=[crosses] train.selection_metri
 Ablation arms: `--set eval.model_type=ped_local|kinematics_only|visual_only|vanilla_concat`. **The selector
 is `eval.model_type`, not `model.model_type`.** Override anything inline, e.g. `--set train.lr=5e-5`.
 
+**Resuming an interrupted run** (`--resume`) — a killed pod, an OOM, or a deliberate overnight stop:
+```powershell
+python scripts/train.py --resume outputs/runs/<run>/checkpoints/last.pth   # + the SAME --set flags as the original
+```
+`last.pth` carries model + optimizer + scaler + scheduler + epoch, so training continues at
+`saved_epoch + 1` with no epoch re-run. It **continues the original run dir** — `train_log.csv` appends
+rather than restarting, so one interrupted run stays one run dir and one `index.csv` row however many
+times it restarts. The original `resolved_config.yaml` is left untouched (it is the record of what
+produced the earlier epochs), which means **you must pass the same `--set` flags again**: nothing
+re-reads the snapshot, and a resumed run with a different `lr` would train under settings its own
+snapshot does not show. Not supported for multi-phase `schedule.enabled=true` runs — a checkpoint
+records an epoch, not which phase it belongs to, so `--resume` refuses rather than restarting at phase 1
+with warm weights.
+
 **Crosses-only (head-selection mode).** `--set train.active_tasks=[crosses]` is the one-flag switch: it
 zeros the actions/looks heads in both imbalance levers, drops them from the metric/CSV/eval columns, and
 makes `macro_f1` collapse to `crosses_f1`. **Always pair it with `train.selection_metric=crosses_f1`** —
@@ -213,18 +227,25 @@ any movement is attributable to the trunk learning timing.
 python scripts/train.py --set model.onset_head=true --set train.num_epochs=2 --tag onset_smoke
 
 # 1) AUXILIARY — hazard as a side task; crosses still reported from crosses_frame
-python scripts/train.py --set model.onset_head=true --set train.onset_hazard_weight=0.03 --tag onset_aux
+python scripts/train.py --set model.onset_head=true --set train.onset_hazard_weight=0.1 --tag onset_aux
 
 # 2) PURE REFORMULATION and 3) HEDGE — full one-liners in "Copy-paste training recipes" below
 ```
-⚠️ **Scale.** The hazard term *sums* over each window's observed bins (likelihood-correct), so at
-`onset_lookahead=60` it starts ~40× a per-task CE and falls as hazards saturate low. Hence ~0.03 when it
-rides alongside the old objective, 1.0 when it *is* the objective. The per-epoch `onset_hazard` value is
-the raw unweighted number — read it in the first minute, like `train_distribution.json`.
+⚠️ **Scale.** The hazard term *sums* over each window's observed bins (likelihood-correct), so it starts
+far above a per-task CE and falls as hazards saturate low. At the default `96/4` (24 bins) that is
+`~0.69 × observed_bins` at init — ~5.5 for a window carrying only the guaranteed 32 frames of future,
+~16.6 fully observed. Set the weight so `weight × hazard` lands near `loss_weight.crosses` (~0.1 to
+start), 1.0 when it *is* the objective. The per-epoch `onset_hazard` value is the raw unweighted number —
+read it in the first minute, like `train_distribution.json`, and retune rather than guessing.
 
-**If the head goes dead** (readout saturates near 0, `crosses_f1` collapses): the per-bin positive rate is
-~`2.9%/K`. Raise `model.onset_bin_width` to 4 — it quadruples the positives each bin sees, costing timing
-resolution. `onset_lookahead` and `onset_horizon` must both stay divisible by it.
+**If the head goes dead**: the per-bin positive rate is ~`2.9%/K`, and `onset_bin_width=4` (K=24) is that
+mitigation already applied by default. Widen to 8 (K=12) if a smoke run still shows it. `onset_lookahead`
+and `onset_horizon` must both stay divisible by the width.
+
+**Read the right diagnostic.** A *low mean hazard is correct* — the true per-frame onset rate really is
+well under 1%, and the head should learn that. Dead means the **spread** of `crosses_readout` over val
+windows is a narrow spike at the ~2.9% base rate: same answer for a person poised at the kerb and one
+walking parallel to the road. Perfectly calibrated on average, AUC ≈ 0.5, useless.
 
 **Eval** needs no new flags: `evaluate.py` inherits the whole `model` section from the checkpoint's
 `resolved_config.yaml`, so head width and metric routing follow the checkpoint automatically.
@@ -271,10 +292,14 @@ python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true 
 ```powershell
 python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set train.onset_readout_weight=0.5 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_hedge
 ```
-**Collapse rescue** — 4-frame bins quadruple the positives each bin sees, costing timing resolution. Reach
-for this only if the smoke run shows a dead head.
+**Collapse rescue** — 8-frame bins (K=12) double the positives each bin sees again, costing timing
+resolution. Reach for this only if the smoke run shows a dead head at the default width of 4.
 ```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_bin_width=4 --set train.onset_hazard_weight=0.03 --tag onset_w4
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_bin_width=8 --set train.onset_hazard_weight=0.1 --tag onset_w8
+```
+**Old geometry** — the pre-2026-09-07 `60/1` defaults, if a comparison against them is wanted.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_lookahead=60 --set model.onset_bin_width=1 --set train.onset_hazard_weight=0.03 --tag onset_l60
 ```
 
 ### Ablations
@@ -334,9 +359,9 @@ the first minute rather than at hour three. Defaults in **bold**.
 | `augment.runtime` | **false** \| true | on-the-fly train-time aug (scarcity regularizer); offline `augment.enabled` is a *build* flag |
 | `model.motion_norm` | **image** \| per_sequence \| none | motion-feature semantics (A4 arm); `none` is pose-only (validated ⇔ `pose.enabled`) |
 | `model.onset_head` | **false** \| true | builds the onset hazard head (§12). `false` = the binary baseline, byte-identical to the four `pose_full` runs |
-| `model.onset_lookahead` / `onset_bin_width` | **60** / **1** | how far ahead the head predicts, and at what resolution. `lookahead` MUST exceed `onset_horizon` (validated) — at equality a crossing just past the horizon is still a flat negative, which is the failure the arm exists to remove |
+| `model.onset_lookahead` / `onset_bin_width` | **96** / **4** | how far ahead the head predicts (3.2 s, covering ~92% of the confusable 1–3 s band), and at what resolution (133 ms, 8 bins inside the reported horizon). `lookahead` MUST exceed `onset_horizon` (validated) — at equality a crossing just past the horizon is still a flat negative, which is the failure the arm exists to remove |
 | `model.onset_report_crosses` | **false** \| true | which head `crosses` is SCORED on: `crosses_frame` (= the baselines) vs the hazard readout. **Metrics only** — never the loss routing |
-| `train.onset_hazard_weight` / `onset_readout_weight` | **1.0** / **0.0** | selects the arm (§12). The hazard term sums over bins, so it starts ~40× a CE — use ~0.03 in the auxiliary arm, 1.0 where it is the objective |
+| `train.onset_hazard_weight` / `onset_readout_weight` | **1.0** / **0.0** | selects the arm (§12). The hazard term sums over bins, so it starts well above a CE (~5.5–16.6 at `96/4`) — use ~0.1 in the auxiliary arm, 1.0 where it is the objective, and retune from the logged raw value |
 | `train.num_epochs` / `lr` / `lr_schedule` | **30** / **1e-4** / **warmup_cosine** | training budget + optimization (wrong `lr` = diverge / no-learn) |
 | `train.warmup_epochs` / `warmup_start_factor` | **1** / **0.1** | `warmup_cosine` linear-warmup length **in epochs** (not steps — the scheduler steps once per epoch; `0` disables warmup) + its start LR (`warmup_start_factor * lr`, = 1e-5 at default `lr`) |
 

@@ -302,18 +302,27 @@ Row 3 is what the binary label cannot say; row 4 is a bug it cannot avoid (today
 
 | `loss_weight.crosses` | `onset_hazard_weight` | `onset_readout_weight` | `onset_report_crosses` | Arm |
 |---|---|---|---|---|
-| 1.2 | ~0.03 | 0 | false | **auxiliary** — reported number comes from the same head as the baselines. Start here. |
+| 1.2 | ~0.1 | 0 | false | **auxiliary** — reported number comes from the same head as the baselines. Start here. |
 | 0 | 1.0 | 0 | true | pure reformulation — the methodological claim |
 | 0 | 1.0 | w | true | the hedge — the hazard term never optimises the number actually reported |
 
-⚠️ **Scale.** The hazard term *sums* over a window's observed bins (likelihood-correct), so at `L=60` it
-starts ~40× a per-task CE (`~0.69 × 60` at init) and falls as hazards saturate low. Hence ~0.03 in the
-auxiliary arm and 1.0 where it *is* the objective. `OnsetLossOutput.hazard` logs the raw unweighted value
-so the ratio is observable rather than inferred.
+⚠️ **Scale.** The hazard term *sums* over a window's observed bins (likelihood-correct), so it starts far
+above a per-task CE and falls as hazards saturate low. At the default `L=96, w=4` (K=24) that is
+`~0.69 × observed_bins` at init — ~5.5 for a window carrying only the 32 frames of future generation
+guarantees (8 bins), ~16.6 fully observed. Set the auxiliary weight so `weight × hazard` lands near
+`loss_weight.crosses`; ~0.1 to start, 1.0 where the hazard *is* the objective. `OnsetLossOutput.hazard`
+logs the raw unweighted value, so tune it from epoch 1 rather than inferring it.
+
+**Geometry defaults (re-pinned 2026-09-07): `onset_lookahead=96`, `onset_bin_width=4`.** 96 frames
+(3.2 s) covers ~92% of the confusable 1–3 s band the negative-composition study identified; the earlier 60
+covered ~47%. Width 4 keeps 8 bins inside the reported horizon while making positives ~4× denser per bin.
+Both are training-side choices — `onset_horizon=32` is unchanged and still pinned to `future_offset+tol`.
 
 **Known risk, by design:** with `K` bins the per-bin positive rate is ~`2.9%/K`, so the head can collapse
-to `h ≈ 0` everywhere and the readout saturates near zero. The lever is `onset_bin_width` (4 quadruples
-the positives per bin, costing timing resolution). Check it on a short run before committing GPU hours.
+to `h ≈ 0` everywhere and the readout saturates near zero. `onset_bin_width=4` is that mitigation already
+applied; if a smoke run still shows a dead head, widen to 8 (K=12). **The diagnostic is not a low mean
+hazard** — it *should* be low — but the *spread* of `crosses_readout` across val windows. A narrow spike
+at the ~2.9% base rate means the head learned the average and nothing else. Check before GPU hours.
 
 ## Evaluation
 

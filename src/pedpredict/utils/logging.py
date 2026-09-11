@@ -219,13 +219,33 @@ def snapshot_config(run_dir: Path, cfg: RootCfg) -> Path:
     return dump_config(cfg, run_dir)
 
 
-def init_run(cfg: RootCfg, *, tag: str = "", kind: str = "train", now: datetime | None = None) -> RunDir:
+def init_run(
+    cfg: RootCfg,
+    *,
+    tag: str = "",
+    kind: str = "train",
+    now: datetime | None = None,
+    resume_dir: str | Path | None = None,
+) -> RunDir:
     """Make a run id, scaffold ``cfg.paths.runs_dir/{run_id}``, snapshot the config; return a RunDir.
 
     ``kind`` distinguishes non-training runs (e.g. ``"eval"``): for ``kind != "train"`` it is folded
     into the run id so standalone runs are visually distinct (``..._full_eval``). The model type comes
     from ``cfg.eval.model_type`` (the shared selector).
+
+    ``resume_dir`` **adopts an existing run dir** instead of minting a new one (warm resume): the run id
+    becomes the directory name and any missing subdirs are recreated. The original
+    ``resolved_config.yaml`` is deliberately NOT overwritten — it is the record of what produced the
+    earlier epochs, and a resumed run that silently restamped it would make the snapshot lie. Because
+    :class:`CsvLogger` appends, ``train_log.csv`` then continues instead of restarting, so one logical
+    run stays one run dir and one ``index.csv`` row however many times it is interrupted.
     """
+    if resume_dir is not None:
+        path = Path(resume_dir)
+        if not path.is_dir():
+            raise FileNotFoundError(f"init_run(resume_dir=...): not an existing run dir: {path}")
+        create_run_dir(path.parent, path.name)   # idempotent: ensure checkpoints/ + plots/ exist
+        return RunDir(run_id=path.name, path=path)
     full_tag = tag if kind == "train" else (f"{tag}_{kind}" if tag else kind)
     run_id = make_run_id(cfg.eval.model_type, full_tag, now=now)
     path = create_run_dir(Path(cfg.paths.runs_dir), run_id)

@@ -19,14 +19,16 @@ loss_weight: {actions: 0.8, looks: 0.8, crosses: 1.2}
 use_class_weights: false # imbalance lever 3 (M1): inverse-frequency CE class weights — OFF by default (run #2 canonical)
 # Onset-timing objective (docs/METHODOLOGY.md prong 2) — INERT unless model.onset_head. These two plus
 # loss_weight.crosses select which formulation is trained:
-#   loss_weight.crosses=1.2, hazard~0.03, readout=0  -> hazard as AUXILIARY; crosses still reported from
+#   loss_weight.crosses=1.2, hazard~0.1,  readout=0  -> hazard as AUXILIARY; crosses still reported from
 #                                                       crosses_frame, so the baselines stay comparable.
 #                                                       START HERE.
 #   loss_weight.crosses=0,   hazard=1,    readout=0  -> pure reformulation (+ model.onset_report_crosses)
 #   loss_weight.crosses=0,   hazard=1,    readout=w  -> the hedge: the hazard term never optimises the
 #                                                       number actually reported; this pulls it directly.
-# SCALE: the hazard term SUMS over a window's observed bins, so at onset_lookahead=60 it starts ~40x a
-# per-task CE (~0.69*60 at init). Hence ~0.03 for the auxiliary arm, 1.0 when it IS the objective.
+# SCALE: the hazard term SUMS over a window's observed bins, so it starts far above a per-task CE. At the
+# default 96/4 (24 bins) that is ~0.69*observed_bins at init — ~5.5 when a window carries only the
+# guaranteed 32 frames of future, ~16.6 fully observed. Pick the auxiliary weight so weight*hazard lands
+# near loss_weight.crosses (~0.1 to start); 1.0 when it IS the objective. Read the logged raw value.
 onset_hazard_weight: 1.0
 onset_readout_weight: 0.0
 use_weighted_sampler: true

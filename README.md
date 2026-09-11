@@ -119,6 +119,9 @@ Config-first — override any field with `--set section.field=value`. The model 
 
 ```bash
 python scripts/train.py    --set eval.model_type=full --set train.lr=5e-5
+python scripts/train.py    --resume outputs/runs/<run>/checkpoints/last.pth   # warm-resume an interrupted
+                                                 # run INTO its original run dir (train_log.csv appends);
+                                                 # re-pass the same --set flags — see setup.md §6
 python scripts/evaluate.py --split val  --checkpoint <best.pth>   # tune + store val thresholds, then…
 python scripts/evaluate.py --split test --checkpoint <best.pth>   # report at the frozen val thresholds
 python scripts/run_arm.py  --set eval.model_type=full ...         # full cross-protocol matrix for one arm:

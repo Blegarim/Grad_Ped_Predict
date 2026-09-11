@@ -20,6 +20,7 @@ import pickle
 from pathlib import Path
 
 import lmdb
+import pytest
 import torch
 
 from pedpredict.config.schema import PathsCfg, RootCfg
@@ -109,3 +110,87 @@ def test_schedule_branch_wiring_runs(tmp_path: Path, monkeypatch) -> None:
 
     assert train_script.main([]) == 0
     assert captured["sources"] == {"augmented", "balanced"}
+
+
+# --------------------------------------------------------------------------- --resume CLI wiring
+
+
+def test_resume_passes_checkpoint_and_its_original_run_dir(tmp_path: Path, monkeypatch) -> None:
+    """``--resume <run>/checkpoints/last.pth`` must reach ``build_trainer`` with BOTH the checkpoint
+    and the run dir it came from. Without the second, every restart on a preemptible instance opens
+    a fresh run dir and the epochs of one logical run scatter across several train_log.csv files."""
+    cfg = _cfg_with_paths(tmp_path)
+    run_dir = tmp_path / "runs" / "20260910_000000_pose_full_onset_aux"
+    ckpt = run_dir / "checkpoints" / "last.pth"
+    ckpt.parent.mkdir(parents=True)
+    ckpt.write_bytes(b"")                      # only the PATH is consumed on this code path
+
+    captured: dict[str, object] = {}
+    stub_dir = run_dir
+
+    class _StubTrainer:
+        run_dir = stub_dir
+
+        def fit(self):
+            return []
+
+    def _fake_build_trainer(_cfg, chunks, **kwargs):
+        captured.update(kwargs)
+        chunks.close()
+        return _StubTrainer()
+
+    monkeypatch.setattr(train_script, "load_config", lambda *a, **k: cfg)
+    monkeypatch.setattr(train_script, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(train_script, "build_trainer", _fake_build_trainer)
+
+    assert train_script.main(["--resume", str(ckpt)]) == 0
+    assert captured["resume_from"] == ckpt
+    assert captured["resume_run_dir"] == run_dir
+
+
+def test_no_resume_flag_leaves_both_resume_kwargs_none(tmp_path: Path, monkeypatch) -> None:
+    """The default path must stay exactly as before: a fresh run dir, no warm state."""
+    cfg = _cfg_with_paths(tmp_path)
+    captured: dict[str, object] = {}
+
+    class _StubTrainer:
+        run_dir = tmp_path
+
+        def fit(self):
+            return []
+
+    def _fake_build_trainer(_cfg, chunks, **kwargs):
+        captured.update(kwargs)
+        chunks.close()
+        return _StubTrainer()
+
+    monkeypatch.setattr(train_script, "load_config", lambda *a, **k: cfg)
+    monkeypatch.setattr(train_script, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(train_script, "build_trainer", _fake_build_trainer)
+
+    assert train_script.main([]) == 0
+    assert captured["resume_from"] is None and captured["resume_run_dir"] is None
+
+
+def test_resume_rejects_multi_phase_schedule(tmp_path: Path, monkeypatch) -> None:
+    """A checkpoint records an epoch, not which PHASE it belongs to, so resuming a schedule run would
+    silently restart at phase 1 with warm weights. Refuse instead."""
+    cfg = dataclasses.replace(
+        _cfg_with_paths(tmp_path),
+        schedule=dataclasses.replace(RootCfg().schedule, enabled=True),
+    )
+    ckpt = tmp_path / "runs" / "r" / "checkpoints" / "last.pth"
+    ckpt.parent.mkdir(parents=True)
+    ckpt.write_bytes(b"")
+    monkeypatch.setattr(train_script, "load_config", lambda *a, **k: cfg)
+
+    with pytest.raises(SystemExit):
+        train_script.main(["--resume", str(ckpt)])
+
+
+def test_resume_with_missing_checkpoint_fails_before_any_training(tmp_path: Path, monkeypatch) -> None:
+    """Fail on the typo immediately, not after warming chunks and building a model."""
+    monkeypatch.setattr(train_script, "load_config", lambda *a, **k: _cfg_with_paths(tmp_path))
+
+    with pytest.raises(SystemExit):
+        train_script.main(["--resume", str(tmp_path / "nope.pth")])

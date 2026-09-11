@@ -73,8 +73,28 @@ def main(argv=None) -> int:
         "--tag", default="",
         help="Optional run-id suffix ({timestamp}_{model_type}_{tag}); also the index.csv tag column.",
     )
+    parser.add_argument(
+        "--resume", default="", metavar="CKPT",
+        help="Warm-resume from a checkpoint (usually outputs/runs/<run>/checkpoints/last.pth). Restores "
+             "model+optimizer+scaler+scheduler+epoch and CONTINUES the original run dir, so an "
+             "interrupted run stays one run dir and one index.csv row.",
+    )
     args = parser.parse_args(argv)
     cfg = load_config(args.config_dir, args.overrides)
+
+    # The run dir is the checkpoint's grandparent (<run>/checkpoints/last.pth -> <run>/), so a resumed
+    # run appends to its own train_log.csv instead of starting a second one.
+    resume_ckpt: Path | None = None
+    if args.resume:
+        resume_ckpt = Path(args.resume)
+        if not resume_ckpt.is_file():
+            parser.error(f"--resume: no such checkpoint: {resume_ckpt}")
+        if cfg.schedule.enabled:
+            parser.error(
+                "--resume is not supported for multi-phase schedule runs (schedule.enabled=true): the "
+                "checkpoint records an epoch, not which phase it belongs to, so resuming would restart "
+                "the schedule from phase 1 with warm weights. Re-run the schedule from the start."
+            )
     set_seed(cfg.train.seed)        # M7: seed BEFORE model init / sampler / shuffle (snapshot logs it)
 
     device = get_device()
@@ -138,7 +158,11 @@ def main(argv=None) -> int:
     else:
         # ---------------------------------------------------------------- single-phase
         chunks = ChunkPrefetcher.from_config(cfg, pin_memory=(device.type == "cuda"))
-        trainer = build_trainer(cfg, chunks, device=device, tag=args.tag)
+        trainer = build_trainer(
+            cfg, chunks, device=device, tag=args.tag,
+            resume_from=resume_ckpt,
+            resume_run_dir=resume_ckpt.parent.parent if resume_ckpt is not None else None,
+        )
         results = trainer.fit()
         print(f"Training complete. {len(results)} epoch(s), run dir: {trainer.run_dir}")
 

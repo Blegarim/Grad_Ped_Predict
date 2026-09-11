@@ -585,6 +585,7 @@ def build_trainer(
     device: torch.device | None = None,
     tag: str = "",
     resume_from: str | Path | None = None,
+    resume_run_dir: str | Path | None = None,
 ) -> Trainer:
     """Wire a runnable :class:`Trainer`: device + perf flags, ``build_model`` (2.4), run-dir + CSV logger.
 
@@ -595,6 +596,12 @@ def build_trainer(
     Pass ``resume_from`` to warm-resume from a :class:`~pedpredict.training.callbacks.CheckpointManager`
     checkpoint. All training state (model, optimizer, scaler, scheduler, best_val_loss, epoch) is
     restored; training continues from ``saved_epoch + 1``.
+
+    Pass ``resume_run_dir`` alongside it to continue writing into the ORIGINAL run dir rather than
+    minting a fresh timestamped one — without it an interrupted run scatters its epochs across a new
+    directory (and a new ``index.csv`` row) on every restart, which is the normal case on preemptible
+    cloud instances. The caller supplies the directory rather than the library inferring it from the
+    checkpoint path, so a checkpoint kept outside a run dir never silently creates one.
     """
     device = device if device is not None else get_device()
     enable_perf_flags(device)
@@ -610,7 +617,7 @@ def build_trainer(
         else:
             n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
             print(f"[freeze_vit_backbone] froze {n_frozen} ViT tensors; {n_train:,} trainable params remain.")
-    run = init_run(cfg, tag=tag)                                  # run id + scaffold + config snapshot
+    run = init_run(cfg, tag=tag, resume_dir=resume_run_dir)       # run id + scaffold + config snapshot
     run_dir = run.path
     logger = run.train_logger(train_log_columns(cfg.train.ordered_active_tasks()))
     ckpt_mgr = CheckpointManager(
@@ -647,4 +654,6 @@ def build_trainer(
         trainer.best_selection = payload.best_selection
         trainer._best_epoch = payload.epoch
         trainer._start_epoch = payload.epoch + 1
+        print(f"[resume] {Path(resume_from)}: continuing at epoch {payload.epoch + 1}/"
+              f"{cfg.train.num_epochs} (best_val_loss={payload.best_val_loss:.4f}) -> {run_dir}")
     return trainer

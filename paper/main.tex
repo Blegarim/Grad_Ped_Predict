@@ -1,0 +1,835 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+% --- packages -------------------------------------------------------------
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+\usepackage[textsize=scriptsize,color=orange!25,linecolor=orange!60]{todonotes}
+\setlength{\marginparwidth}{2cm}
+
+\graphicspath{{figures/}}
+\sisetup{detect-weight=true, detect-family=true, group-minimum-digits=4}
+
+% --- shorthands -----------------------------------------------------------
+\newcommand{\Gprior}{G_{\mathrm{prior}}}
+\newcommand{\Ghard}{G_{\mathrm{hardneg}}}
+\newcommand{\Gtot}{G_{\mathrm{total}}}
+
+\begin{document}
+
+\title{Streaming Crossing-Onset Detection for Pedestrian\\Intention:
+Protocol, Diagnosis, and Onset Timing Under Censoring}
+
+\author{\IEEEauthorblockN{Author Name}
+\IEEEauthorblockA{Affiliation \\ email@domain}}
+
+\maketitle
+
+\begin{abstract}
+Pedestrian crossing-intention models are usually trained and tested under an
+event-anchored protocol: each pedestrian track contributes one short observation
+window, placed a known one to two seconds before an annotated crossing event. A
+detector on a vehicle works differently. It watches continuously, and at every
+moment it must judge whether a crossing is about to begin. This paper defines
+both protocols precisely on the PIE dataset and measures what the difference
+between them costs. Anchored sampling gives a class ratio of about $2.5{:}1$
+because it takes roughly one window per track. Dense sliding-window sampling
+gives $33.9{:}1$, because that is how often a crossing is genuinely imminent
+when a camera watches without pause. The protocols also differ in what their
+negatives are made of. We find that $25.7\%$ of streaming training windows and
+$39.2\%$ of test windows show a pedestrian who does cross, only later than the
+horizon asks about, and the anchored protocol produces no such windows for
+either training or testing. A model trained under the anchored protocol falls
+from $0.873$ to $0.540$ AUC when tested on the stream, and re-tuning its
+decision threshold at the streaming base rate recovers almost none of that
+loss. What the model has lost is therefore its ability to rank pedestrians by
+risk, not the placement of its threshold. We argue that part of the difficulty
+comes from the label itself, which gives opposite answers to almost identical
+observations on either side of a fixed cutoff, and we propose treating the task
+as predicting \emph{when} a crossing will start, under right-censoring. A
+window whose future footage runs out is then a censored observation rather than
+a negative, and the model still reports the probability of a crossing within the
+original horizon, so it remains directly comparable with binary baselines.
+\todo[inline]{Closing results sentence still missing: the onset formulation is
+implemented and unit-tested but has not been trained. Do not submit without
+\cref{tab:onset} filled in, or with the contribution restated as
+formulation-only.}
+\end{abstract}
+
+\begin{IEEEkeywords}
+pedestrian intention, crossing prediction, online action detection, streaming
+evaluation, class imbalance, survival analysis
+\end{IEEEkeywords}
+
+% ==========================================================================
+\section{Introduction}
+\label{sec:intro}
+
+A pedestrian-crossing detector on a moving vehicle is a streaming system. It
+sees the road continuously, and at every moment it must judge whether someone is
+about to step into it. Nothing tells it when to attend to a particular
+pedestrian, and most of the time nothing is about to happen.
+
+The protocol used to evaluate such systems asks a narrower question. Following
+the procedure introduced with PIE and JAAD~\cite{rasouli2019pie,rasouli2017jaad}
+and settled in the standard evaluation suite~\cite{kotseruba2021benchmark}, each
+pedestrian track contributes about one labeled observation window. Observation
+stops at the crossing event, and the window is placed so that its last frame
+falls a known one to two seconds before that event. The class ratio that results
+is mild, roughly $2.5{:}1$, and reported scores are high.
+
+The two settings differ in more than difficulty. Because the anchored protocol
+places its window relative to an event it already knows about, it never produces
+the windows that occur earlier in a crossing pedestrian's track. Those are the
+moments when a person who will eventually cross is still walking along the
+sidewalk. Under a short horizon such windows are negatives, they look almost
+exactly like the positives that follow them, and they are the situations in
+which a deployed detector must not raise a false alarm. Since the anchored
+protocol leaves them out of both training and testing, the standard pipeline
+neither teaches a model to handle them nor shows whether it can.
+
+This paper measures that omission and what it costs.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig1_protocols.pdf}
+  \caption{The two sampling protocols applied to one pedestrian track. (a)~The
+  event-anchored protocol takes about one window per track, placed a known
+  interval before a known crossing onset; the rest of the track is never
+  sampled. (b)~Streaming sampling covers the whole track. Its negatives are
+  dominated by windows of the same pedestrian, in the same scene, shortly before
+  the onset. These are the hard temporal negatives that protocol (a) cannot
+  produce. Windows are drawn separated for legibility; in practice they overlap
+  heavily (length $20$, stride $3$).}
+  \label{fig:protocols}
+\end{figure*}
+
+We make four contributions.
+\begin{enumerate}
+  \item A precise statement of both protocols, and an explanation of why their
+  class ratios cannot be compared. One counts how many pedestrians eventually
+  cross; the other counts how often a crossing is about to begin
+  (\cref{sec:protocols}).
+  \item A measurement of what the streaming negatives are made of, split by
+  split. Two findings fall out of it: the PIE training and test splits differ in
+  exactly the respect this paper studies, and most of the seemingly difficult
+  negatives are not confusable at all (\cref{sec:omits}).
+  \item A cross-protocol evaluation matrix, and a split of the
+  anchored-to-streaming gap into the part that threshold re-tuning recovers and
+  the part it does not. We measure the first at approximately zero
+  (\cref{sec:gap}).
+  \item A reformulation of the task as onset timing under right-censoring, using
+  a masked discrete-time hazard objective whose horizon read-out stays
+  numerically comparable with the binary baselines (\cref{sec:method}).
+\end{enumerate}
+
+We do not claim streaming evaluation as a new idea; it is well established in
+the online action detection
+literature~\cite{degeest2016oad,shou2018odas,gao2019startnet}. Our claim is that
+the crossing-intention literature has not adopted it, that this has measurable
+and substantial consequences, and that a timing formulation repairs the
+underlying labeling problem rather than working around it.
+
+% ==========================================================================
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Crossing Intention Estimation on PIE and JAAD}
+PIE~\cite{rasouli2019pie} and JAAD~\cite{rasouli2017jaad} are the standard
+datasets for this task, and the evaluation protocol released with
+them~\cite{kotseruba2021benchmark} is the one most later work adopts. It fixes
+per-track binary labels, observation clipped at the crossing point, and a
+time-to-event interval of one to two seconds. That protocol has been inherited
+largely unchanged, and reported improvements are measured against it.
+
+Several studies revisit parts of this evaluation without changing which windows
+the protocol produces. Azarmi \emph{et al.}~\cite{azarmi2024feature} divide PIE
+into context sets and study which input features matter in each, finding a
+strong dependence on ego-vehicle speed. Rasouli and
+Kotseruba~\cite{rasouli2024diving} revise the task definitions and propose
+additional classes of evaluation metric. Both work on the sample population the
+anchored protocol produces; this paper questions that population itself.
+
+The closest prior observation to ours is by Yao \emph{et
+al.}~\cite{yao2021coupling}, who consider an alternative sampling setting that
+keeps windows from the whole track rather than only those next to the crossing
+event.
+\todo[inline]{Verify against the paper body: the project notes record that this
+work labels such windows by eventual crossing and treats the early ones as easy.
+Only title, authors and venue have been confirmed. The contrast drawn below
+depends on that detail being right.}
+Our formulation differs in two ways. Windows are labeled by whether an onset
+falls within a fixed horizon, not by whether the pedestrian eventually crosses;
+and the early windows of eventual crossers are the main object of study rather
+than samples to be set aside.
+\todo[inline]{Optional before submission: add two or three recent PIE methods
+for coverage. TrajFusionNet (arXiv:2508.19866) and the MDPI \emph{Algorithms}
+13(12):331 pose-sequence paper are named by URL only in the project notes and
+were not verified.}
+
+\subsection{Online Action Detection and Action Start Detection}
+Online action detection labels each frame of a stream using only present and
+past evidence~\cite{degeest2016oad}. Its onset-focused variant, detection of
+action start~\cite{shou2018odas,gao2019startnet}, must signal that an action has
+begun, as early as possible, in untrimmed video where background frames
+dominate. Recent work in the area is mostly
+transformer-based~\cite{wang2021oadtr,xu2021lstr,zhao2022testra,wang2023mat}.
+Both the task shape and the evaluation machinery built around it, including
+calibrated average precision and point-level average precision with a temporal
+tolerance, were designed for this regime.
+
+That literature also describes the failure we observe. Shou \emph{et
+al.}~\cite{shou2018odas} note that a start window shares its background scene
+and objects with the frames before it, so its features can sit closer to the
+preceding background than to the action that follows. In our setting, a window
+taken just before someone steps off the curb resembles a window of the same
+person waiting at the curb more than it resembles a crossing. We also note that
+this literature often cites pedestrian crossing as a motivating safety-critical
+application, while evaluating on television, sports and ego-vehicle maneuver
+data.
+
+\subsection{Time-to-Event Modeling}
+Modeling the time until an event, when some observations end before the event is
+seen, is the subject of survival
+analysis~\cite{kaplan1958nonparametric,cox1972regression}. The discrete-time
+form we use in \cref{sec:method}, where a hazard for each interval is trained
+with a masked binary likelihood, is standard there and has been carried over to
+neural estimators~\cite{lee2018deephit}.
+
+Survival methods have already been applied to pedestrian behavior. Kalatian and
+Farooq~\cite{kalatian2019deepwait} estimate how long a pedestrian waits at an
+unsignalized crosswalk, using a Cox proportional hazards model whose risk
+function is a neural network, trained on data from participants in a virtual
+reality environment. That work shows survival modeling suits pedestrian crossing
+behavior, but it addresses a different observation setting and a different
+quantity: waiting time measured from trajectory-level data, rather than onset
+detection from streaming in-vehicle video under the PIE protocol. A targeted
+search found no prior work applying censored time-to-event modeling to
+crossing-onset detection in that setting, though we do not claim the search was
+exhaustive. Our contribution is therefore not the estimator. It is the
+observation that streaming crossing windows already form a right-censored
+time-to-event dataset, and that binary labeling discards exactly the information
+that makes them one.
+
+\subsection{Learning Under Class Imbalance}
+Focal loss~\cite{lin2017focal} and class-balanced
+re-weighting~\cite{cui2019classbalanced} are the standard responses to a rare
+positive class. \cref{sec:gap} gives measured reasons to expect them to fall
+short here: they mainly move the decision boundary, whereas what degrades under
+protocol shift is the ranking itself. We therefore treat them as comparison
+baselines rather than as the proposed remedy.
+
+% ==========================================================================
+\section{Problem Formulation}
+\label{sec:protocols}
+
+\subsection{Event-Anchored Sampling}
+Let a pedestrian track consist of annotated frames $1,\dots,n$. If the
+pedestrian crosses, let $\tau$ be the frame at which the crossing begins. The
+anchored protocol stops observation at $\tau$, or at the last visible frame for
+non-crossers, and emits a small number of observation windows of length $T$
+whose final frame falls in a fixed time-to-event interval before $\tau$, usually
+$30$ to $60$ frames. The label belongs to the track: this pedestrian either
+crosses or does not. The positive share therefore reflects how many pedestrians
+in the dataset eventually cross, which for PIE gives roughly $2.5{:}1$.
+
+\subsection{Streaming Sampling}
+The streaming protocol places a window at every stride-$s$ position along the
+whole track. For a window whose last observed frame is $t$, the label is
+\begin{equation}
+  y_t = \mathbf{1}\left[\, \exists\ \text{onset in } (t,\, t+H] \,\right],
+  \label{eq:binlabel}
+\end{equation}
+where $H$ is the anticipation horizon. Windows in which a crossing is already
+underway during observation are discarded, since a detector cannot anticipate an
+onset that has already happened. The positive share now reflects how often, per
+observed moment, a crossing is imminent. On PIE this is $2.9\%$ of windows, a
+ratio of $33.9{:}1$.
+
+\subsection{Why the Two Ratios Are Not Comparable}
+The two ratios measure different things. The anchored $2.5{:}1$ is a balance
+across tracks: it says how many pedestrians eventually cross, because the
+protocol draws about one window from each. The streaming $33.9{:}1$ is a rate
+over time: it says how often an imminent crossing occurs per observed moment.
+They are not two estimates of one number, and moving between them is not a
+difficulty dial. The gap between them follows from which windows each protocol
+creates in the first place.
+
+One reasonable objection is that streaming sampling is just anchored sampling
+with a long time-to-event. It is not. A long-time-to-event anchored sample is
+still one window per track, placed a known interval from a known event.
+Streaming sampling uses no anchor and no knowledge of the event, and its
+negatives are dominated by a category the anchored protocol does not generate.
+\cref{sec:omits} provides the measurements that show this.
+
+\subsection{Four Kinds of Streaming Negative}
+\label{sec:taxonomy}
+Streaming negatives fall into four kinds, shown in \cref{fig:protocols}(b).
+\begin{itemize}
+  \item \textbf{Genuine non-crossers.} People waiting, or walking along the
+  sidewalk, who do not cross. Present under both protocols.
+  \item \textbf{Hard temporal negatives.} People who will cross, but not within
+  $H$. The person, clothing, street and camera are the same as in the positive
+  windows that follow; only the position of the cutoff makes the label differ.
+  \item \textbf{Already crossed.} Windows where the crossing happened before the
+  observation began. These pedestrians are not at risk of a first crossing at
+  all, yet they receive a negative label and sit alongside genuine
+  non-crossers.
+  \item \textbf{Uninformative windows.} Occluded, distant or otherwise
+  low-information observations.
+\end{itemize}
+The second and third kinds are the ones the anchored protocol structurally
+omits. The third is not merely a hard case: it is a labeling error the binary
+formulation gives no way to avoid.
+
+% ==========================================================================
+\section{What the Streaming Window Population Contains}
+\label{sec:omits}
+
+\subsection{Setup}
+We use PIE with the standard split assignment: sets 01, 02 and 06 for training,
+sets 04 and 05 for validation, and set 03 for testing. Streaming windows are
+$T = 20$ frames at stride $3$, with horizon $H = 32$ frames, about $1.07$\,s at
+$30$\,fps. Windows whose future is not fully observed are discarded rather than
+labeled negative, since we cannot establish that no crossing occurred in an
+interval nobody watched. \cref{tab:stats} gives the resulting population. Every
+measurement in this section comes straight from the PIE annotation files and can
+be reproduced without image data.
+
+\begin{table}[t]
+  \centering
+  \caption{Streaming window population on PIE.}
+  \label{tab:stats}
+  \begin{tabular}{l S[table-format=5.0] S[table-format=2.1] S[table-format=2.1] S[table-format=1.1]}
+    \toprule
+    Split & {$N$} & {actions=1 (\%)} & {looks=1 (\%)} & {crosses=1 (\%)} \\
+    \midrule
+    train & 88214 & 43.4 & 10.5 & 2.9 \\
+    val   & 20490 & 40.3 &  6.7 & 2.8 \\
+    test  & 69875 & 42.2 &  9.8 & 3.1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{What the Negatives Are Made Of}
+Matching each window against the crossing annotation of its own track gives the
+breakdown in \cref{fig:composition} and \cref{tab:composition}. About one
+training window in four, and two test windows in five, show a pedestrian who
+does cross, only later than \cref{eq:binlabel} asks about. Such windows
+outnumber the true positives by $8.9{:}1$ in training and $12.8{:}1$ in test.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig2_composition.pdf}
+  \caption{What streaming windows are made of, by split. The hard temporal
+  negatives, shown as ``will cross, later'', are the population the anchored
+  protocol does not generate. Training and test differ sharply here: $25.7\%$
+  against $39.2\%$.}
+  \label{fig:composition}
+\end{figure}
+
+\begin{table}[t]
+  \centering
+  \caption{Streaming negative composition, as a share of each split (\%).}
+  \label{tab:composition}
+  \begin{tabular}{l S[table-format=1.1] S[table-format=2.1] S[table-format=2.1] S[table-format=2.1]}
+    \toprule
+    Split & {positive} & {will cross, later} & {already crossed} & {never crosses} \\
+    \midrule
+    train & 2.9 & 25.7 & 7.2 & 64.3 \\
+    val   & 2.8 & 15.2 & 4.6 & 77.5 \\
+    test  & 3.1 & 39.2 & 4.3 & 53.4 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Two things in this table deserve attention.
+
+First, the splits are not built the same way. Test holds about half again as
+many hard temporal negatives as training, $39.2\%$ against $25.7\%$, and
+correspondingly fewer easy ones. A drop from training to test performance on
+this data therefore cannot be read as a generalization gap alone, because the
+test split is harder in exactly the respect under study. Validation is the
+easiest of the three at $15.2\%$, which means thresholds chosen on validation
+are optimistic for test in a way that a correctly run no-peeking protocol does
+not fix.
+
+Second, most of the seemingly difficult mass is not confusable. Grouping the
+hard temporal negatives by how far the crossing still is
+(\cref{fig:onsethist}), $68.7\%$ lie more than five seconds ahead. Someone
+walking down a street who crosses several seconds later is not a confusing
+example in any useful sense. The genuinely confusable group is the windows whose
+onset falls in the two seconds just past the horizon, between $1.1$\,s and
+$3.2$\,s: $4{,}186$ training windows, $1.65$ times the size of the positive set.
+That is the population a targeted method has to work on, and it is large enough
+to train against without swamping everything else.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig3_time_to_onset.pdf}
+  \caption{Hard temporal negatives in the training split, grouped by how long
+  remains until the crossing starts. Two thirds lie more than five seconds ahead
+  and are not confusable. The confusable band, the two shaded groups, is about
+  the size of the positive set.}
+  \label{fig:onsethist}
+\end{figure}
+
+\subsection{Why Not Simply Predict Further Ahead}
+\label{sec:horizon}
+The obvious answer to a $33.9{:}1$ imbalance is to enlarge $H$. Relabeling the
+same windows at a range of horizons (\cref{tab:horizon}) shows this improves the
+nominal ratio considerably: the imbalance falls to $5.8{:}1$ at five seconds,
+and the confusable band shrinks from $1.65$ to $0.26$ times the positive set. We
+keep $H = 32$ nonetheless, for three reasons.
+
+\begin{table}[t]
+  \centering
+  \caption{Relabeling the same windows at longer horizons (training split). The
+  confusable band is the set of windows whose onset falls in the two seconds
+  after the horizon.}
+  \label{tab:horizon}
+  \begin{tabular}{l S[table-format=5.0] S[table-format=5.0] l S[table-format=4.0] S[table-format=2.0]}
+    \toprule
+    Horizon & {usable} & {positives} & imbalance & {band} & {lost (\%)} \\
+    \midrule
+    1.1\,s\ \emph{(ours)} & 88214 &  2530 & 33.9:1 & 4186 &  0 \\
+    1.5\,s                & 85297 &  3471 & 23.6:1 & 4001 &  3 \\
+    2.0\,s                & 82020 &  4481 & 17.3:1 & 3816 &  7 \\
+    3.0\,s                & 75767 &  6367 & 10.9:1 & 3435 & 14 \\
+    5.0\,s                & 65326 &  9604 &  5.8:1 & 2499 & 26 \\
+    10.0\,s               & 49325 & 14599 &  2.4:1 & 1496 & 44 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{A longer horizon deletes the windows that matter most.} It needs more
+observed future, so $26\%$ of windows fall away at five seconds and $44\%$ at
+ten. They fall away by track length, so short tracks go first, and short tracks
+are pedestrians who appear abruptly or are quickly occluded. Those are precisely
+the cases a short-horizon detector exists to cover. The improved balance is
+bought by deleting the hardest part of the dataset.
+
+\textbf{The confusion moves rather than disappears.} The ratio improves because
+windows that were hard negatives at one second become positives at five. The
+model still cannot tell a window $4.9$\,s before onset from one $5.1$\,s before
+onset. It now has to answer yes on the first, on evidence that is not in the
+frame. The errors turn from false alarms into misses.
+
+\textbf{The horizon decides which phenomenon is being detected.} At about one
+second, what is visible is the body starting to move: weight shifting, a foot
+lifting, the torso turning. At five seconds no such cue exists yet, and what is
+visible instead is where the person is heading relative to the road. These are
+two different problems needing two different feature sets, so a longer horizon
+replaces the task rather than extending it.
+
+We note that a ten-second horizon gives $2.4{:}1$, close to the anchored
+protocol's $2.5{:}1$. The two arise by different mechanisms and the match is
+coincidental, but it does show how far the anchored ratio reflects a sampling
+choice rather than a property of the task.
+
+% ==========================================================================
+\section{Cross-Protocol Evaluation}
+\label{sec:gap}
+
+\subsection{Model and Training Setup}
+All runs use the same multimodal architecture: a hierarchical windowed-attention
+vision transformer over context crops, a pose and kinematics stream in which
+$23$ whole-body keypoints~\cite{jin2020coco} are reduced to a $58$-dimensional
+per-frame vector, and a cross-attention module in which the kinematic stream
+queries the visual features. Per-task classification heads run at a shared model
+dimension of $128$. The visual backbone is a frozen ImageNet-pretrained
+TinyViT-5M~\cite{wu2022tinyvit}. All four runs share a learning rate of
+$10^{-4}$, weight decay of $10^{-5}$, an effective batch size of $32$ (batch
+size $4$ with $8$ accumulation steps), a warmup--cosine learning-rate schedule
+with four warmup epochs, and seed $42$.
+
+\subsection{The Cross-Protocol Matrix}
+Each model is trained under one protocol and evaluated under both. Thresholds
+are chosen on validation and applied unchanged to test; same-split threshold
+sweeps are computed for diagnosis but never reported as results.
+\cref{tab:matrix} gives the matrix for two models, one trained on all three
+annotation tasks and one trained on the crossing task alone.
+
+\begin{table}[t]
+  \centering
+  \caption{Cross-protocol results for the crossing task. Cells report
+  AUC $\cdot$ raw F1 $\rightarrow$ threshold-tuned F1.}
+  \label{tab:matrix}
+  \setlength{\tabcolsep}{3pt}
+  \scriptsize
+  \begin{tabular}{ll cc}
+    \toprule
+    & & \multicolumn{2}{c}{test protocol} \\
+    \cmidrule(lr){3-4}
+    Model & train protocol & anchored & streaming \\
+    \midrule
+    \multirow{2}{*}{A (3-task)}
+      & anchored  & 0.873 $\cdot$ 0.689 $\rightarrow$ 0.694 & \textbf{0.540 $\cdot$ 0.064 $\rightarrow$ 0.064} \\
+      & streaming & 0.514 $\cdot$ 0.186 $\rightarrow$ 0.322 & 0.742 $\cdot$ 0.211 $\rightarrow$ 0.190 \\
+    \midrule
+    \multirow{2}{*}{B (crossing-only)}
+      & anchored  & 0.880 $\cdot$ 0.716 $\rightarrow$ 0.721 & \textbf{0.529 $\cdot$ 0.064 $\rightarrow$ 0.062} \\
+      & streaming & 0.679 $\cdot$ 0.258 $\rightarrow$ 0.428 & 0.784 $\cdot$ 0.249 $\rightarrow$ 0.225 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Scores within a single protocol are in line with published results, and the
+off-diagonal entries carry the finding. A model trained under the anchored
+protocol reaches $0.873$ AUC on the anchored test set and $0.540$ on the
+streaming test set, which is close to chance. The same collapse appears in the
+crossing-only model, $0.880$ down to $0.529$, so interference between the
+multi-task heads is not the cause.
+
+\subsection{Splitting the Deployment Gap}
+The deployment gap can be split into the part that re-tuning the threshold
+recovers and the part it does not. With every quantity measured in tuned F1 on
+the streaming test column:
+\begin{align}
+  \Gtot   &= \mathrm{F1}^{\text{tuned}}_{\text{str}\to\text{str}}
+             - \mathrm{F1}^{\text{raw}}_{\text{anc}\to\text{str}}, \label{eq:gtot}\\
+  \Gprior &= \mathrm{F1}^{\text{tuned}}_{\text{anc}\to\text{str}}
+             - \mathrm{F1}^{\text{raw}}_{\text{anc}\to\text{str}}, \label{eq:gprior}\\
+  \Ghard  &= \mathrm{F1}^{\text{tuned}}_{\text{str}\to\text{str}}
+             - \mathrm{F1}^{\text{tuned}}_{\text{anc}\to\text{str}}, \label{eq:ghard}
+\end{align}
+so that $\Gtot = \Gprior + \Ghard$ by construction. Here $\Gprior$ is what an
+engineer gains simply by re-choosing the operating point at the streaming base
+rate, and $\Ghard$ is what remains, which we attribute to an ability to separate
+hard negatives that anchored training never builds.
+
+\begin{table}[t]
+  \centering
+  \caption{Splitting the anchored-to-streaming gap.}
+  \label{tab:decomp}
+  \begin{tabular}{l S[table-format=+1.3] S[table-format=+1.3]}
+    \toprule
+    & {Model A} & {Model B} \\
+    \midrule
+    $\Gtot$   & +0.126 & +0.161 \\
+    $\Gprior$ & -0.001 & -0.001 \\
+    $\Ghard$  & +0.126 & +0.162 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\cref{tab:decomp} gives the result. For both models $\Gprior \approx 0$ and
+$\Ghard \approx \Gtot$. Essentially none of the deployment gap is recoverable by
+recalibration, and essentially all of it is a failure to separate hard
+negatives.
+
+The AUC figures explain why. Re-tuning a threshold slides a decision boundary
+along an existing ranking. When the ranking itself has fallen to $0.540$, barely
+better than ordering the pedestrians at random, there is no threshold left to
+find. The argument reaches past thresholds: any method whose main effect is to
+move the operating point, including class re-weighting and focal
+loss~\cite{lin2017focal,cui2019classbalanced}, runs into the same limit.
+
+\subsection{Threats to Validity}
+\label{sec:threats}
+Four qualifications travel with \cref{tab:matrix} and should stay attached
+wherever these numbers are quoted.
+
+\textbf{Training set size is confounded with protocol.} The anchored training
+set holds about $4.9$k windows and the streaming set about $88$k, roughly
+$18$ times more. $\Ghard$ therefore mixes the effect of the training protocol
+with the effect of training set size, so results should be described as
+consistent with a hard-negative gap rather than as establishing one.
+\todo[inline]{Highest-priority outstanding experiment: a streaming run
+subsampled to about $4.9$k windows. One training run, and it would let the
+central claim be stated as demonstrated rather than as consistent with the
+evidence.}
+
+\textbf{F1 is unstable at this base rate.} With one positive in $34$, a handful
+of samples crossing the threshold moves F1 noticeably. The AUC drop, $0.88$ to
+$0.53$ in both models, is the more reliable measurement, and average precision
+and precision at fixed recall are the appropriate replacements.
+
+\textbf{Model B has a configuration mismatch.} Its two halves were trained with
+different sampler settings: the streaming half oversampled the rare crossing
+windows and the anchored half did not. We therefore cite Model B only for the
+point that multi-task interference is not the cause of the gap, never for the
+size of $\Ghard$.
+
+\textbf{Every result is from a single seed.} Each entry is one run at seed
+$42$, with no variance estimate.
+\todo[inline]{The multi-seed protocol (three seeds, mean and standard deviation)
+has not been applied to any entry in \cref{tab:matrix}.}
+
+% ==========================================================================
+\section{Onset Timing Under Right-Censoring}
+\label{sec:method}
+
+\subsection{Where the Binary Label Goes Wrong}
+\cref{eq:binlabel} gets two situations wrong by construction.
+
+A window whose crossing begins at $H + 5$ frames is labeled negative and grouped
+with pedestrians who never cross, even though it looks almost identical to a
+window at $H - 5$ frames, which is labeled positive. This is less a hard
+learning problem than an ill-posed one, and it comes from where we placed the
+cutoff rather than from the data.
+
+A window whose footage ends before $H$ cannot honestly be given either label.
+Calling it negative asserts an observation nobody made; discarding it, as we do
+in \cref{sec:omits}, throws away information that is genuinely there. Neither is
+right, because the true statement, that no crossing happened before the footage
+ran out, cannot be written in a single bit.
+
+Both situations are what a right-censored time-to-event dataset looks like when
+it is forced into binary classification.
+
+\subsection{Three Numbers Kept per Window}
+For each streaming window we keep three quantities alongside the binary label:
+\begin{itemize}
+  \item $o$, how many frames pass between the last observed frame and the next
+  crossing onset, or $-1$ if no onset occurs in the remaining footage;
+  \item $f$, how many frames of future footage exist after the window;
+  \item $c$, whether the track contains a crossing at any point.
+\end{itemize}
+In survival-analysis terms $o$ is the event time, $f$ is the censoring time, and
+$c$ tells apart the two situations in which no crossing is seen. The
+correspondence is exact, not an analogy.
+
+\subsection{Discrete-Time Hazard}
+Divide the next $L$ frames into $K = L/w$ bins of width $w$. Let $h_k$ be the
+hazard of bin $k$: the probability that a first crossing begins in that bin,
+given that none has begun earlier. The model produces $K$ logits from the pooled
+representation. The probability of an onset within a horizon spanning
+$K_H = H/w$ bins then follows from the survival product:
+\begin{equation}
+  P(\text{onset} \le H) = 1 - \prod_{k=0}^{K_H - 1}\left(1 - h_k\right).
+  \label{eq:readout}
+\end{equation}
+\cref{eq:readout} is what keeps the comparison with existing results alive,
+because it answers exactly the question \cref{eq:binlabel} asks. The timing
+model and the binary baselines report the same quantity under the same metric.
+
+\subsection{Supervision When the Future Is Only Partly Seen}
+The three numbers determine a per-bin target $y_k$ and a per-bin mask $m_k$, as
+shown in \cref{fig:cases}.
+\begin{enumerate}
+  \item \textbf{Onset within range} ($0 \le o < L$). With $e = \lfloor o/w
+  \rfloor$, bins $0$ to $e-1$ are supervised as $0$ and bin $e$ as $1$. Every
+  bin after $e$ is masked, because once a first crossing has begun, later bins
+  say nothing about a first crossing.
+  \item \textbf{Onset beyond range} ($o \ge L$). All $K$ bins are supervised as
+  $0$. This is honest: the crossing was seen, and it did not fall inside the
+  window's look-ahead.
+  \item \textbf{Censored} ($o < 0$, with some future seen). Bins covered by $f$
+  are supervised as $0$ and the rest are masked. This is the case the binary
+  label cannot express.
+  \item \textbf{Already crossed} ($o < 0$ and $c$). The window is dropped, since
+  this pedestrian is not at risk of a first crossing. This is the case the
+  binary label cannot get right.
+\end{enumerate}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig4_hazard_cases.pdf}
+  \caption{The four supervision cases. Shaded bins contribute to the loss and
+  dashed bins are masked, receiving no gradient; case~4 leaves the risk set
+  altogether. Case~3 is the situation the binary label cannot express, and
+  case~4 is the one it cannot get right.}
+  \label{fig:cases}
+\end{figure}
+
+\subsection{Training Objective}
+The loss is a masked per-bin binary cross-entropy:
+\begin{equation}
+  \mathcal{L}_{\text{onset}} = -\sum_{k=0}^{K-1} m_k
+    \Big[\, y_k \log h_k + (1 - y_k)\log(1 - h_k) \,\Big].
+  \label{eq:loss}
+\end{equation}
+The masking is the substantive part. A bin nobody observed must receive exactly
+zero gradient, not a small gradient toward zero, and we check this with
+automatic differentiation rather than by reading the code.
+
+Two constraints are enforced in the implementation rather than left as advice.
+First, $L > H$ strictly. A look-ahead no wider than the reported horizon would
+still hand a flat negative label to a crossing at $H + 5$, which is the very
+defect the formulation exists to remove. Second, the read-out horizon must match
+the horizon used by the binary baselines, or \cref{eq:readout} quietly answers a
+different question under the same metric name. A test enforces the second by
+reproducing the data generator's own binary label from the timing read-out over
+a full track.
+
+\subsection{Choosing the Look-Ahead and Bin Width}
+The reported horizon stays at $H = 32$ frames, for the reasons in
+\cref{sec:horizon}. The look-ahead $L$ is a separate choice, and we size it
+against the composition measured in \cref{sec:omits}. Setting $L = 96$ frames,
+or $3.2$\,s, covers about $92\%$ of the confusable band found there, against
+$47\%$ at $L = 60$. Windows whose onset falls inside $L$ carry a real ``crossing
+begins here'' signal instead of a flat negative; at $L = 96$ that applies to
+roughly $6{,}400$ training windows, against $2{,}530$ at $L = H$. That is close
+to a threefold increase in the windows carrying any positive supervision, in a
+task with a $2.9\%$ positive rate. Going wider buys little, since two thirds of
+the hard negative mass sits more than five seconds ahead.
+
+A bin width of $w = 4$ gives $K = 24$ bins, keeps $8$ bins inside the reported
+horizon, makes positives about four times denser per bin, and costs $133$\,ms of
+timing resolution. Both settings affect training only; neither changes what is
+reported.
+
+\subsection{Three Configurations of One Objective}
+The formulation supports three configurations, chosen by loss weights alone with
+no change to the code. In the \emph{auxiliary} configuration the binary head
+still produces the reported output and the hazard term acts as a regularizer. In
+the \emph{pure} configuration the hazard is the only objective and
+\cref{eq:readout} produces the reported output. The \emph{hedged} configuration
+adds a direct read-out term. The first two are enough to test the methodological
+claim; the third exists because in the second, the quantity being optimized is
+not exactly the quantity being reported.
+
+One scaling point matters in practice. \cref{eq:loss} sums over the bins a
+window actually observed, so a fully observed window contributes about $17$ nats
+at initialization, against $5.5$ for a window carrying only the $32$ frames of
+future that generation guarantees. The term therefore starts far larger than a
+per-task cross-entropy and has to be turned down when it runs alongside the
+binary objective.
+
+\subsection{The Failure Mode to Watch For}
+With $K$ bins, each bin sees a positive only about $2.9\%/K$ of the time. The
+head can therefore drive the loss down by predicting $h \approx 0$ everywhere,
+which makes \cref{eq:readout} collapse toward zero for every window. Watching
+the mean hazard will not catch this, because a low mean hazard is correct. What
+to watch instead is the spread of the read-out across validation windows: a
+narrow spike at the base rate means the head has learned the average and nothing
+more. Setting $w = 4$ is the mitigation already applied; if an early run still
+shows this behavior, $w = 8$ halves $K$ again.
+
+% ==========================================================================
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Evaluation Protocol}
+Thresholds are chosen on the validation split and applied unchanged to test. We
+report AUC as the measure of ranking ability and F1 at the tuned threshold as
+the operating-point measure, and treat AUC as primary for the reasons in
+\cref{sec:threats}.
+\todo[inline]{Adopt the online action detection metric suite before the method
+results arrive: calibrated average precision, and point-level average precision
+with a temporal tolerance (\cref{sec:related}). F1 at $34{:}1$ is too unstable
+to tell configurations apart, and using the neighboring field's metrics is what
+makes these numbers comparable with theirs.}
+
+\subsection{Baselines}
+The four runs in \cref{tab:matrix} are the baselines. They share the
+architecture and optimizer settings of \cref{sec:gap}, differ only in training
+protocol and task set, and were evaluated under both protocols.
+
+\subsection{Onset Timing Results}
+\begin{table}[t]
+  \centering
+  \caption{Onset-timing configurations on the streaming test split. The read-out
+  is \cref{eq:readout} evaluated at $H = 32$, and is directly comparable with
+  the baseline row.}
+  \label{tab:onset}
+  \begin{tabular}{l cccc}
+    \toprule
+    Configuration & AUC & AP & tuned F1 & read-out spread \\
+    \midrule
+    binary baseline (str$\to$str) & 0.742 & --- & 0.190 & n/a \\
+    auxiliary hazard              & ---   & --- & ---   & --- \\
+    pure hazard                   & ---   & --- & ---   & --- \\
+    hedged                        & ---   & --- & ---   & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+\todo[inline]{\cref{tab:onset} is empty. The onset head, loss, targets and
+read-out are implemented and unit-tested, including the zero-gradient property
+and the match between the read-out and the stored label, but nothing has been
+trained. Required order: (i)~metadata backfill on the existing databases,
+(ii)~a short run to confirm the read-out is not degenerate, (iii)~the auxiliary
+configuration, (iv)~the pure configuration. The AP column needs the metric suite
+noted above.}
+
+\subsection{Planned Ablations}
+Besides the three configurations, we plan to vary the look-ahead over
+$L \in \{60, 96, 150\}$ and the bin width over $w \in \{4, 8\}$ to check the
+sizing argument of \cref{sec:method}; to run focal and class-balanced losses on
+the binary objective as representatives of the move-the-boundary family; and to
+compare frame-pooling rules, which are configurable and so cost nothing to
+implement.
+
+% ==========================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{How Far Ahead Crossing Is Predictable at All}
+Consider a pedestrian walking along the sidewalk exactly like everyone else, who
+then turns abruptly and steps into the road. Three seconds earlier, the
+information is not in the video, either because the decision has not been made
+or because it has not yet reached the body. No feature, architecture or loss
+function can recover it.
+
+Some unknown share of the confusable band is therefore not hard but impossible,
+and a claim to handle hard negatives in general would overstate what is
+achievable. We accept three consequences. The goal is not accuracy on that band,
+but confidence where evidence exists and uncertainty where it does not, which is
+a matter of ranking and calibration rather than classification; this also
+matches the failure we measured, where the ordering degraded rather than the
+operating point. The binary label is a modeling choice rather than a property of
+the task, and \cref{sec:method} removes it. Finally, where this limit sits can
+itself be measured: given a trained model, separability can be evaluated against
+time to onset, and the point at which it reaches chance can be reported.
+\todo[inline]{This predictability-limit measurement needs only one trained model
+and a stratified evaluation. No prior work in the area appears to report it, and
+it turns the strongest reviewer objection into a reported result. Worth
+including before submission.}
+
+\subsection{Limitations}
+Beyond the four qualifications in \cref{sec:threats}, all results come from PIE,
+recorded in one city in daylight and clear weather; replication on JAAD would be
+needed to show the effect is not specific to this dataset. The streaming
+training runs are also unstable, with validation loss spiking and recall
+snapping to $1.0$ on several epochs, meaning the model briefly collapses into
+calling everything a crossing. The streaming-trained entries therefore rest on a
+selected best epoch that may not be a settled optimum. Whether that instability
+is an artifact to fix or a finding about training at realistic base rates is
+still open.
+
+\subsection{What This Means for Evaluation Practice}
+If $\Ghard \approx \Gtot$ holds more widely, then a model's standing under the
+anchored protocol says little about how it will behave in a stream, and the
+standard protocol has been systematically under-training and under-testing the
+safety-critical case. That is a claim about evaluation practice, and it is cheap
+to check, because the streaming sampler is a relabeling of annotations that
+already exist rather than a new data collection. Recent work revisiting the
+definitions and metrics used on PIE and JAAD~\cite{rasouli2024diving} shows that
+the adequacy of the standard evaluation is already an open concern; our results
+suggest the sampling protocol, not only the metrics, deserves part of that
+attention.
+
+% ==========================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+The event-anchored protocol and the streaming condition are not two difficulty
+settings of one task, because they contain different negatives. We measured what
+the anchored protocol leaves out, finding that a quarter of streaming training
+windows and two fifths of test windows show pedestrians who cross later, and we
+showed that a model trained under the anchored protocol loses almost all ranking
+ability on the streaming test set, with threshold re-tuning recovering
+essentially none of the loss. Since part of the difficulty lies in the labeling
+rather than in the model alone, we proposed treating the task as onset timing
+under right-censoring. A window whose future footage runs out is then censored
+rather than negative, a pedestrian who has already crossed leaves the risk set
+instead of counting as a non-crosser, and the reported horizon probability stays
+directly comparable with the binary baselines.
+
+\todo[inline]{Pre-submission checklist: (1)~fill \cref{tab:onset};
+(2)~matched-size streaming control; (3)~verify the Yao \emph{et al.} sampling
+description against the paper body; (4)~multi-seed the cross-protocol matrix;
+(5)~predictability-limit measurement; (6)~adopt the OAD metric suite.}
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}

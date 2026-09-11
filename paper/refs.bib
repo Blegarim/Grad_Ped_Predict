@@ -1,0 +1,210 @@
+% ===========================================================================
+% Bibliography.
+%
+% Every entry below was verified against the publisher or arXiv record in
+% September 2026. Entries are not added from memory.
+%
+% Still unentered, and flagged in the text rather than guessed at:
+% TrajFusionNet (arXiv:2508.19866) and the MDPI Algorithms 13(12):331
+% pose-sequence paper, both named by URL only in docs/METHODOLOGY.md.
+% ===========================================================================
+
+% --- datasets and the standard protocol ------------------------------------
+
+@inproceedings{rasouli2019pie,
+  title     = {{PIE}: A Large-Scale Dataset and Models for Pedestrian Intention
+               Estimation and Trajectory Prediction},
+  author    = {Rasouli, Amir and Kotseruba, Iuliia and Kunic, Toni and
+               Tsotsos, John K.},
+  booktitle = {Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)},
+  pages     = {6262--6271},
+  year      = {2019}
+}
+
+@inproceedings{rasouli2017jaad,
+  title     = {Are They Going to Cross? A Benchmark Dataset and Baseline for
+               Pedestrian Crosswalk Behavior},
+  author    = {Rasouli, Amir and Kotseruba, Iuliia and Tsotsos, John K.},
+  booktitle = {Proc. IEEE Int. Conf. Computer Vision Workshops (ICCVW)},
+  pages     = {206--213},
+  year      = {2017}
+}
+
+@inproceedings{kotseruba2021benchmark,
+  title     = {Benchmark for Evaluating Pedestrian Action Prediction},
+  author    = {Kotseruba, Iuliia and Rasouli, Amir and Tsotsos, John K.},
+  booktitle = {Proc. IEEE/CVF Winter Conf. Applications of Computer Vision (WACV)},
+  pages     = {1258--1268},
+  year      = {2021}
+}
+
+% --- crossing prediction: sampling, features, evaluation --------------------
+
+@inproceedings{yao2021coupling,
+  title     = {Coupling Intent and Action for Pedestrian Crossing Behavior
+               Prediction},
+  author    = {Yao, Yu and Atkins, Ella and Johnson-Roberson, Matthew and
+               Vasudevan, Ram and Du, Xiaoxiao},
+  booktitle = {Proc. Int. Joint Conf. Artificial Intelligence (IJCAI)},
+  year      = {2021}
+}
+
+@article{azarmi2024feature,
+  title   = {Feature Importance in Pedestrian Intention Prediction:
+             A Context-Aware Review},
+  author  = {Azarmi, Mohsen and Rezaei, Mahdi and Wang, He and Arabian, Ali},
+  journal = {arXiv preprint arXiv:2409.07645},
+  year    = {2024}
+}
+
+@article{rasouli2024diving,
+  title   = {Diving Deeper Into Pedestrian Behavior Understanding: Intention
+             Estimation, Action Prediction, and Event Risk Assessment},
+  author  = {Rasouli, Amir and Kotseruba, Iuliia},
+  journal = {arXiv preprint arXiv:2407.00446},
+  year    = {2024}
+}
+
+% --- online action detection ------------------------------------------------
+
+@inproceedings{degeest2016oad,
+  title     = {Online Action Detection},
+  author    = {De Geest, Roeland and Gavves, Efstratios and Ghodrati, Amir and
+               Li, Zhenyang and Snoek, Cees and Tuytelaars, Tinne},
+  booktitle = {Proc. European Conf. Computer Vision (ECCV)},
+  pages     = {269--284},
+  year      = {2016}
+}
+
+@inproceedings{shou2018odas,
+  title     = {Online Detection of Action Start in Untrimmed, Streaming Videos},
+  author    = {Shou, Zheng and Pan, Junting and Chan, Jonathan and
+               Miyazawa, Kazuyuki and Mansour, Hassan and Vetro, Anthony and
+               Giro-i-Nieto, Xavier and Chang, Shih-Fu},
+  booktitle = {Proc. European Conf. Computer Vision (ECCV)},
+  pages     = {534--551},
+  year      = {2018}
+}
+
+@inproceedings{gao2019startnet,
+  title     = {{StartNet}: Online Detection of Action Start in Untrimmed Videos},
+  author    = {Gao, Mingfei and Xu, Mingze and Davis, Larry S. and
+               Socher, Richard and Xiong, Caiming},
+  booktitle = {Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)},
+  pages     = {5542--5551},
+  year      = {2019}
+}
+
+@inproceedings{wang2021oadtr,
+  title     = {{OadTR}: Online Action Detection with Transformers},
+  author    = {Wang, Xiang and Zhang, Shiwei and Qing, Zhiwu and Shao, Yuanjie and
+               Zuo, Zhengrong and Gao, Changxin and Sang, Nong},
+  booktitle = {Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)},
+  pages     = {7565--7575},
+  year      = {2021}
+}
+
+@inproceedings{xu2021lstr,
+  title     = {Long Short-Term Transformer for Online Action Detection},
+  author    = {Xu, Mingze and Xiong, Yuanjun and Chen, Hao and Li, Xinyu and
+               Xia, Wei and Tu, Zhuowen and Soatto, Stefano},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2021}
+}
+
+@inproceedings{zhao2022testra,
+  title     = {Real-Time Online Video Detection with Temporal Smoothing
+               Transformers},
+  author    = {Zhao, Yue and Kr{\"a}henb{\"u}hl, Philipp},
+  booktitle = {Proc. European Conf. Computer Vision (ECCV)},
+  pages     = {485--502},
+  year      = {2022}
+}
+
+@inproceedings{wang2023mat,
+  title     = {Memory-and-Anticipation Transformer for Online Action
+               Understanding},
+  author    = {Wang, Jiahao and Chen, Guo and Huang, Yifei and Wang, Limin and
+               Lu, Tong},
+  booktitle = {Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)},
+  pages     = {13588--13598},
+  year      = {2023}
+}
+
+% --- time-to-event modelling ------------------------------------------------
+
+@article{cox1972regression,
+  title   = {Regression Models and Life-Tables},
+  author  = {Cox, David R.},
+  journal = {Journal of the Royal Statistical Society: Series B},
+  volume  = {34},
+  number  = {2},
+  pages   = {187--202},
+  year    = {1972}
+}
+
+@article{kaplan1958nonparametric,
+  title   = {Nonparametric Estimation from Incomplete Observations},
+  author  = {Kaplan, Edward L. and Meier, Paul},
+  journal = {Journal of the American Statistical Association},
+  volume  = {53},
+  number  = {282},
+  pages   = {457--481},
+  year    = {1958}
+}
+
+@inproceedings{lee2018deephit,
+  title     = {{DeepHit}: A Deep Learning Approach to Survival Analysis with
+               Competing Risks},
+  author    = {Lee, Changhee and Zame, William R. and Yoon, Jinsung and
+               van der Schaar, Mihaela},
+  booktitle = {Proc. AAAI Conf. Artificial Intelligence},
+  year      = {2018}
+}
+
+@inproceedings{kalatian2019deepwait,
+  title     = {{DeepWait}: Pedestrian Wait Time Estimation in Mixed Traffic
+               Conditions Using Deep Survival Analysis},
+  author    = {Kalatian, Arash and Farooq, Bilal},
+  booktitle = {Proc. IEEE Intelligent Transportation Systems Conf. (ITSC)},
+  year      = {2019}
+}
+
+% --- imbalance and backbones ------------------------------------------------
+
+@inproceedings{lin2017focal,
+  title     = {Focal Loss for Dense Object Detection},
+  author    = {Lin, Tsung-Yi and Goyal, Priya and Girshick, Ross and
+               He, Kaiming and Doll{\'a}r, Piotr},
+  booktitle = {Proc. IEEE Int. Conf. Computer Vision (ICCV)},
+  pages     = {2980--2988},
+  year      = {2017}
+}
+
+@inproceedings{cui2019classbalanced,
+  title     = {Class-Balanced Loss Based on Effective Number of Samples},
+  author    = {Cui, Yin and Jia, Menglin and Lin, Tsung-Yi and Song, Yang and
+               Belongie, Serge},
+  booktitle = {Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)},
+  pages     = {9268--9277},
+  year      = {2019}
+}
+
+@inproceedings{jin2020coco,
+  title     = {Whole-Body Human Pose Estimation in the Wild},
+  author    = {Jin, Sheng and Xu, Lumin and Xu, Jin and Wang, Can and
+               Liu, Wentao and Qian, Chen and Ouyang, Wanli and Luo, Ping},
+  booktitle = {Proc. European Conf. Computer Vision (ECCV)},
+  pages     = {196--214},
+  year      = {2020}
+}
+
+@inproceedings{wu2022tinyvit,
+  title     = {{TinyViT}: Fast Pretraining Distillation for Small Vision
+               Transformers},
+  author    = {Wu, Kan and Zhang, Jinnian and Peng, Houwen and Liu, Mengchen and
+               Xiao, Bin and Fu, Jianlong and Yuan, Lu},
+  booktitle = {Proc. European Conf. Computer Vision (ECCV)},
+  pages     = {68--85},
+  year      = {2022}
+}
