@@ -24,7 +24,6 @@ import sys
 sys.path.insert(0, ".")
 
 import cv2  # noqa: E402
-
 from PIE.utilities.pie_data import PIE  # noqa: E402
 
 # extract_and_save_images iterates every set folder physically present under data/PIE_clips/, so

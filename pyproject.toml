@@ -48,6 +48,12 @@ extend-exclude = ["OLD"]   # vendored read-only legacy reference — not part of
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]   # pycodestyle, pyflakes, isort, pyupgrade, bugbear
 
+[tool.ruff.lint.isort]
+# PIE is the external dataset devkit, gitignored at the repo root (/PIE/). Without this pin ruff
+# classifies it first-party on a machine that has the data and third-party in CI (which doesn't),
+# so the two disagree on import order and `ruff check .` passes locally while CI fails on I001.
+known-third-party = ["PIE"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: heavy/GPU/IO tests excluded from the CI gate"]

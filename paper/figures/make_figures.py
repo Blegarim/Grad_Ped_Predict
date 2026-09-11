@@ -178,9 +178,9 @@ def fig_composition() -> None:
         vals = np.array([comp[s][key] for s in splits])
         ax.barh(splits, vals, left=left, color=colour, label=label,
                 edgecolor="white", lw=0.6, height=0.60)
-        for i, (v, l) in enumerate(zip(vals, left)):
+        for i, (v, lo) in enumerate(zip(vals, left, strict=False)):
             if v >= 8:
-                ax.text(l + v / 2, i, f"{v:.1f}", ha="center", va="center",
+                ax.text(lo + v / 2, i, f"{v:.1f}", ha="center", va="center",
                         fontsize=6.5,
                         color="white" if colour in (C_POS, C_HARD) else C_INK)
         left += vals
@@ -216,7 +216,7 @@ def fig_time_to_onset() -> None:
     colours = [C_HARD, C_HARD, C_NEVER, C_NEVER]
     bars = ax.bar(labels, counts, color=colours, edgecolor="#8a8a8a", lw=0.6,
                   width=0.68)
-    for b, c in zip(bars, counts):
+    for b, c in zip(bars, counts, strict=False):
         ax.text(b.get_x() + b.get_width() / 2, c + 380,
                 f"{int(c):,}\n({c / counts.sum() * 100:.1f}%)", ha="center",
                 va="bottom", fontsize=6.3, color=C_INK)
@@ -261,7 +261,7 @@ def fig_hazard_cases() -> None:
                                           "right": 0.99, "top": 0.88,
                                           "bottom": 0.14})
 
-    for ax, (name, note, target, dropped) in zip(axes, cases):
+    for ax, (name, note, target, dropped) in zip(axes, cases, strict=False):
         ax.set_xlim(-0.4, k + 1.9)
         ax.set_ylim(-0.5, 0.5)
         ax.axis("off")
