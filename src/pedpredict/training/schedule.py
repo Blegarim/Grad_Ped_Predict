@@ -159,7 +159,7 @@ def run_phase_schedule(
             )
             trainer.logger = CsvLogger(
                 phase_dir.parent / f"phase_{i}_{phase.name}_log.csv",
-                train_log_columns(cfg.train.ordered_active_tasks()),
+                train_log_columns(cfg.train.ordered_active_tasks(), onset=cfg.model.onset_head),
             )
         else:
             trainer.checkpointer = CheckpointManager(None, run_id="", model_type="")

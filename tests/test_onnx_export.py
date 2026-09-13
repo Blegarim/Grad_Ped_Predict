@@ -40,6 +40,7 @@ _ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "e
 # ensemble.pt was captured with the legacy ViT schedule; pin it so the OLD state_dict strict-loads
 # under the A1 redesign default (random-init parity tests use the shipped default schedule).
 _LEGACY_VIT = dict(
+    vit_backbone="legacy",  # the goldens are the from-scratch ViT; the config default is now TinyViT
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
 )

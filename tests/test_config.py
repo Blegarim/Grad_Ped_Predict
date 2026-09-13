@@ -35,6 +35,7 @@ _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "legacy_con
 # Legacy ViT schedule (the live default is the A1 redesign); pinned so the legacy-config parity
 # guard survives the default change.
 _LEGACY_VIT = dict(
+    vit_backbone="legacy",  # the goldens are the from-scratch ViT; the config default is now TinyViT
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
 )
@@ -272,6 +273,25 @@ def test_dump_roundtrip(tmp_path: Path) -> None:
     out = dump_config(root, tmp_path)
     assert out.name == "resolved_config.yaml"
     assert load_resolved_config(out) == root
+
+
+def test_defaults_reproduce_the_pose_full_baseline_recipe() -> None:
+    """The config defaults ARE the four ``pose_full`` baselines' recipe, on every silent axis.
+
+    Run ``20260911_040852`` was launched from the setup.md workhorse recipe, which carries no backbone
+    or warmup flags. It silently picked up the then-defaults (from-scratch unfrozen ``legacy`` ViT,
+    ``warmup_epochs=1``) instead of the baselines' (frozen pretrained TinyViT, ``warmup_epochs=4``),
+    so it measured the onset head AND two unrelated changes at once — at 2.25x cost per epoch.
+
+    These are experiment-design decisions, not tuning knobs: changing one must break this test first
+    and be re-pinned deliberately, with the baselines re-run or the comparison re-scoped.
+    """
+    cfg = RootCfg()
+    assert cfg.model.vit_backbone == "tiny_vit_5m_224"
+    assert cfg.model.vit_pretrained is True
+    assert cfg.model.freeze_vit_backbone is True
+    assert cfg.train.warmup_epochs == 4
+    assert cfg.train.lr_schedule == "warmup_cosine"
 
 
 def test_frozen_immutable() -> None:

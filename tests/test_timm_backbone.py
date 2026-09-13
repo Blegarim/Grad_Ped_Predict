@@ -37,9 +37,10 @@ def _require_model(name: str) -> None:
 
 
 def test_build_visual_backbone_legacy_is_vit() -> None:
-    """Default (``vit_backbone='legacy'``) returns the from-scratch ViT — the golden-pinned path."""
-    backbone = build_visual_backbone(ModelCfg(), _IMG)
+    """``vit_backbone='legacy'`` returns the from-scratch ViT — the golden-pinned path."""
+    backbone = build_visual_backbone(ModelCfg(vit_backbone="legacy"), _IMG)
     assert isinstance(backbone, ViT_Hierarchical)
+
 
 
 def test_build_visual_backbone_timm_is_wrapper() -> None:

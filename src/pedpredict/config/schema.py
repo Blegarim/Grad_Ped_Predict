@@ -120,17 +120,23 @@ class ModelCfg:
     attn_dropout: float = 0.15
     proj_dropout: float = 0.15
     dropout: float = 0.15
-    # Visual-backbone swap (docs/BACKBONE_STUDY.md): "legacy" = the from-scratch ViT_Hierarchical above
-    # (default, golden-pinned) | a timm model name (e.g. "tiny_vit_5m_224") drops in a pretrained backbone
-    # behind the same [B,T,3,H,W]->[B,T,d_model] contract. The stage_dims/window_size/... fields configure
-    # the legacy ViT only and are inert when a timm backbone is selected.
-    vit_backbone: str = "legacy"
+    # Visual-backbone swap (docs/BACKBONE_STUDY.md): a timm model name drops a pretrained backbone in
+    # behind the same [B,T,3,H,W]->[B,T,d_model] contract | "legacy" = the from-scratch ViT_Hierarchical
+    # above (golden-pinned, and what tests build). The stage_dims/window_size/... fields configure the
+    # legacy ViT only and are inert when a timm backbone is selected.
+    #
+    # DEFAULT IS `tiny_vit_5m_224` + `freeze_vit_backbone=True` — the recipe all four `pose_full`
+    # BASELINE runs were trained under. It is the default precisely so a run launched without backbone
+    # overrides stays comparable to them: run 20260911_040852 silently got the old from-scratch `legacy`
+    # default, which confounded the onset-head comparison and cost 2.25x throughput. Change these only
+    # as a deliberate RQ1 arm, never incidentally.
+    vit_backbone: str = "tiny_vit_5m_224"
     vit_pretrained: bool = True      # load timm ImageNet weights (ignored when vit_backbone="legacy")
     # Freeze the visual backbone for the whole run: requires_grad=False on all `vit.*` params, so the
     # optimizer trains only motion + fusion + heads. The field-standard PIE recipe on the small anchored
     # set (~4.9k windows) — frozen pretrained visual features stop the ViT memorizing. DISTINCT from
     # ScheduleCfg.freeze_backbone (freezes ALL but the task heads); this freezes ONLY the ViT.
-    freeze_vit_backbone: bool = False
+    freeze_vit_backbone: bool = True
     # MotionEncoder
     motion_hidden_dim: int = 168
     motion_num_layers: int = 2
@@ -291,7 +297,10 @@ class TrainCfg:
     # LR schedule: "warmup_cosine" (default) = linear warmup -> cosine to lr_min, val_loss never drives
     # the LR | "plateau" = ReduceLROnPlateau on val_loss (sched_* + lr_min apply).
     lr_schedule: str = "warmup_cosine"
-    warmup_epochs: int = 1             # linear-warmup length in epochs (warmup_cosine only; 0 = none)
+    # Linear-warmup length in epochs (warmup_cosine only; 0 = none). 4 because all four pose_full
+    # BASELINE runs used it — same reasoning as the backbone default: a run launched without
+    # overrides must stay comparable to them. Pinned in tests/test_config.py.
+    warmup_epochs: int = 4
     warmup_start_factor: float = 0.1   # first warmup epoch runs at warmup_start_factor * lr
     lr_min: float = 1e-6               # cosine eta_min / plateau min_lr floor
     # chunk prefetch loader

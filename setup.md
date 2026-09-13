@@ -162,12 +162,13 @@ its own `--split test` so the file exists.
 Both are train-time-only, no data rebuild; see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). First
 pretrained run downloads timm weights (needs network once).
 ```powershell
-python scripts/train.py --set model.vit_backbone=tiny_vit_5m_224      # pretrained drop-in vs legacy default
+# The DEFAULT is already tiny_vit_5m_224 + freeze_vit_backbone=true (the baselines' recipe) — a plain
+# `python scripts/train.py` is the frozen pretrained arm. These lines are the DEPARTURES from it:
+python scripts/train.py --set model.vit_backbone=legacy --set model.freeze_vit_backbone=false  # from-scratch ViT
+python scripts/train.py --set model.freeze_vit_backbone=false        # unfrozen TinyViT (~2.25x slower/epoch)
 python scripts/train.py --set model.vit_backbone=tiny_vit_21m_224     # deploy-stress / Pareto arm
 python scripts/train.py --set model.vit_backbone=pvt_v2_b0            # different mechanism (SRA)
 python scripts/train.py --set augment.runtime=true                   # on-the-fly aug; composes with all above + protocol
-# frozen pretrained visual features (field-standard on the small anchored set — trains motion+fusion+heads only):
-python scripts/train.py --set model.vit_backbone=tiny_vit_5m_224 --set model.freeze_vit_backbone=true
 ```
 
 ## 11. Pose arm (needs a pose-enabled rebuild — fold into the final data pass)
@@ -250,8 +251,9 @@ meant to sit beside the `pose_full` baselines.
 far above a per-task CE and falls as hazards saturate low. At the default `96/4` (24 bins) that is
 `~0.69 × observed_bins` at init — ~5.5 for a window carrying only the guaranteed 32 frames of future,
 ~16.6 fully observed. Set the weight so `weight × hazard` lands near `loss_weight.crosses` (~0.1 to
-start), 1.0 when it *is* the objective. The per-epoch `onset_hazard` value is the raw unweighted number —
-read it in the first minute, like `train_distribution.json`, and retune rather than guessing.
+start), 1.0 when it *is* the objective. The `onset_hazard` column in `train_log.csv` is that raw
+unweighted number, logged per epoch (val) — read it after epoch 1, like `train_distribution.json`, and
+retune rather than guessing.
 
 **If the head goes dead**: the per-bin positive rate is ~`2.9%/K`, and `onset_bin_width=4` (K=24) is that
 mitigation already applied by default. Widen to 8 (K=12) if a smoke run still shows it. `onset_lookahead`
@@ -261,6 +263,12 @@ and `onset_horizon` must both stay divisible by the width.
 well under 1%, and the head should learn that. Dead means the **spread** of `crosses_readout` over val
 windows is a narrow spike at the ~2.9% base rate: same answer for a person poised at the kerb and one
 walking parallel to the road. Perfectly calibrated on average, AUC ≈ 0.5, useless.
+
+`train_log.csv` carries this as **`onset_readout_p05` / `onset_readout_p95`** (the 5th/95th percentile of
+`P(onset ≤ horizon)` across val windows), alongside `onset_hazard`. All three appear only when
+`model.onset_head=true`. **`p95 − p05` collapsing toward 0 is the dead head** — check it at epoch 2, not
+after a 33-hour run. Run `20260911_040852` had none of these columns, so 17.5 h of GPU time produced no
+evidence either way; that is what they exist to prevent.
 
 **Eval** needs no new flags: `evaluate.py` inherits the whole `model` section from the checkpoint's
 `resolved_config.yaml`, so head width and metric routing follow the checkpoint automatically.
@@ -274,60 +282,78 @@ so a recipe keeps doing what it says even if someone edits `configs/`.
 The pose bundle appears in full in each pose recipe — validation rejects it partially applied, so it is
 written out rather than abbreviated.
 
-**The workhorse — pose_full, streaming, crosses-only, onset head as an auxiliary task.**
-```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set train.onset_hazard_weight=0.1 --tag pose_onset_aux
-```
-The reported `crosses` number still comes from `crosses_frame`, so the head is a side task and the
-number keeps its meaning. Same line with `--set data.protocol=anchored --tag pose_onset_aux_anch` for
-the anchored leg.
+**The onset runs live in [§ Onset arm](#onset-arm--the-comparative-run-set) below** as one ordered set with their derivation — not duplicated here.
 
 ⚠️ **What it is comparable to.** The four `pose_full` runs are two pairs, not one set (run table in
 [RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md)): **Model A** (`20260710_122947` / `20260710_152517`)
 is 3-head with the sampler OFF; **Model B** (`20260721_123011` / `20260714_134253`) is crosses-only.
-The flags above match Model B's streaming leg. For Model A instead, drop the two crosses-only flags and
-add `--set train.use_weighted_sampler=false`. Taking the config defaults matches NEITHER — 3-head *with*
-the sampler on — which is exactly the accidental-difference trap. Model B's own legs also still differ on
-the sampler (streaming on, anchored off); re-running its anchored leg with the sampler on is the
-outstanding fix.
+The onset run set below matches Model B's streaming leg. For Model A instead, drop the two crosses-only flags and
+add `--set train.use_weighted_sampler=false`. Taking the config defaults for the *head* flags matches
+NEITHER — 3-head *with* the sampler on — which is exactly the accidental-difference trap. Model B's own
+legs also still differ on the sampler (streaming on, anchored off); re-running its anchored leg with the
+sampler on is the outstanding fix.
 
-**Its baseline twin — identical, onset head off.** Run this if you need the comparison re-made under
-today's code rather than trusting a months-old run dir.
+**All four baselines share one backbone recipe** — `tiny_vit_5m_224`, pretrained, frozen — because all
+four were launched through `run_arm.py`, which sets it. That is now the config default — together with `warmup_epochs=4`, the other axis those four
+share — pinned by `tests/test_config.py::test_defaults_reproduce_the_pose_full_baseline_recipe`,
+so the recipes need no backbone or warmup flags. It did not used to be: run `20260911_040852` was launched from this recipe before the
+default moved, silently got the from-scratch unfrozen `legacy` ViT, and so measured the onset head and a
+backbone swap at once — at 2.25x the cost per epoch. **If you override a backbone flag, the run is an
+RQ1 arm, not an onset arm.**
+
+### Onset arm — the comparative run set
+
+Every run below is **the same spine** — `pose_full`, streaming, crosses-only, runtime aug, warmup-cosine,
+and the default backbone (`tiny_vit_5m_224`, pretrained, frozen). **Only the onset flags change.** That is
+the whole design: any other difference between two lines makes them incomparable, not merely caveated.
+
+| # | Run (`--tag`) | Derived from | What it varies | Answers |
+|---|---|---|---|---|
+| 0 | `onset_smoke` | R1, 2 epochs | nothing — a 2-epoch abort | does the head collapse before 33 h are spent? |
+| 1 | `pose_onset_aux` | `20260714_134253` + onset head | `onset_head=true`, `onset_hazard_weight=0.1` | does the hazard head help as a *side* task, with the reported number still from `crosses_frame`? |
+| 2 | `pose_baseline` | `20260714_134253` re-run today | nothing (head off) | is the months-old baseline still reproducible under current code? |
+| 3 | `onset_pure` | R1 | `crosses` CE off, `hazard_weight=1.0`, report from the readout | the methodological claim: timing-under-censoring *replacing* the binary objective |
+| 4 | `onset_hedge` | R3 | `+ onset_readout_weight=0.5` | does a direct gradient on the reported number rescue R3? |
+
+R1 is the relaunch of the interrupted `20260911_040852`. **Run 0 → 1 → 2 first**; 3 and 4 only make sense
+once 1 shows a live head. Rescue arms (`onset_w8`, `onset_l60`) are at the bottom — they are *not* part of
+the set and are not comparable to it, because they move the bin geometry.
+
+Add `--set data.protocol=anchored` and an `_anch` tag suffix for the anchored leg of any of them, or use
+`run_arm.py` (below) to get both protocols plus the full eval matrix in one command.
+
+**R0 — smoke test, 2 epochs.** Cheap insurance. Read `onset_hazard` and `onset_readout_p95 − p05`.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set train.onset_hazard_weight=0.1 --set train.num_epochs=2 --tag onset_smoke
+```
+**R1 — auxiliary arm (the workhorse).** The reported `crosses` number still comes from `crosses_frame`, so
+the head is a side task and the number keeps its meaning against the baselines.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set train.onset_hazard_weight=0.1 --tag pose_onset_aux
+```
+**R2 — baseline twin, onset head off.** Identical to R1 minus the two onset flags.
 ```powershell
 python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --tag pose_baseline
 ```
-
+**R3 — pure reformulation.** The original crossing head switched off; reported number from the hazard readout.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_pure
+```
+**R4 — the hedge.** R3 plus a direct gradient on the number actually reported.
+```powershell
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set train.onset_readout_weight=0.5 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_hedge
+```
 **Whole cross-protocol matrix in one command** — trains both protocols and runs val+test x anchored+streaming
 per leg (10 steps). The runner owns `data.protocol`, so never pass it here. `--dry-run` prints the plan.
 ```powershell
 python scripts/run_arm.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set model.onset_head=true --set train.onset_hazard_weight=0.1 --tag pose_onset_aux --save-predictions
 ```
 
-### Onset arm
-**Smoke test first — 2 epochs, does the head collapse to `h~0`?** Cheap insurance before a long run.
-Carries the pose bundle, so it tests the trunk the real runs use rather than the default `full`.
+**Rescue arms — outside the set.** Both change the bin geometry, so they are comparable only to each
+other, never to R1–R4. Reach for them only if R0 shows a dead head.
 ```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set train.num_epochs=2 --tag onset_smoke
-```
-The three arms below are 3-head — `actions`/`looks` still train. Add the two crosses-only flags
-(`train.active_tasks=[crosses]` + `train.selection_metric=crosses_f1`) to sit them beside Model B.
-
-**Pure reformulation** — the original crossing head switched off, reported number from the hazard readout.
-```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_pure
-```
-**Hedge** — as above plus a direct gradient on the number actually reported.
-```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set train.onset_readout_weight=0.5 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_hedge
-```
-**Collapse rescue** — 8-frame bins (K=12) double the positives each bin sees again, costing timing
-resolution. Reach for this only if the smoke run shows a dead head at the default width of 4.
-```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_bin_width=8 --set train.onset_hazard_weight=0.1 --tag onset_w8
-```
-**Old geometry** — the pre-2026-09-07 `60/1` defaults, if a comparison against them is wanted.
-```powershell
-python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set model.onset_head=true --set model.onset_lookahead=60 --set model.onset_bin_width=1 --set train.onset_hazard_weight=0.03 --tag onset_l60
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set model.onset_bin_width=8 --set train.onset_hazard_weight=0.1 --tag onset_w8
+python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set model.onset_lookahead=60 --set model.onset_bin_width=1 --set train.onset_hazard_weight=0.03 --tag onset_l60
 ```
 
 ### Ablations
@@ -343,9 +369,11 @@ python scripts/train.py --set eval.model_type=full --set model.fusion_residual=f
 ```powershell
 python scripts/train.py --set eval.model_type=full --set model.motion_norm=per_sequence --tag a4_per_seq
 ```
-**RQ1 — pretrained TinyViT, frozen.** The field-standard recipe on the small anchored set.
+**RQ1 — from-scratch legacy ViT.** The pretrained-frozen TinyViT is now the *default*, so the arm worth
+running is its opposite. (Unfrozen legacy was accidentally run once as `20260911_040852`; it tracked
+ahead of the frozen-TinyViT baseline on streaming before it died — worth a deliberate re-run.)
 ```powershell
-python scripts/train.py --set eval.model_type=full --set model.vit_backbone=tiny_vit_5m_224 --set model.freeze_vit_backbone=true --set augment.runtime=true --tag rq1_tinyvit_frozen
+python scripts/train.py --set eval.model_type=full --set model.vit_backbone=legacy --set model.freeze_vit_backbone=false --set augment.runtime=true --tag rq1_legacy_scratch
 ```
 **RQ3 — imbalance levers.** One lever per run; confirm the effect in `train_distribution.json`, not by eye.
 ```powershell
@@ -379,9 +407,9 @@ the first minute rather than at hour three. Defaults in **bold**.
 |---|---|---|
 | `eval.model_type` | **full** \| ped_local \| kinematics_only \| visual_only \| vanilla_concat \| pose_kinematics \| pose_full | which model trains/evals — the selector, **not `model.model_type`** (that raises); `pose_*` need the §11 bundle |
 | `data.protocol` | **streaming** (~37:1) \| anchored (~2.5:1) | repoints train+val+test LMDBs; at eval also sets the test distribution AND the val split thresholds tune on |
-| `model.vit_backbone` | **legacy** \| `<timm>` (e.g. `tiny_vit_5m_224`) | from-scratch ViT vs pretrained drop-in (the RQ1 arm) |
+| `model.vit_backbone` | **`tiny_vit_5m_224`** \| `legacy` \| any `<timm>` name | pretrained drop-in vs from-scratch ViT (the RQ1 arm). **The default is the four `pose_full` baselines' recipe** — leave it alone unless the run IS an RQ1 arm, or the run stops being comparable to them |
 | `model.vit_pretrained` | **true** \| false | `false` = random-init backbone (wiring tests only) — a real run is garbage |
-| `model.freeze_vit_backbone` | **false** \| true | freezes the ViT (`vit.*`) for the whole run; trains motion+fusion+heads only — the field-standard PIE recipe on the small anchored set (~4.9k windows), stops the backbone memorizing. Not `ScheduleCfg.freeze_backbone` (which freezes all-but-heads) |
+| `model.freeze_vit_backbone` | **true** \| false | freezes the ViT (`vit.*`) for the whole run; trains motion+fusion+heads only — the field-standard PIE recipe, stops the backbone memorizing, and ~2.25x faster per epoch (unfrozen moves the bottleneck from data loading to backprop). Default-on to match the baselines. Not `ScheduleCfg.freeze_backbone` (which freezes all-but-heads) |
 | `train.selection_metric` | **macro_f1** \| crosses_f1 \| val_loss | which epoch becomes `best.pth` + early stop (macro_f1 can sacrifice crosses) |
 | `train.use_weighted_sampler` / `use_class_weights` | **true** / **false** | effective training distribution (imbalance levers) — confirm in `train_distribution.json` |
 | `augment.runtime` | **false** \| true | on-the-fly train-time aug (scarcity regularizer); offline `augment.enabled` is a *build* flag |
@@ -391,7 +419,7 @@ the first minute rather than at hour three. Defaults in **bold**.
 | `model.onset_report_crosses` | **false** \| true | which head `crosses` is SCORED on: `crosses_frame` (= the baselines) vs the hazard readout. **Metrics only** — never the loss routing |
 | `train.onset_hazard_weight` / `onset_readout_weight` | **1.0** / **0.0** | selects the arm (§12). The hazard term sums over bins, so it starts well above a CE (~5.5–16.6 at `96/4`) — use ~0.1 in the auxiliary arm, 1.0 where it is the objective, and retune from the logged raw value |
 | `train.num_epochs` / `lr` / `lr_schedule` | **30** / **1e-4** / **warmup_cosine** | training budget + optimization (wrong `lr` = diverge / no-learn) |
-| `train.warmup_epochs` / `warmup_start_factor` | **1** / **0.1** | `warmup_cosine` linear-warmup length **in epochs** (not steps — the scheduler steps once per epoch; `0` disables warmup) + its start LR (`warmup_start_factor * lr`, = 1e-5 at default `lr`) |
+| `train.warmup_epochs` / `warmup_start_factor` | **4** / **0.1** | `warmup_cosine` linear-warmup length **in epochs** (not steps — the scheduler steps once per epoch; `0` disables warmup) + its start LR (`warmup_start_factor * lr`, = 1e-5 at default `lr`) |
 
 ## Config overrides
 `--config-dir DIR` and repeatable `--set section.field=value` (also `--section.field value`), validated

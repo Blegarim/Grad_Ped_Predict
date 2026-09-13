@@ -320,8 +320,14 @@ def test_build_trainer_with_resume(tmp_path: Path) -> None:
     from pedpredict.models.registry import build_model
     from pedpredict.training.trainer import build_trainer
 
-    # Build a real checkpoint using the same architecture build_trainer will create
+    # Build a real checkpoint using the same architecture build_trainer will create. build_trainer
+    # applies freeze_vit_backbone (now the default) BETWEEN build_model and the optimizer, so mirror
+    # it here or the saved param group is wider than the one resume rebuilds.
     model = build_model(RootCfg())
+    if RootCfg().model.freeze_vit_backbone:
+        from pedpredict.training.schedule import freeze_vit_backbone
+
+        freeze_vit_backbone(model)
     optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-4)
     scaler = make_grad_scaler(enabled=False)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

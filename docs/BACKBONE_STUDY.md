@@ -5,7 +5,7 @@ visual stream and records *why*. The mechanism it specifies is **built and in us
 comparison work, tracked in [THESIS_ROADMAP.md](THESIS_ROADMAP.md) § Supporting studies (RQ1), not here.
 
 - **Step 1 — landed.** `src/pedpredict/models/timm_backbone.py` (`TimmBackbone` + `build_visual_backbone`),
-  selected by `model.vit_backbone` (`legacy` default | timm name), `model.vit_pretrained` gating weights;
+  selected by `model.vit_backbone` (**`tiny_vit_5m_224` default, frozen — the baselines' recipe** | `legacy` | timm name), `model.vit_pretrained` gating weights;
   `tests/test_timm_backbone.py` covers factory dispatch + the `[B,T,3,H,W]→[B,T,d_model]` contract.
 - **Steps 2–4 — partially answered by other work.** The primary pick (**TinyViT-5M**) has since been
   trained on both protocols, **frozen**, as the visual stream of the four `pose_full` baseline runs. That
@@ -51,7 +51,7 @@ class TimmBackbone(nn.Module):
         return self.frame_proj(f.view(b, t, -1))                            # [B, T, d_model]
 ```
 
-Selected by config (`model.vit_backbone: "legacy" | "<timm_name>"`), registered as a backbone option so
+Selected by config (`model.vit_backbone: "<timm_name>" | "legacy"`), registered as a backbone option so
 `full` / `visual_only` build it via the existing factory. Compatibility notes:
 - **Norm matches.** The read pipeline already applies **ImageNet** normalization (`norm_mean/std` in
   `data.yaml` = `0.485…/0.229…`), exactly what these ImageNet-pretrained backbones expect. No change.

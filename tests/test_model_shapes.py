@@ -52,6 +52,7 @@ _ENSEMBLE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "golden" / "e
 # Legacy ViT schedule (default is now the A1 redesign); pinned wherever a ModelCfg strict-loads the
 # ensemble/ablation goldens, which were captured with it. (vit.pt builds from its own stored kwargs.)
 _LEGACY_VIT = dict(
+    vit_backbone="legacy",  # the goldens are the from-scratch ViT; the config default is now TinyViT
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
 )

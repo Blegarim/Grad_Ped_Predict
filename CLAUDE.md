@@ -73,7 +73,7 @@ tight crop + motion → MotionEncoder    ───┘
 
 | Component | Role |
 |---|---|
-| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. The visual stream is **swappable** via `model.vit_backbone` (RQ1): `legacy` (default, this module) \| a `timm` model name (e.g. `tiny_vit_5m_224`) builds `TimmBackbone` (`models/timm_backbone.py`) behind the same `[B,T,3,H,W]→[B,T,d_model]` contract, `model.vit_pretrained` gating ImageNet weights — see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). |
+| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. The visual stream is **swappable** via `model.vit_backbone` (RQ1): a `timm` model name builds `TimmBackbone` (`models/timm_backbone.py`) behind the same `[B,T,3,H,W]→[B,T,d_model]` contract, `model.vit_pretrained` gating ImageNet weights \| `legacy` is this module. **Default is `tiny_vit_5m_224` + `freeze_vit_backbone=true`** — the recipe all four `pose_full` baselines were trained under, so a run launched without backbone overrides stays comparable to them (pinned by `tests/test_timm_backbone.py`); this module stays golden-pinned in tests but is no longer the default — see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). |
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + fusion + GRU + learned pos-encoding + MultiheadAttention. In-forward motion norm is config-gated: `model.motion_norm` = `image` (fixed frame-dim scale, default) \| `per_sequence` (legacy z-norm, A4 ablation arm). Outputs `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → pooling MLP → softmax temporal weights → per-task classifier heads. `model.fusion_residual` (A3/RQ2, **default on**) adds the motion query back at fusion (`attn_output + motion_feats`) so motion *content* reaches the heads, not just motion-as-attention-mask; `=false` is the no-residual A3 ablation (golden-pinned). |
 | `EnsembleModel` | Wires all components; applies **LayerNorm before fusion**; `return_feats` path used by viz. |
@@ -310,8 +310,9 @@ Row 3 is what the binary label cannot say; row 4 is a bug it cannot avoid (today
 above a per-task CE and falls as hazards saturate low. At the default `L=96, w=4` (K=24) that is
 `~0.69 × observed_bins` at init — ~5.5 for a window carrying only the 32 frames of future generation
 guarantees (8 bins), ~16.6 fully observed. Set the auxiliary weight so `weight × hazard` lands near
-`loss_weight.crosses`; ~0.1 to start, 1.0 where the hazard *is* the objective. `OnsetLossOutput.hazard`
-logs the raw unweighted value, so tune it from epoch 1 rather than inferring it.
+`loss_weight.crosses`; ~0.1 to start, 1.0 where the hazard *is* the objective. The **`onset_hazard`**
+column in `train_log.csv` is that raw unweighted value (val, per epoch), so tune it from epoch 1 rather
+than inferring it.
 
 **Geometry defaults (re-pinned 2026-09-07): `onset_lookahead=96`, `onset_bin_width=4`.** 96 frames
 (3.2 s) covers ~92% of the confusable 1–3 s band the negative-composition study identified; the earlier 60
@@ -322,7 +323,12 @@ Both are training-side choices — `onset_horizon=32` is unchanged and still pin
 to `h ≈ 0` everywhere and the readout saturates near zero. `onset_bin_width=4` is that mitigation already
 applied; if a smoke run still shows a dead head, widen to 8 (K=12). **The diagnostic is not a low mean
 hazard** — it *should* be low — but the *spread* of `crosses_readout` across val windows. A narrow spike
-at the ~2.9% base rate means the head learned the average and nothing else. Check before GPU hours.
+at the ~2.9% base rate means the head learned the average and nothing else.
+
+**Where to read it:** `train_log.csv` gains three columns when (and only when) `model.onset_head=true` —
+`onset_hazard`, `onset_readout_p05`, `onset_readout_p95` (`_ONSET_CONTEXT_COLUMNS` in `training/trainer.py`,
+all val-side). **`p95 − p05` collapsing toward 0 is the dead head.** Check at epoch 2, before GPU hours —
+run `20260911_040852` predated these columns and so spent 17.5 h answering nothing.
 
 ## Evaluation
 

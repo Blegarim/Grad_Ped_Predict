@@ -42,7 +42,7 @@ from tqdm.auto import tqdm
 from pedpredict.config.schema import PhaseCfg, RootCfg
 from pedpredict.data.sampler import LabelScanCache, class_weights_ce
 from pedpredict.losses.multitask import TASKS, MultiTaskLoss, build_multitask_loss
-from pedpredict.losses.onset import crosses_metric_keys
+from pedpredict.losses.onset import READOUT_OUTPUT_KEY, crosses_metric_keys
 from pedpredict.models.registry import build_model, forward_model
 from pedpredict.training.callbacks import CheckpointManager, EarlyStopping
 from pedpredict.training.distribution import write_distribution_report
@@ -92,14 +92,30 @@ def _loader_len(loader: DataLoader) -> int:
 #: free of any ``training`` import (a top-level import there would cycle via ``training/__init__``).
 _TRAIN_CONTEXT_COLUMNS: tuple[str, ...] = ("epoch", "train_loss", "val_loss", "lr", "epoch_time_s")
 
+#: Extra per-epoch columns, emitted ONLY when ``model.onset_head`` is on (so a run without the head
+#: carries no dead columns, matching the ``active_tasks`` rule). All three are measured on VAL.
+#:
+#: * ``onset_hazard`` — the RAW UNWEIGHTED per-window mean hazard NLL. It is what
+#:   ``train.onset_hazard_weight`` multiplies, so the auxiliary weight can be tuned from epoch 1
+#:   (aim for ``weight * onset_hazard`` near ``loss_weight['crosses']``) instead of inferred. ``nan``
+#:   when the head is on but both onset weights are 0 (the loss term is then not built at all).
+#: * ``onset_readout_p05`` / ``onset_readout_p95`` — the 5th/95th percentile of
+#:   ``P(onset <= onset_horizon)`` across val windows. THIS is the collapse diagnostic, not the mean:
+#:   a low mean hazard is CORRECT (the true per-bin onset rate really is ~2.9%/K). A head that learned
+#:   the average and nothing else shows p05 ~ p95, both pinned near the base rate; a head that learned
+#:   something shows them spread apart. Check this before spending more GPU hours.
+_ONSET_CONTEXT_COLUMNS: tuple[str, ...] = ("onset_hazard", "onset_readout_p05", "onset_readout_p95")
 
-def train_log_columns(tasks: tuple[str, ...] = TASKS) -> tuple[str, ...]:
+
+def train_log_columns(tasks: tuple[str, ...] = TASKS, *, onset: bool = False) -> tuple[str, ...]:
     """Per-run train-log schema: context columns + :func:`metric_columns` over the ACTIVE task set.
 
     Crosses-only runs therefore emit only ``crosses_*`` (+ ``overall_acc``) — no dead ``actions_*`` /
     ``looks_*`` / ``macro_f1`` columns. Full mode reproduces :data:`TRAIN_LOG_COLUMNS` exactly.
+    ``onset=True`` adds :data:`_ONSET_CONTEXT_COLUMNS` (``model.onset_head`` runs only).
     """
-    return _TRAIN_CONTEXT_COLUMNS + metric_columns(tasks)
+    extra = _ONSET_CONTEXT_COLUMNS if onset else ()
+    return _TRAIN_CONTEXT_COLUMNS + extra + metric_columns(tasks)
 
 
 #: Default full 3-task train-log schema (back-compat constant). New call sites derive per-run columns
@@ -228,6 +244,8 @@ class Trainer:
         #: ``None`` until the first epoch/validation pass measures them; reset on a phase transition.
         self._train_batches: int | None = None
         self._val_batches: int | None = None
+        #: Val-side onset diagnostics from the last ``validate()``; ``{}`` unless ``model.onset_head``.
+        self._onset_row: dict[str, float] = {}
         #: Run tag + cross-run index switch (4.5). ``build_trainer`` sets ``run_tag``; the multi-phase
         #: ``run_phase_schedule`` disables ``write_index_on_fit`` and writes one aggregated row itself.
         self.run_tag = ""
@@ -394,6 +412,21 @@ class Trainer:
             return -metrics.macro_f1        # single active task: macro == that task's F1
         return -flat[self.selection_metric]
 
+    def _onset_diagnostics(
+        self, readout_probs: list[torch.Tensor], hazard_sum: float, n_hazard: int
+    ) -> dict[str, float]:
+        """Val-side onset diagnostics for the CSV (see :data:`_ONSET_CONTEXT_COLUMNS`)."""
+        if not self.cfg.model.onset_head:
+            return {}
+        hazard = hazard_sum / n_hazard if n_hazard else float("nan")
+        if not readout_probs:
+            return {"onset_hazard": hazard, "onset_readout_p05": float("nan"),
+                    "onset_readout_p95": float("nan")}
+        probs = torch.cat(readout_probs)
+        lo, hi = torch.quantile(probs, torch.tensor([0.05, 0.95], dtype=probs.dtype))
+        return {"onset_hazard": hazard, "onset_readout_p05": float(lo),
+                "onset_readout_p95": float(hi)}
+
     def validate(self) -> tuple[float, MetricResult]:
         """Validate over all val chunks. Returns ``(val_loss, metrics)`` (OLD validate_one_epoch + :574-596).
 
@@ -409,6 +442,10 @@ class Trainer:
         loss_sum = 0.0
         n_samples = 0
         n_batches = 0
+        hazard_sum = 0.0                     # raw unweighted hazard NLL, batch-mean-weighted by size
+        n_hazard = 0
+        readout_probs: list[torch.Tensor] = []
+        want_onset = self.cfg.model.onset_head
         pbar = tqdm(total=self._val_batches, desc="          [val]", unit="batch", disable=None, leave=False)
         with torch.inference_mode():
             for loader in self.chunks.val_loaders():
@@ -420,7 +457,18 @@ class Trainer:
                     batch_size = images_tight.size(0)
                     with autocast_ctx(self.use_amp):
                         outputs = forward_model(self.model, images_tight, images_context, motions)
-                    loss_sum += float(self.loss(outputs, labels).total) * batch_size
+                    loss_out = self.loss(outputs, labels)
+                    loss_sum += float(loss_out.total) * batch_size
+                    if want_onset:
+                        hazard = loss_out.per_task.get("onset_hazard")
+                        if hazard is not None:
+                            hazard_sum += float(hazard) * batch_size
+                            n_hazard += batch_size
+                        readout = outputs.get(READOUT_OUTPUT_KEY)
+                        if readout is not None:
+                            readout_probs.append(
+                                torch.softmax(readout.float(), dim=1)[:, 1].detach().cpu()
+                            )
                     acc.update(outputs, labels)
                     n_samples += batch_size
                     n_batches += 1
@@ -429,6 +477,7 @@ class Trainer:
         self._val_batches = n_batches                            # exact total for the next pass
         if n_samples == 0:
             raise RuntimeError("Trainer.validate: no validation samples found.")
+        self._onset_row = self._onset_diagnostics(readout_probs, hazard_sum, n_hazard)
         return loss_sum / n_samples, acc.compute()
 
     # ----------------------------------------------------------------- epoch loop
@@ -555,6 +604,7 @@ class Trainer:
             "lr": lr,
             "epoch_time_s": epoch_time_s,
         }
+        row.update(self._onset_row)                              # {} unless model.onset_head
         row.update(metrics.as_flat_dict())
         self.logger.log(round_row(row))
 
@@ -619,7 +669,9 @@ def build_trainer(
             print(f"[freeze_vit_backbone] froze {n_frozen} ViT tensors; {n_train:,} trainable params remain.")
     run = init_run(cfg, tag=tag, resume_dir=resume_run_dir)       # run id + scaffold + config snapshot
     run_dir = run.path
-    logger = run.train_logger(train_log_columns(cfg.train.ordered_active_tasks()))
+    logger = run.train_logger(
+        train_log_columns(cfg.train.ordered_active_tasks(), onset=cfg.model.onset_head)
+    )
     ckpt_mgr = CheckpointManager(
         run.checkpoints_dir,
         run_id=run.run_id,

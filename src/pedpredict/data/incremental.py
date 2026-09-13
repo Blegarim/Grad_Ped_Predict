@@ -51,7 +51,10 @@ _CHUNK_RE = re.compile(r"^chunk_(\d+)\.lmdb$")
 
 def parse_frame_path(path: str) -> tuple[str, str, int]:
     """``.../set01/video_0001/00123.png`` -> ``("set01", "video_0001", 123)`` (separator-agnostic)."""
-    parts = Path(path).parts
+    # Normalize separators before parsing: PosixPath treats "\" as an ordinary filename character,
+    # so a Windows-style path collapses to a single part on Linux (CI) while splitting fine on
+    # Windows. Rewriting to "/" makes the docstring's separator-agnostic promise true on both.
+    parts = Path(path.replace("\\", "/")).parts
     for i, part in enumerate(parts):
         if _SET_RE.match(part) and i + 2 < len(parts) and _VIDEO_RE.match(parts[i + 1]):
             return part, parts[i + 1], int(Path(parts[i + 2]).stem)

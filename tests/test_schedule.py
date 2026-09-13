@@ -39,6 +39,7 @@ _TASKS = ("actions", "looks", "crosses")
 # init_state is a legacy full model (OLD ViT). The A1 redesign is now default, so build anything that
 # loads or round-trips that state from a legacy-pinned config (else strict load fails on shapes).
 _LEGACY_VIT = dict(
+    vit_backbone="legacy",  # the goldens are the from-scratch ViT; the config default is now TinyViT
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
 )

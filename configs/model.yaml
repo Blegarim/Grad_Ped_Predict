@@ -19,14 +19,16 @@ drop_path: 0.15
 attn_dropout: 0.15
 proj_dropout: 0.15
 dropout: 0.15
-# RQ1 visual-backbone swap (docs/BACKBONE_STUDY.md): legacy = from-scratch A1 ViT (golden-pinned
-# default) | a timm model name (e.g. tiny_vit_5m_224) = pretrained hierarchical drop-in. The ViT
-# stage schedule above only configures legacy; it is inert when a timm backbone is selected.
-vit_backbone: legacy
+# RQ1 visual-backbone swap (docs/BACKBONE_STUDY.md): a timm model name = pretrained hierarchical
+# drop-in | legacy = from-scratch A1 ViT (golden-pinned, and what the tests build). The ViT stage
+# schedule above only configures legacy; it is inert when a timm backbone is selected.
+# The default IS the four pose_full baselines' recipe, so a run launched with no backbone overrides
+# stays comparable to them. Change only as a deliberate RQ1 arm.
+vit_backbone: tiny_vit_5m_224
 vit_pretrained: true             # load timm ImageNet weights (ignored when vit_backbone=legacy)
 # Freeze ONLY the ViT (`vit.*`); train motion+fusion+heads. Field-standard on the small anchored set —
 # frozen pretrained features prevent backbone memorizing. NOT ScheduleCfg.freeze_backbone (all-but-heads).
-freeze_vit_backbone: false
+freeze_vit_backbone: true
 motion_hidden_dim: 168
 motion_num_layers: 2
 motion_num_heads: 8

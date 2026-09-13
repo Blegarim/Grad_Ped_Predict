@@ -17,6 +17,7 @@ are each golden-locked), so these tests pin the orchestration the Trainer owns:
 from __future__ import annotations
 
 import dataclasses
+import math
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -39,6 +40,7 @@ _TASKS = ("actions", "looks", "crosses")
 _CPU = torch.device("cpu")
 # Legacy ViT schedule: pin so golden["init_state"] keeps its param layout under the A1 default.
 _LEGACY_VIT = dict(
+    vit_backbone="legacy",  # the goldens are the from-scratch ViT; the config default is now TinyViT
     stage_dims=[36, 36, 288, 36], layer_nums=[2, 4, 5, 7],
     head_nums=[2, 2, 16, 2], window_size=[8, 4, 2, None],
 )
@@ -446,6 +448,95 @@ def test_crosses_only_selection_not_poisoned_by_dead_heads(golden: dict) -> None
     # macro_f1 selection resolves to crosses F1 (negated) instead of KeyError-ing on the missing column
     sel = trainer._selection_value(val_loss=1.0, metrics=metrics)
     assert sel == pytest.approx(-metrics.per_task["crosses"].f1)
+
+
+def _onset_cfg() -> RootCfg:
+    """PARITY cfg with the onset hazard head switched on (config only; no model rebuild needed)."""
+    model = dataclasses.replace(_PARITY_CFG.model, onset_head=True)
+    return dataclasses.replace(_PARITY_CFG, model=model)
+
+
+def test_onset_columns_only_when_the_head_is_on() -> None:
+    """The three onset diagnostics are gated on model.onset_head — no dead columns without it."""
+    from pedpredict.training.trainer import train_log_columns
+
+    onset_cols = ("onset_hazard", "onset_readout_p05", "onset_readout_p95")
+    off = train_log_columns(("crosses",))
+    on = train_log_columns(("crosses",), onset=True)
+    assert not any(c in off for c in onset_cols)
+    assert all(c in on for c in onset_cols)
+    # the onset block is additive: it must not reorder or drop anything the run already logged
+    assert [c for c in on if c not in onset_cols] == list(off)
+
+
+def test_onset_readout_spread_separates_a_collapsed_head_from_a_live_one(
+    golden: dict, tmp_path: Path
+) -> None:
+    """The p05/p95 pair is the collapse diagnostic — a LOW MEAN HAZARD IS CORRECT and must not be it.
+
+    Predicted failure mode: the head learns the ~2.9%/K base rate and nothing else, so every window
+    gets the same readout. Both heads below share a near-zero mean hazard; only the percentile spread
+    tells them apart. If this ever stops discriminating, the run diagnostic is worthless.
+    """
+    trainer = Trainer(
+        _onset_cfg(), _fresh_model(golden), _CPU, _ListChunkProvider([], []),
+        loss=_loss_from_golden(golden), run_dir=tmp_path,
+    )
+    collapsed = [torch.full((256,), 0.029)]                      # every window -> the base rate
+    live = [torch.rand(256)]                                     # genuinely separated windows
+
+    dead_row = trainer._onset_diagnostics(collapsed, hazard_sum=5.5 * 256, n_hazard=256)
+    live_row = trainer._onset_diagnostics(live, hazard_sum=5.5 * 256, n_hazard=256)
+
+    assert dead_row["onset_hazard"] == pytest.approx(5.5)        # raw + unweighted, as documented
+    assert dead_row["onset_readout_p95"] - dead_row["onset_readout_p05"] == pytest.approx(0.0)
+    assert live_row["onset_readout_p95"] - live_row["onset_readout_p05"] > 0.5
+    trainer.chunks.close()
+
+
+def test_onset_diagnostics_empty_without_the_head(golden: dict, tmp_path: Path) -> None:
+    """Head off -> no onset keys at all, so _log_epoch cannot write into a schema without them."""
+    trainer = Trainer(
+        _PARITY_CFG, _fresh_model(golden), _CPU, _ListChunkProvider([], []),
+        loss=_loss_from_golden(golden), run_dir=tmp_path,
+    )
+    assert trainer._onset_diagnostics([torch.rand(8)], hazard_sum=1.0, n_hazard=8) == {}
+    assert trainer._onset_row == {}
+    trainer.chunks.close()
+
+
+def test_validate_populates_onset_row_end_to_end(golden: dict, tmp_path: Path) -> None:
+    """The accumulation loop inside validate() actually fills the row — not just the helper.
+
+    Covers the plumbing a long training run depends on: the loss component reaches `per_task`, the
+    readout reaches the prob list, and both land in `_onset_row` for `_log_epoch`. Uses a fresh
+    (random-init) onset model, since the golden state predates the head and strict-loads without it.
+    """
+    from pedpredict.losses.multitask import build_multitask_loss
+
+    cfg = _onset_cfg()
+    batch = golden["val_batches"][0]
+    images_tight, images_context, motions, labels = batch
+    n = images_tight.size(0)
+    labels = {
+        **labels,
+        "onset_offset": torch.full((n,), 8),      # event inside the lookahead
+        "future_observed": torch.full((n,), 96),  # fully observed
+        "track_crosses": torch.ones(n),
+    }
+    chunks = _ListChunkProvider([], [[(images_tight, images_context, motions, labels)]])
+    trainer = Trainer(
+        cfg, build_model(cfg), _CPU, chunks,
+        loss=build_multitask_loss(cfg.train, golden["class_weights"], model_cfg=cfg.model),
+        run_dir=tmp_path,
+    )
+    trainer.validate()
+
+    row = trainer._onset_row
+    assert set(row) == {"onset_hazard", "onset_readout_p05", "onset_readout_p95"}
+    assert math.isfinite(row["onset_hazard"]) and row["onset_hazard"] > 0
+    assert 0.0 <= row["onset_readout_p05"] <= row["onset_readout_p95"] <= 1.0
+    chunks.close()
 
 
 def test_crosses_only_fit_writes_crosses_only_csv(golden: dict, tmp_path: Path) -> None:
