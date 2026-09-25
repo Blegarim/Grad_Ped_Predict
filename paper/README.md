@@ -11,17 +11,42 @@ owed once the outstanding experiments land and the boxes come out.
 
 ```bash
 cd paper/figures && ../../.venv/Scripts/python.exe make_figures.py
-cd .. && latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+cd .. && max_print_line=1000 latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+./check_numbers.sh
 ```
 
 Both steps are needed after any change to `NUMBERS`. `latexmk -C` cleans.
+`max_print_line=1000` stops TeX wrapping the result-status warnings that
+`check_numbers.sh` reads; without it the longer tags are truncated.
 
 **Gate before considering a build good:** zero errors, zero unresolved
 references *in the final pass* (`grep -c "undefined on input" main.log` — not
 `build.log`, whose early passes always show some), and zero overfull boxes.
+`./check_numbers.sh` reports all four at once.
 
 To hide the TODO boxes for a clean read, swap the `todonotes` options for
 `[disable]`.
+
+## Unfilled results
+
+Results are still landing, so every number in `main.tex` carries one of three
+states, defined in the "result-status machinery" block of the preamble:
+
+| Macro | Meaning | Renders as | Log trace |
+|---|---|---|---|
+| `\seedconf{v}` | measured, confirmed across seeds | the value | silent |
+| `\oneseed{v}{tag}` | measured on one seed; the seed mean supersedes it | blue value + † | `PROVISIONAL` |
+| `\pending{tag}` | not measured yet | red `[tag]` | `PENDING` |
+
+`./check_numbers.sh` counts each from `main.log` and lists what is outstanding;
+`--strict` makes it exit nonzero. Setting `\draftnumbersfalse` in the preamble
+hides the marks for a clean read and turns any surviving `\pending` into a hard
+compile error, so the paper cannot be submitted with a hole in it.
+
+Values live in the `NUMBERS` block at the top of `main.tex`, each with its run
+id and source file in a trailing comment. Nothing in the body hardcodes a number.
+Earlier sections (§III–§VI) still carry their numbers inline from before this
+convention; migrating them is outstanding.
 
 ## Where the numbers come from
 
@@ -52,32 +77,46 @@ buckets exactly (2,220 · 1,966 · 2,888 · 15,560).
 
 ## Outstanding items
 
-The draft carries its own to-do list as `\todo` boxes, which render inline in
-the PDF. The pre-submission checklist is at the end of the Conclusion.
+Run `./check_numbers.sh` for the authoritative list; it reads the build log. One
+`\todo` box remains (planned ablations).
 
-**Blocked on the lab PC (compute):**
+**Closed 2026-09-24/25 — the seed plan completed, every job succeeded:**
 
-1. **Populate Table VI** — the onset-timing configurations. Implemented and
-   unit-tested, never trained. Needs: metadata backfill, a short run to confirm
-   the read-out distribution is not degenerate, then the auxiliary and pure
-   configurations.
-2. **Matched-size streaming control** (~4.9k windows). One run. Converts the
-   headline claim from "consistent with" to "demonstrated"; this is the
-   confound a reviewer attacks first.
-3. **Multi-seed** the cross-protocol matrix (3 seeds, mean ± std).
-4. **Predictability-limit measurement** — stratify separability by time to
-   onset on any trained model. Cheap once anything trains, and no prior work in
-   the area appears to report it.
+1. ~~Populate the onset table~~ — all four configurations trained, evaluated and
+   dumped; three seeds each for the binary baseline and the pure hazard arm.
+2. ~~Multi-seed the primary comparison~~ — done, and it **is** the paper's
+   result: the pre-registered criterion is met at **0 of 5 budgets**, so the
+   objective comparison is reported as inconclusive. Both objectives vary more
+   across their own seeds than they differ from each other. A single seed
+   reports 3.1×.
+3. ~~Predictability-limit measurement~~ — computed from the dumps. Separability
+   decays 0.78 → 0.52 AUC from the first second out past ten seconds,
+   identically for both objectives. Now in §VIII-A.
+4. ~~Verify the Yao et al. sampling characterization~~ — confirmed against
+   arXiv:2105.04133 §4.2. Their settings are named "original data" (whole track)
+   and "event-to-crossing" (anchored), and they prefer the latter because early
+   windows show little action change. §II-A now uses their terms.
+5. ~~`last.pth` checkpoint-robustness check~~ — **run, then discarded.** All
+   three hazard `last.pth` read-outs are collapsed (spread 0.19 / 0.10 / 0.03
+   against 0.41–0.79 at `best.pth`; r3_s44_last sits under the project's own
+   0.05 dead-head gate), so those checkpoints break the read-out's
+   comparability with a binary head. Their apparently lower seed variance is
+   consistent with uniform head collapse. Dumps kept under
+   `outputs/diagnostics/*_last/` for the record; **no result rests on them.**
 
-**Doable on this machine:**
+**Still open:**
 
-5. **Verify the Yao et al. sampling characterization** against the paper body.
-   Title/authors/venue are confirmed (IJCAI 2021); the specific claim about
-   their two sampling settings comes from project notes, not the paper.
-6. **Adopt the OAD metric suite** — calibrated AP and point-level AP with
-   temporal tolerance. Implementation work, not a run. Should land before the
-   method results, or the arms cannot be compared at 34:1.
-7. Optionally add two or three more recent PIE methods to §II-A.
+6. **Matched-size streaming control** (~4.9k windows). One training run. The only
+   `\pending` left in the build, and the confound a reviewer attacks first in §V.
+7. **OAD metric suite** — calibrated AP, point-level AP with temporal tolerance.
+   Implementation, not a run. Optional now the detection curve is primary and
+   reported with seed spread.
+8. Optionally add two or three more recent PIE methods to §II-A.
+
+**Not in the paper, by decision:** the recipe-v2 detour, the feature-cache
+rebuild, the image-mode probe, BatchNorm-drift work. Repo history, at most a
+thesis appendix. Collapse and seed-dependence appear only as a single
+threats-to-validity paragraph, never as a results subsection.
 
 **Closed 2026-09-09:** confusable-band inconsistency (above); all §II citations
 verified against publisher/arXiv records; the OAD transformer line entered

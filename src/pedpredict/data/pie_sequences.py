@@ -136,6 +136,7 @@ class WindowStats:
     emitted: int = 0
     censored: int = 0       # M4: dropped — future truncated AND no crossing seen (label unknowable)
     determined_positive: int = 0  # recovered: future truncated but the crossing WAS seen
+    censored_emitted: int = 0     # kept as a censored observation (data.emit_censored)
     obs_crossing: int = 0   # filter #2: dropped — crossing during the observation window
     short_tracks: int = 0   # tracks shorter than seq_len (zero candidate windows)
 
@@ -144,6 +145,7 @@ class WindowStats:
             "emitted": self.emitted,
             "censored": self.censored,
             "determined_positive": self.determined_positive,
+            "censored_emitted": self.censored_emitted,
             "obs_crossing": self.obs_crossing,
             "short_tracks": self.short_tracks,
         }
@@ -208,11 +210,17 @@ def _label_window(
     ``actions``/``looks`` = state at the last observed frame (``end - 1``); ``crosses`` = any
     crossing in the future window ``[end, end + future_offset + tol)``.
 
-    The slice clips when the track ends first, which is reachable only under
-    ``emit_determined_positives`` — and there it is safe rather than merely tolerable: that path admits a
-    window ONLY when a crossing was observed before the track ended, and a crossing seen inside a
-    truncated remainder is necessarily inside the (longer) horizon, so the clipped ``any`` is still 1.
-    Windows whose truncated future contains no crossing never reach here.
+    The slice clips when the track ends first, which is reachable under two flags, and they differ:
+
+    * ``emit_determined_positives`` -- safe rather than merely tolerable: that path admits a window
+      ONLY when a crossing was observed before the track ended, and a crossing seen inside a
+      truncated remainder is necessarily inside the (longer) horizon, so the clipped ``any`` is 1.
+    * ``emit_censored`` -- **NOT safe, deliberately**: the crossing was never observed, so the clipped
+      ``any`` returns 0 and that 0 is a PLACEHOLDER, not a label -- exactly the fabricated "did not
+      cross" that M4 exists to prevent. Such windows carry their real information in the S1 fields
+      (``onset_offset = -1``, ``future_observed < future_offset + tol``), which the hazard loss reads
+      to mask unobserved bins. A run giving ``crosses`` a non-zero loss weight on such a dir trains on
+      fabricated negatives.
     """
     return {
         "actions": int(actions[end - 1]),
@@ -279,12 +287,19 @@ def window_track(
                 stats.obs_crossing += 1
             continue
         if end + cfg.future_offset + cfg.tol > n:  # M4: future window truncated
-            if not (cfg.emit_determined_positives and next_cross[end] < n):
+            if cfg.emit_determined_positives and next_cross[end] < n:
                 if stats is not None:
-                    stats.censored += 1        # no crossing seen — "did not cross" would be fabricated
+                    stats.determined_positive += 1  # crossing WAS seen: label determined, keep it
+            elif cfg.emit_censored:
+                # Kept as a CENSORED OBSERVATION. Its `crosses` is a placeholder 0 (see
+                # _label_window); valid only where the hazard loss masks the unobserved bins and
+                # train.loss_weight['crosses'] is 0.
+                if stats is not None:
+                    stats.censored_emitted += 1
+            else:
+                if stats is not None:
+                    stats.censored += 1        # label unknowable: a 0 here would be fabricated
                 continue
-            if stats is not None:
-                stats.determined_positive += 1  # crossing WAS seen: label determined, keep it
         records.append(
             {
                 "images": list(images[start:end]),

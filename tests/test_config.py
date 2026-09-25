@@ -379,3 +379,49 @@ def test_merge_eval_config_plain_full_roundtrip(tmp_path: Path) -> None:
     assert merged.eval.model_type == "full"
     assert merged.model.motion_dim == trained.model.motion_dim
     assert merged.data.protocol == "anchored"
+
+
+# --------------------------------------------------------------------------- censored-window dir guard
+
+
+def _with_censored_dir(**overrides):
+    """Default config plus a censored-window training dir."""
+    cfg = load_config(_CONFIG_DIR, [])
+    paths = dataclasses.replace(cfg.paths, lmdb_train=(*cfg.paths.lmdb_train, "preprocessed_train_censored"))
+    train = dataclasses.replace(cfg.train, **{k: v for k, v in overrides.items() if hasattr(cfg.train, k)})
+    model = dataclasses.replace(cfg.model, **{k: v for k, v in overrides.items() if hasattr(cfg.model, k)})
+    return dataclasses.replace(cfg, paths=paths, train=train, model=model)
+
+
+def test_censored_dir_rejected_when_crosses_has_loss_weight() -> None:
+    """The placeholder crosses=0 must never reach a binary crossing head."""
+    cfg = _with_censored_dir(active_tasks=["crosses"], onset_head=True)
+    with pytest.raises(ConfigError, match="fabricated negatives"):
+        validate_config(cfg)
+
+
+def test_censored_dir_accepted_by_the_onset_pure_recipe() -> None:
+    """crosses weight 0 + onset head on == the arm these windows exist for."""
+    cfg = _with_censored_dir(
+        active_tasks=["crosses"],
+        loss_weight={"actions": 0.8, "looks": 0.8, "crosses": 0.0},
+        onset_head=True,
+    )
+    validate_config(cfg)          # must not raise
+
+
+def test_censored_dir_rejected_without_an_onset_head() -> None:
+    """Nothing would read the onset fields; the windows would only skew the sampler."""
+    cfg = _with_censored_dir(
+        active_tasks=["crosses"],
+        loss_weight={"actions": 0.8, "looks": 0.8, "crosses": 0.0},
+        onset_head=False,
+    )
+    with pytest.raises(ConfigError, match="onset_head"):
+        validate_config(cfg)
+
+
+def test_ordinary_dirs_are_unaffected_by_the_guard() -> None:
+    """The pinned default training set must keep validating under every arm."""
+    cfg = load_config(_CONFIG_DIR, ["train.active_tasks=[crosses]"])
+    validate_config(cfg)

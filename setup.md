@@ -7,6 +7,10 @@ need no dataset. Rebuilding over a v1 checkout: delete `data/sequences/*.pkl` an
 
 ## 0. Prerequisites
 - **Python 3.10–3.12**; **ffmpeg** on PATH (val/test frame extraction); **CUDA GPU** for training.
+- **Linux: raise the open-file limit** before `train.py` / `evaluate.py` — `ulimit -n $(ulimit -Hn)`.
+  DataLoader workers hand tensors to the main process as file descriptors; at the common default soft
+  limit of 1024 a long run dies with `received 0 items of ancdata` → `Pin memory thread exited
+  unexpectedly` (killed a run in epoch 3, 2026-09-16). Windows shares tensors differently and never hits it.
 - **Disk:** clips are tens of GB, LMDBs on top. The train build is self-bounding (per-chunk extract +
   delete). Tight-disk knob (**C3**): `data.lmdb_map_size_bytes` is pre-allocated per chunk on Windows
   (4 GiB default ≈ 76 GB across ~19 chunks); build one chunk, measure, pass `--set data.lmdb_map_size_bytes=<measured+30%>`.
@@ -319,8 +323,11 @@ R1 is the relaunch of the interrupted `20260911_040852`. **Run 0 → 1 → 2 fir
 once 1 shows a live head. Rescue arms (`onset_w8`, `onset_l60`) are at the bottom — they are *not* part of
 the set and are not comparable to it, because they move the bin geometry.
 
-Add `--set data.protocol=anchored` and an `_anch` tag suffix for the anchored leg of any of them, or use
-`run_arm.py` (below) to get both protocols plus the full eval matrix in one command.
+**Protocols.** An onset run (R0, R1, R3, R4) trains on **streaming only** — anchored windows carry no
+onset fields, so the hazard loss cannot run on them. Its checkpoint is still evaluated on **both**
+protocols, because evaluation needs no onset fields. Its anchored-trained matrix row is the **shared R2
+anchored leg** (R2 has no onset head, so it gets a real 2×2). Full policy:
+[RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) § Onset-arm runs.
 
 **R0 — smoke test, 2 epochs.** Cheap insurance. Read `onset_hazard` and `onset_readout_p95 − p05`.
 ```powershell
@@ -343,10 +350,19 @@ python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true 
 ```powershell
 python scripts/train.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --set model.onset_head=true --set model.onset_report_crosses=true --set train.onset_hazard_weight=1.0 --set train.onset_readout_weight=0.5 --set "train.loss_weight={actions: 0.8, looks: 0.8, crosses: 0.0}" --tag onset_hedge
 ```
-**Whole cross-protocol matrix in one command** — trains both protocols and runs val+test x anchored+streaming
-per leg (10 steps). The runner owns `data.protocol`, so never pass it here. `--dry-run` prints the plan.
+**Whole cross-protocol matrix.** For **R2** (no onset head) `run_arm.py` trains both protocols and runs
+val+test × anchored+streaming per leg (10 steps). The runner owns `data.protocol`, so never pass it here;
+`--dry-run` prints the plan. It cannot resume a crashed leg — on an unreliable machine run the two legs as
+separate `train.py` calls (`--set data.protocol=anchored` / `streaming`, tags `..._trainanchored` /
+`..._trainstreaming`) so `--resume` works, then run the same eval cells.
 ```powershell
-python scripts/run_arm.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set model.onset_head=true --set train.onset_hazard_weight=0.1 --tag pose_onset_aux --save-predictions
+python scripts/run_arm.py --set eval.model_type=pose_full --set pose.enabled=true --set model.motion_norm=none --set data.motion_dim=58 --set model.motion_dim=58 --set "train.active_tasks=[crosses]" --set train.selection_metric=crosses_f1 --set augment.runtime=true --set train.lr_schedule=warmup_cosine --tag pose_baseline --save-predictions
+```
+For an **onset** run (R1, R3, R4) never *train* through `run_arm.py` — its anchored leg fails on the
+missing onset fields and the runner is fail-fast. Train with the recipe above, then score the checkpoint on
+the eval cells (evaluation needs no onset fields):
+```powershell
+python scripts/run_arm.py --skip-train --checkpoint outputs/runs/<run_id>/checkpoints/best.pth --save-predictions
 ```
 
 **Rescue arms — outside the set.** Both change the bin geometry, so they are comparable only to each

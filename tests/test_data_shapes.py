@@ -75,6 +75,62 @@ def test_censored_window_never_labeled_zero() -> None:
     assert [r["crosses"] for r in recs] == [1]
 
 
+def test_emit_censored_keeps_the_windows_m4_drops() -> None:
+    """data.emit_censored: the 2 windows M4 discards are kept, and counted separately."""
+    cfg = dataclasses.replace(_TINY, emit_censored=True)
+    stats = WindowStats()
+    recs = _window(_track(8), cfg, stats=stats)
+    assert len(recs) == 3                                   # was 1 under the default M4 rule
+    assert (stats.emitted, stats.censored, stats.censored_emitted) == (3, 0, 2)
+
+
+def test_censored_windows_are_distinguishable_from_genuine_non_crossers() -> None:
+    """The placeholder 0 must never be mistakable for an observed 0 -- the S1 fields separate them.
+
+    A genuine non-crosser has its whole future observed (future_observed >= future_offset + tol); a
+    censored window does not. That is the rule data/onset_stats.is_usable already states, and it is what
+    lets the hazard loss mask the bins that were never seen instead of scoring them as zeros.
+    """
+    cfg = dataclasses.replace(_TINY, emit_censored=True)
+    horizon = cfg.future_offset + cfg.tol
+    recs = _window(_track(8), cfg)
+    assert [r["crosses"] for r in recs] == [0, 0, 0]         # indistinguishable on the label alone
+    observed = [r["future_observed"] >= horizon for r in recs]
+    assert observed == [True, False, False]                  # but not on the S1 fields
+    assert all(r["onset_offset"] == -1 for r in recs)        # no crossing seen in any of them
+
+
+def test_emit_censored_yields_to_filter2_and_to_determined_positives() -> None:
+    """emit_censored must not weaken the two filters that run before it.
+
+    n=8 with the crossing at the final frame: start 4 observes it, so filter #2 removes that window
+    before the censor branch is reached; start 2's future is truncated but the crossing IS visible in
+    the remainder, so it is a determined positive labelled 1 -- never a placeholder 0.
+    """
+    images, bboxes, a, lo, _ = _track(8)
+    c = [0, 0, 0, 0, 0, 0, 0, 1]
+    cfg = dataclasses.replace(_TINY, emit_censored=True, emit_determined_positives=True)
+    stats = WindowStats()
+    recs = window_track(images, bboxes, a, lo, c, cfg, track_id="p", ego_speed=[0.0] * 8, stats=stats)
+    assert [r["crosses"] for r in recs] == [1, 1]
+    assert (stats.determined_positive, stats.censored_emitted, stats.obs_crossing) == (1, 0, 1)
+
+
+def test_emit_censored_placeholder_coexists_with_a_real_positive() -> None:
+    """A track carrying both: one observed positive, then two genuinely censored tail windows."""
+    images, bboxes, a, lo, _ = _track(12)
+    c = [0] * 12
+    c[4] = 1                                                 # early crossing, long clean tail after it
+    cfg = dataclasses.replace(_TINY, emit_censored=True)
+    stats = WindowStats()
+    recs = window_track(images, bboxes, a, lo, c, cfg, track_id="p", ego_speed=[0.0] * 12, stats=stats)
+    # start 0 sees the crossing in a fully observed future -> 1. starts 2,4 observe it -> filter #2.
+    # starts 6,8 have truncated futures with no crossing ahead -> placeholder 0s.
+    assert [r["crosses"] for r in recs] == [1, 0, 0]
+    assert (stats.censored_emitted, stats.censored, stats.obs_crossing) == (2, 0, 2)
+    assert [r["onset_offset"] for r in recs] == [0, -1, -1]   # crossing lands on the first future frame
+
+
 def test_m3_actions_looks_are_state_at_end_of_observation() -> None:
     """M3: actions/looks read signal[end-1] (last observed frame), NOT any() over the future."""
     images, bboxes, _, _, c = _track(8)

@@ -29,6 +29,11 @@ vit_pretrained: true             # load timm ImageNet weights (ignored when vit_
 # Freeze ONLY the ViT (`vit.*`); train motion+fusion+heads. Field-standard on the small anchored set —
 # frozen pretrained features prevent backbone memorizing. NOT ScheduleCfg.freeze_backbone (all-but-heads).
 freeze_vit_backbone: true
+# Recipe v2 (docs/RECIPE_V2_PLAN.md); false = v1, the recipe every existing run was trained under.
+# vit_frozen_eval: keep the frozen timm backbone in eval mode (else its BatchNorm stats drift in training).
+# train_frame_proj: train vit.frame_proj instead of freezing it at its random init.
+vit_frozen_eval: false
+train_frame_proj: false
 motion_hidden_dim: 168
 motion_num_layers: 2
 motion_num_heads: 8

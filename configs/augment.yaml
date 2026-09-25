@@ -16,6 +16,10 @@ color_saturation: 0.3
 color_hue: 0.1
 motion_noise_std: 0.02
 erase_n_frames: 2
+cache_color_variants: 6  # cached mode: pre-built color-jitter feature variants per train window (erase skipped).
+                        # 6, not 2, since 2026-09-18: the v2 smoke run overfit hard (train loss 0.246->0.070
+                        # by epoch 9, val loss rising every epoch from 3) where v1's fresh-per-epoch jitter
+                        # took 20+ epochs to reach 0.29. Cache size scales as V = 2 + 2K per train window.
 crosses_multiplier: 6    # OLD augment_minority_sequences(crosses_multiplier=6, looks_multiplier=3)
 looks_multiplier: 3
 seed: 42

@@ -46,6 +46,7 @@ from tqdm.auto import tqdm
 
 from pedpredict.config.schema import EvalCfg, RootCfg
 from pedpredict.data.collate import build_collate
+from pedpredict.data.feature_cache import open_chunk_features, verify_model_cache
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
 from pedpredict.data.pose import pose_motion_transform
 from pedpredict.losses.multitask import TASKS
@@ -355,7 +356,9 @@ def _eval_chunk_loaders(cfg: RootCfg, chunk_paths: list[str], device: torch.devi
     pin = device.type == "cuda"
     pose_transform = pose_motion_transform(cfg)
     for path in chunk_paths:
-        dataset = LMDBChunkDataset.from_config(path, cfg.data, pose_transform=pose_transform)
+        dataset = LMDBChunkDataset.from_config(
+            path, cfg.data, pose_transform=pose_transform, features=open_chunk_features(cfg, path)
+        )
         loader = DataLoader(
             dataset,
             batch_size=cfg.eval.batch_size,
@@ -461,6 +464,8 @@ def run_evaluation(
     model_type = cfg.eval.model_type
     model = build_model(cfg, model_type).to(device)
     load_eval_weights(model, checkpoint, device=device, strict=strict)
+    chunk_paths = _split_chunk_paths(cfg, split)
+    verify_model_cache(cfg, model, chunk_paths)          # recipe v2 cached mode only; no-op otherwise
 
     run = _resolve_run_dir(cfg, checkpoint)            # resolved BEFORE eval: the test pass loads thresholds
     protocol = cfg.data.protocol
@@ -479,7 +484,7 @@ def run_evaluation(
     is_full = ModelType.coerce(model_type) is ModelType.FULL
     artifacts = evaluate_model(
         model,
-        _eval_chunk_loaders(cfg, _split_chunk_paths(cfg, split), device),
+        _eval_chunk_loaders(cfg, chunk_paths, device),
         device,
         cfg.eval,
         use_amp=resolve_amp(cfg.train.use_amp, device),

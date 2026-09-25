@@ -33,6 +33,8 @@ class PathsCfg:
     # data.protocol="anchored" (resolved in paths.protocol_lmdb_dirs).
     lmdb_train_benchmark: tuple[str, ...] = ("preprocessed_train_benchmark",)
     lmdb_val_benchmark: str = "preprocessed_val_benchmark"
+    # Recipe v2: cached frozen-backbone features, one subdir per LMDB dir (data.visual_input=cached_features).
+    feature_cache_dir: str = "feature_cache"
     log_dir: str = "training_log"          # legacy flat dirs (kept for reading old artifacts)
     ckpt_dir: str = "best_model_outputs"
     run_ckpt_dir: str = "model_outputs"
@@ -75,6 +77,14 @@ class DataCfg:
     # CHANGES THE WINDOW POPULATION: flipping this needs a regen + a Dataset Statistics re-pin (see the
     # Doc-Sync Checklist). Default false = the population every existing run was trained on.
     emit_determined_positives: bool = False
+    # Keep M4-censored windows (future truncated, no crossing seen) as CENSORED OBSERVATIONS rather
+    # than dropping them. Their `crosses` label is a PLACEHOLDER 0, not a label — the answer is
+    # genuinely unknown — so a build made with this flag is usable ONLY by the hazard formulation,
+    # which masks unobserved bins, and ONLY at loss_weight.crosses == 0. Never point a run with a
+    # non-zero crosses weight at such a dir: it would train on fabricated negatives, the exact
+    # failure M4 exists to prevent. Build these into their OWN lmdb dir and add it to
+    # paths.lmdb_train per-experiment; never mix them into the pinned base dirs.
+    emit_censored: bool = False
     # Anchored benchmark eval set: fixed-TTE windows around the PIE crossing_point, labeled by the
     # crossing event. obs_len matches streaming seq_len; sampling stride = round(obs_len * (1 - overlap)).
     benchmark_obs_len: int = 20
@@ -84,6 +94,11 @@ class DataCfg:
     # Which LMDB set train/eval read: "streaming" (dense-window v2 dirs, ~37:1) | "anchored" (benchmark
     # dirs, ~2.5:1). Resolved via paths.protocol_lmdb_dirs; does not change windowing.
     protocol: str = "streaming"
+    # What the visual stream reads (recipe v2, docs/RECIPE_V2_PLAN.md): "images" decodes the context-crop
+    # JPEGs every epoch (v1) | "cached_features" reads the frozen backbone's pooled features from
+    # paths.feature_cache_dir (built by scripts/build_feature_cache.py) — no JPEG decode. Cached mode needs
+    # model.vit_frozen_eval=true, since only an eval-mode backbone is a fixed function of the crop.
+    visual_input: str = "images"
     # PIE source opts (generate_data_trajectory_sequence)
     min_track_size: int = 10
     fstride: int = 1
@@ -137,6 +152,15 @@ class ModelCfg:
     # set (~4.9k windows) — frozen pretrained visual features stop the ViT memorizing. DISTINCT from
     # ScheduleCfg.freeze_backbone (freezes ALL but the task heads); this freezes ONLY the ViT.
     freeze_vit_backbone: bool = True
+    # Recipe v2 (docs/RECIPE_V2_PLAN.md) — both default False, the v1 behaviour every existing run has.
+    # `freeze_vit_backbone` only stops gradients: the Trainer's `model.train()` still puts the backbone's
+    # BatchNorm layers in train mode, so they normalise with per-batch statistics and overwrite the
+    # pretrained running statistics every step. `vit_frozen_eval` keeps a frozen timm feature extractor in
+    # eval mode for the whole run — truly frozen, and the precondition for caching its features.
+    vit_frozen_eval: bool = False
+    # Train `vit.frame_proj` (the randomly initialised Linear(num_features -> d_model) after the backbone)
+    # instead of freezing it along with the backbone at its random init.
+    train_frame_proj: bool = False
     # MotionEncoder
     motion_hidden_dim: int = 168
     motion_num_layers: int = 2
@@ -289,7 +313,10 @@ class TrainCfg:
     )
     sampler_min_weight: float = 1e-6   # floor for per-sample sampler weights
     grad_clip_max_norm: float = 1.0    # clip_grad_norm_ bound
-    early_stop_patience: int = 20      # wide enough for warmup_cosine to traverse its full curve
+    # 15 since 2026-09-19 (was 20): every run peaks by ~epoch 8 then degrades for the rest of the
+    # schedule (R1 best 8/28, v1 baseline 8/19, R3 8/22), so 20 only bought dead epochs at ~47 min
+    # each. Patience can only truncate a run, never improve a selection, so the risk is bounded.
+    early_stop_patience: int = 15
     early_stop_min_delta: float = 0.001
     sched_factor: float = 0.5          # ReduceLROnPlateau knobs (lr_schedule="plateau" only)
     sched_patience: int = 2
@@ -428,6 +455,10 @@ class AugmentCfg:
     color_hue: float = 0.1
     motion_noise_std: float = 0.02
     erase_n_frames: int = 2
+    # Cached mode (data.visual_input=cached_features): color-jittered feature variants pre-built per TRAIN
+    # window by scripts/build_feature_cache.py (each also cached flipped). Runtime color jitter picks one of
+    # them instead of drawing fresh jitter; frame erase has no cached equivalent and is skipped.
+    cache_color_variants: int = 6
     # minority oversampling multipliers
     crosses_multiplier: int = 6
     looks_multiplier: int = 3

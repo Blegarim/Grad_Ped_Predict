@@ -56,10 +56,11 @@ src/pedpredict/        # installable package (pip install -e .)
   data/     pie_sequences pie_annotations transforms lmdb_writer lmdb_dataset lmdb_warm
             balance augment collate sampler stats pose
             onset_stats onset_target onset_backfill      # onset-timing arm (METHODOLOGY prong 2)
+            feature_cache                                # recipe v2: cached frozen-backbone features
   models/   vit timm_backbone geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask onset
   training/ trainer chunk_loader callbacks schedule metrics distribution
-  eval/     evaluate benchmark inference
+  eval/     evaluate benchmark inference diagnostics onset_timing detection_curve
   viz/      plots qualitative
   export/   onnx.py
 scripts/    # thin one-job CLIs (make_sequences, build_lmdb, train, evaluate, ...)
@@ -139,6 +140,23 @@ python scripts/backfill_onset_meta.py --dry-run  # write the S1 onset keys into 
                                                  # --split train|val|test|*_benchmark (repeatable).
                                                  # Stop any training job first: Windows blocks a
                                                  # write-open while a chunk is memory-mapped.
+python scripts/build_feature_cache.py --split all --verify-windows 64
+                                                 # recipe v2: decode context crops once, cache the
+                                                 # eval-mode backbone's features (+ flip / color variants
+                                                 # for train dirs); then train with
+                                                 # --set data.visual_input=cached_features
+python scripts/dump_onset_predictions.py --split test --checkpoint <best.pth> --out <dump.npz>
+                                                 # per-window probs, hazard logits + onset labels
+python scripts/report_onset_timing.py --test <test.npz> --val <val.npz> --eval-log <eval_log.csv>
+                                                 # timing report (per-horizon AUC, score by onset
+                                                 # group); no data needed; parity-checks the dump
+python scripts/report_detection_curve.py --arm "binary=<dump.npz>#p_frame"                                          --arm "hazard=<dump.npz>#p_readout"
+                                                 # THE PRIMARY METRIC: detection rate + lead time at
+                                                 # matched false-alarm budgets; repeat a label to pool
+                                                 # seeds (mean +- sd); no data needed
+python scripts/diagnose_backbone_bn.py --checkpoint <best.pth> --out-dir <dir>
+                                                 # frozen-backbone BatchNorm drift + re-scoring with
+                                                 # pretrained / re-estimated BN stats (recipe v2 check)
 python scripts/visualize.py    ...               # plots / qualitative panels
 python scripts/infer_video.py  ...               # needs [infer] (YOLO detect/track)
 python scripts/export_onnx.py  ...               # needs [export]; runs an onnxruntime parity check

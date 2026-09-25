@@ -1,0 +1,537 @@
+{
+  "accounting": "per_window",
+  "budgets": [
+    1200,
+    460,
+    205,
+    95,
+    41
+  ],
+  "decisions_per_hour": 36000.0,
+  "arms": {
+    "binary (R1 frame)": {
+      "n_seeds": 1,
+      "sources": [
+        {
+          "dump": "outputs/diagnostics/r1/onset_test.npz",
+          "score": "p_frame",
+          "checkpoint": "outputs/runs/20260916_075501_pose_full_pose_onset_aux/checkpoints/best.pth"
+        }
+      ],
+      "aggregate": [
+        {
+          "budget_per_hour": 1200.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.6195121951219512,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 6.0913385826771655,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.6195121951219512
+          ]
+        },
+        {
+          "budget_per_hour": 460.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.3463414634146341,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 3.396244131455399,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.3463414634146341
+          ]
+        },
+        {
+          "budget_per_hour": 205.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.22926829268292684,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 2.973049645390071,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.22926829268292684
+          ]
+        },
+        {
+          "budget_per_hour": 95.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.14146341463414633,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 1.9885057471264367,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.14146341463414633
+          ]
+        },
+        {
+          "budget_per_hour": 41.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.05853658536585366,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 0.9166666666666665,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.05853658536585366
+          ]
+        }
+      ],
+      "curves": [
+        [
+          {
+            "budget_per_hour": 1200.0,
+            "threshold": 0.6025924682617188,
+            "accounting": "per_window",
+            "false_alarms": 1243,
+            "false_alarm_rate": 1199.1638975238504,
+            "detected": 127,
+            "n_positive": 205,
+            "detection_rate": 0.6195121951219512,
+            "mean_lead_s": 6.0913385826771655,
+            "median_lead_s": 1.9
+          },
+          {
+            "budget_per_hour": 460.0,
+            "threshold": 0.9325437545776367,
+            "accounting": "per_window",
+            "false_alarms": 476,
+            "false_alarm_rate": 459.2132061314182,
+            "detected": 71,
+            "n_positive": 205,
+            "detection_rate": 0.3463414634146341,
+            "mean_lead_s": 3.396244131455399,
+            "median_lead_s": 1.4666666666666666
+          },
+          {
+            "budget_per_hour": 205.0,
+            "threshold": 0.9776781797409058,
+            "accounting": "per_window",
+            "false_alarms": 212,
+            "false_alarm_rate": 204.52352878121988,
+            "detected": 47,
+            "n_positive": 205,
+            "detection_rate": 0.22926829268292684,
+            "mean_lead_s": 2.973049645390071,
+            "median_lead_s": 1.4
+          },
+          {
+            "budget_per_hour": 95.0,
+            "threshold": 0.9923836588859558,
+            "accounting": "per_window",
+            "false_alarms": 98,
+            "false_alarm_rate": 94.54389537999786,
+            "detected": 29,
+            "n_positive": 205,
+            "detection_rate": 0.14146341463414633,
+            "mean_lead_s": 1.9885057471264367,
+            "median_lead_s": 1.0666666666666667
+          },
+          {
+            "budget_per_hour": 41.0,
+            "threshold": 0.9967349171638489,
+            "accounting": "per_window",
+            "false_alarms": 42,
+            "false_alarm_rate": 40.51881230571337,
+            "detected": 12,
+            "n_positive": 205,
+            "detection_rate": 0.05853658536585366,
+            "mean_lead_s": 0.9166666666666665,
+            "median_lead_s": 0.7
+          }
+        ]
+      ]
+    },
+    "R3 pure": {
+      "n_seeds": 1,
+      "sources": [
+        {
+          "dump": "outputs/diagnostics/r3/onset_test.npz",
+          "score": "p_readout",
+          "checkpoint": "outputs/runs/20260918_105518_pose_full_onset_pure/checkpoints/best.pth"
+        }
+      ],
+      "aggregate": [
+        {
+          "budget_per_hour": 1200.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.6682926829268293,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 6.523357664233576,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.6682926829268293
+          ]
+        },
+        {
+          "budget_per_hour": 460.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.5658536585365853,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 4.3951149425287355,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.5658536585365853
+          ]
+        },
+        {
+          "budget_per_hour": 205.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.4878048780487805,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 3.052666666666667,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.4878048780487805
+          ]
+        },
+        {
+          "budget_per_hour": 95.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.4097560975609756,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 1.8424603174603174,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.4097560975609756
+          ]
+        },
+        {
+          "budget_per_hour": 41.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.34146341463414637,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 0.7157142857142857,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.34146341463414637
+          ]
+        }
+      ],
+      "curves": [
+        [
+          {
+            "budget_per_hour": 1200.0,
+            "threshold": 0.45741793513298035,
+            "accounting": "per_window",
+            "false_alarms": 1243,
+            "false_alarm_rate": 1199.1638975238504,
+            "detected": 137,
+            "n_positive": 205,
+            "detection_rate": 0.6682926829268293,
+            "mean_lead_s": 6.523357664233576,
+            "median_lead_s": 2.5
+          },
+          {
+            "budget_per_hour": 460.0,
+            "threshold": 0.6786428093910217,
+            "accounting": "per_window",
+            "false_alarms": 476,
+            "false_alarm_rate": 459.2132061314182,
+            "detected": 116,
+            "n_positive": 205,
+            "detection_rate": 0.5658536585365853,
+            "mean_lead_s": 4.3951149425287355,
+            "median_lead_s": 1.5833333333333335
+          },
+          {
+            "budget_per_hour": 205.0,
+            "threshold": 0.8030710816383362,
+            "accounting": "per_window",
+            "false_alarms": 212,
+            "false_alarm_rate": 204.52352878121988,
+            "detected": 100,
+            "n_positive": 205,
+            "detection_rate": 0.4878048780487805,
+            "mean_lead_s": 3.052666666666667,
+            "median_lead_s": 0.6833333333333333
+          },
+          {
+            "budget_per_hour": 95.0,
+            "threshold": 0.8762412667274475,
+            "accounting": "per_window",
+            "false_alarms": 98,
+            "false_alarm_rate": 94.54389537999786,
+            "detected": 84,
+            "n_positive": 205,
+            "detection_rate": 0.4097560975609756,
+            "mean_lead_s": 1.8424603174603174,
+            "median_lead_s": 0.16666666666666669
+          },
+          {
+            "budget_per_hour": 41.0,
+            "threshold": 0.9215312600135803,
+            "accounting": "per_window",
+            "false_alarms": 42,
+            "false_alarm_rate": 40.51881230571337,
+            "detected": 70,
+            "n_positive": 205,
+            "detection_rate": 0.34146341463414637,
+            "mean_lead_s": 0.7157142857142857,
+            "median_lead_s": 0.06666666666666667
+          }
+        ]
+      ]
+    },
+    "R4 hedge": {
+      "n_seeds": 1,
+      "sources": [
+        {
+          "dump": "outputs/diagnostics/r4/onset_test.npz",
+          "score": "p_readout",
+          "checkpoint": "outputs/runs/20260919_111158_pose_full_onset_hedge/checkpoints/best.pth"
+        }
+      ],
+      "aggregate": [
+        {
+          "budget_per_hour": 1200.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.4975609756097561,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 4.7558823529411764,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.4975609756097561
+          ]
+        },
+        {
+          "budget_per_hour": 460.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.28780487804878047,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 3.1627118644067798,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.28780487804878047
+          ]
+        },
+        {
+          "budget_per_hour": 205.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.14634146341463414,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 2.7311111111111113,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.14634146341463414
+          ]
+        },
+        {
+          "budget_per_hour": 95.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.09268292682926829,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 2.6491228070175445,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.09268292682926829
+          ]
+        },
+        {
+          "budget_per_hour": 41.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.03902439024390244,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 1.2541666666666667,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.03902439024390244
+          ]
+        }
+      ],
+      "curves": [
+        [
+          {
+            "budget_per_hour": 1200.0,
+            "threshold": 0.8585857152938843,
+            "accounting": "per_window",
+            "false_alarms": 1243,
+            "false_alarm_rate": 1199.1638975238504,
+            "detected": 102,
+            "n_positive": 205,
+            "detection_rate": 0.4975609756097561,
+            "mean_lead_s": 4.7558823529411764,
+            "median_lead_s": 1.4666666666666668
+          },
+          {
+            "budget_per_hour": 460.0,
+            "threshold": 0.957725465297699,
+            "accounting": "per_window",
+            "false_alarms": 476,
+            "false_alarm_rate": 459.2132061314182,
+            "detected": 59,
+            "n_positive": 205,
+            "detection_rate": 0.28780487804878047,
+            "mean_lead_s": 3.1627118644067798,
+            "median_lead_s": 0.9
+          },
+          {
+            "budget_per_hour": 205.0,
+            "threshold": 0.9817208051681519,
+            "accounting": "per_window",
+            "false_alarms": 212,
+            "false_alarm_rate": 204.52352878121988,
+            "detected": 30,
+            "n_positive": 205,
+            "detection_rate": 0.14634146341463414,
+            "mean_lead_s": 2.7311111111111113,
+            "median_lead_s": 0.7333333333333334
+          },
+          {
+            "budget_per_hour": 95.0,
+            "threshold": 0.9893903136253357,
+            "accounting": "per_window",
+            "false_alarms": 98,
+            "false_alarm_rate": 94.54389537999786,
+            "detected": 19,
+            "n_positive": 205,
+            "detection_rate": 0.09268292682926829,
+            "mean_lead_s": 2.6491228070175445,
+            "median_lead_s": 0.5666666666666667
+          },
+          {
+            "budget_per_hour": 41.0,
+            "threshold": 0.9962823987007141,
+            "accounting": "per_window",
+            "false_alarms": 42,
+            "false_alarm_rate": 40.51881230571337,
+            "detected": 8,
+            "n_positive": 205,
+            "detection_rate": 0.03902439024390244,
+            "mean_lead_s": 1.2541666666666667,
+            "median_lead_s": 1.1
+          }
+        ]
+      ]
+    },
+    "R3C censored": {
+      "n_seeds": 1,
+      "sources": [
+        {
+          "dump": "outputs/diagnostics/r3c/onset_test.npz",
+          "score": "p_readout",
+          "checkpoint": "outputs/runs/20260920_021440_pose_full_onset_pure_censored/checkpoints/best.pth"
+        }
+      ],
+      "aggregate": [
+        {
+          "budget_per_hour": 1200.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.6536585365853659,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 8.10547263681592,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.6536585365853659
+          ]
+        },
+        {
+          "budget_per_hour": 460.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.45365853658536587,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 4.552688172043011,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.45365853658536587
+          ]
+        },
+        {
+          "budget_per_hour": 205.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.3121951219512195,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 3.116145833333333,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.3121951219512195
+          ]
+        },
+        {
+          "budget_per_hour": 95.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.18536585365853658,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 2.3587719298245617,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.18536585365853658
+          ]
+        },
+        {
+          "budget_per_hour": 41.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.1073170731707317,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 2.507575757575758,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.1073170731707317
+          ]
+        }
+      ],
+      "curves": [
+        [
+          {
+            "budget_per_hour": 1200.0,
+            "threshold": 0.5911282896995544,
+            "accounting": "per_window",
+            "false_alarms": 1243,
+            "false_alarm_rate": 1199.1638975238504,
+            "detected": 134,
+            "n_positive": 205,
+            "detection_rate": 0.6536585365853659,
+            "mean_lead_s": 8.10547263681592,
+            "median_lead_s": 2.6333333333333333
+          },
+          {
+            "budget_per_hour": 460.0,
+            "threshold": 0.8008306622505188,
+            "accounting": "per_window",
+            "false_alarms": 476,
+            "false_alarm_rate": 459.2132061314182,
+            "detected": 93,
+            "n_positive": 205,
+            "detection_rate": 0.45365853658536587,
+            "mean_lead_s": 4.552688172043011,
+            "median_lead_s": 2.2666666666666666
+          },
+          {
+            "budget_per_hour": 205.0,
+            "threshold": 0.8981635570526123,
+            "accounting": "per_window",
+            "false_alarms": 212,
+            "false_alarm_rate": 204.52352878121988,
+            "detected": 64,
+            "n_positive": 205,
+            "detection_rate": 0.3121951219512195,
+            "mean_lead_s": 3.116145833333333,
+            "median_lead_s": 1.6
+          },
+          {
+            "budget_per_hour": 95.0,
+            "threshold": 0.9579103589057922,
+            "accounting": "per_window",
+            "false_alarms": 98,
+            "false_alarm_rate": 94.54389537999786,
+            "detected": 38,
+            "n_positive": 205,
+            "detection_rate": 0.18536585365853658,
+            "mean_lead_s": 2.3587719298245617,
+            "median_lead_s": 0.9
+          },
+          {
+            "budget_per_hour": 41.0,
+            "threshold": 0.9763416051864624,
+            "accounting": "per_window",
+            "false_alarms": 42,
+            "false_alarm_rate": 40.51881230571337,
+            "detected": 22,
+            "n_positive": 205,
+            "detection_rate": 0.1073170731707317,
+            "mean_lead_s": 2.507575757575758,
+            "median_lead_s": 0.8333333333333334
+          }
+        ]
+      ]
+    }
+  }
+}

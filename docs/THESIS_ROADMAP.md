@@ -51,11 +51,11 @@ checkable.
 | **0** | Prototype → clean rebuild (behavior-preserving port) | ✅ done |
 | **1** | Engineering audit + v2 data-contract *code* | ✅ done |
 | **2** | v2 data regeneration + baseline runs | ✅ done (streaming + anchored builds exist, trained) |
-| **3** | Streaming pivot: onset metadata + protocol switch + pose arm | 🟡 code done incl. onset plumbing + head + loss (2026-08-26) · awaiting the lab-PC backfill run |
+| **3** | Streaming pivot: onset metadata + protocol switch + pose arm | ✅ done — onset fields reach the trainer (lab-PC backfill; the 2026-09-16 research-PC regen writes them natively) |
 | **4** | The decomposition (G_prior / G_hardneg) — **now the motivation, not the headline** | ✅ measured + written up ([RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md)) |
-| **5** | Streaming-leg convergence + baseline hygiene | 🟡 demoted from headline — one real config mismatch found, must be fixed |
-| **6** | Rare-event metrics + negative-composition report | 🟡 composition + horizon sweep ✅ done 2026-08-20 · metric suite still 💻 **NEXT** |
-| **7** | **The method** — onset timing under censoring + supporting studies | 🟢 **the thesis now lives here** → [METHODOLOGY.md](METHODOLOGY.md) |
+| **5** | Streaming-leg convergence + baseline hygiene | 🟡 demoted from headline — the Model B sampler mismatch is fixed by R2's anchored leg (queued) |
+| **6** | Rare-event metrics + negative-composition report | 🟢 composition ✅ · **detection-latency evaluation ✅ built + measured 2026-09-19 (the instrument that works)** · ODAS/track suite still 💻 |
+| **7** | **The method** — onset timing under censoring + supporting studies | 🟢 R0 ✅ · R1 ✅ · **R3 ✅ (ties on F1, WINS 2-6x on detection latency)** · R4 running · R3C queued |
 | **8** | Write-up, defense, release | ⬜ not started |
 
 The critical path is now **6 → 7 → 8** (Stage 4 is done). Stage 6 comes first because it is entirely
@@ -65,14 +65,46 @@ read the result. Stage 5 no longer gates anything as a *finding*, but its baseli
 load-bearing — the four existing runs are the comparison baselines, and one of them has a configuration
 mismatch that would corrupt any comparison built on it.
 
-**The two dependencies worth knowing before planning any lab visit:**
-- The three onset fields never reach the database the trainer reads (Stage 3, last unchecked item; the gap
-  is described in CLAUDE.md § Data Pipeline, S1 bullet). Since 2026-08-20 this blocks **the method itself**,
-  not just two of four candidate directions — onset timing has nothing to train against until the fields
-  arrive. The fix is small and mostly 💻. *(It does not block the negative-composition report, which is
-  done: that reads the sequence pkls or PIE's annotation XMLs, both upstream of the packing step.)*
-- Nothing in Stages 6–7 needs a *training* run to make progress. Metrics, features, and the negative
-  census are all written and tested on the laptop; the lab machine only executes.
+**The two dependencies worth knowing before planning machine time (updated 2026-09-16):**
+- **Training now runs on the friend's research PC** (RTX 5090, 8 vCPU, CPU-bound at ~50 samples/s ≈ 22 h
+  per 30-epoch streaming run). Stage 7's runs are serial there: R1 → R2 (both protocols) → R3/R4 after
+  R1's numbers are read. Access goes through the owner's Fedora laptop, which can drop out for hours; the
+  unattended run queue and the reconnection plan live in that machine's `/workspace/setup_logs/NIGHT_LOG.md`.
+- Stage 6 (the rare-event metric suite) is still laptop-only and does **not** wait on training — build it
+  while the runs execute, so R1's numbers can be read with the stable instrument rather than F1 alone.
+
+---
+
+## ⭐ 2026-09-19 — the result that reframes the thesis
+
+**Under detection-latency evaluation, R3's hazard readout detects 2-6x more crossings than the binary head
+at matched false-alarm budgets, while the two TIE on window-F1.** Full numbers, provenance and caveats:
+memory `detection-latency-result`, and RESULTS_MATRIX (R3 section).
+
+| FA/hr | binary head | R3 hazard readout |
+|---|---|---|
+| 460 | 34.6% @ 3.11s | **56.6% @ 4.22s** |
+| 205 | 22.9% @ 2.83s | **48.8% @ 3.05s** |
+| 95 | 14.1% @ 2.16s | **41.0% @ 1.86s** |
+| 41 | 5.9% @ 0.92s | **34.1% @ 0.76s** |
+
+The gap widens as the alarm budget tightens -- the deployment direction. Method borrowed from **quickest
+change detection** (Page 1954 CUSUM; Shiryaev/Roberts/Lorden), whose metrics are detection delay vs
+false-alarm rate; mirrored here as lead time vs alarms/hour. No prior work in pedestrian crossing
+prediction evaluates this way.
+
+**Three supporting measurements, all laptop-only from prediction dumps:**
+- CUSUM *accumulation* itself is 2-10x WORSE than plain thresholding -- a crossing approach is not the
+  persistent distribution shift CUSUM assumes. The field's metric transfers; its detector does not.
+- Within-track smoothing moves AUC +0.024, **larger than the entire R3-vs-baseline gap (0.023)** --
+  quantitative proof that window-level metrics cannot resolve these arms.
+- Track-level aggregation inflates F1 0.24 -> 0.64 but only because the base rate moves 3.06% -> 29.3%;
+  by lift over chance it is *worse* (5.1x vs 2.1x). Never report track F1 as an improvement.
+
+**Consequence for Stage 8:** the claim is no longer "our method matches the baseline". It is *the standard
+fixed-horizon binary metric cannot see what onset-timing training buys; evaluated as a deployed system is
+specified, the timing formulation detects 2-6x more crossings.* The earlier negative results become its
+supporting structure rather than the whole story.
 
 ---
 
@@ -208,7 +240,21 @@ Separately: the streaming leg still does not converge cleanly, which caps how go
 model can look — including new methods.
 
 **Stabilize the streaming-trained model** (Phase C of the old plan; the G_hardneg ceiling)
-- [ ] 🖥️ Diagnose the val_loss instability in `20260714_134253` (spikes to 4–8 on epochs 1/2/4/13/17; recall collapses to 1.0 = all-positive; best epoch 8 is a lucky trough, not a plateau)
+- [~] 🖥️ Diagnose the val_loss instability in `20260714_134253` (spikes to 4–8 on epochs 1/2/4/13/17; recall collapses to 1.0 = all-positive; best epoch 8 is a lucky trough, not a plateau)
+  - **Reproduced, 2026-09-17**: R2's streaming leg on the research PC hit the same collapse epochs (1/2/4) to four
+    decimals, so this is a property of the recipe + seed, not of one machine or one run.
+  - **One cause found and measured, one hypothesis refuted** (`outputs/diagnostics/r1/bn`, RESULTS_MATRIX
+    § "R1 results and what they cost to interpret"): the "frozen" TinyViT is frozen in weights only — its
+    BatchNorm running statistics drift, and re-estimating them alone (no weight change) moves val AUC
+    0.788–0.809 / F1@0.5 0.208–0.234, *the size of the differences between arms*. But no re-estimation ever
+    produced an all-positive epoch, so **BN drift does not explain the collapses**; candidates left are the
+    sampler prior (~26% train vs 2.8% val), logsumexp pooling, and early-LR dynamics. Still open.
+- [~] 🖥️/💻 **Recipe v2** ([docs/RECIPE_V2_PLAN.md](RECIPE_V2_PLAN.md)) — the stabilization half that is now
+  running: `model.vit_frozen_eval` (truly frozen backbone) + `model.train_frame_proj` + cached frozen-backbone
+  features (`data.visual_input=cached_features`) so an epoch costs minutes instead of ~47 min, which buys
+  **3 seeds per arm** — the only way to read a difference against the noise floor above. Launched on the
+  research PC 2026-09-17 18:05 UTC: cache build → baseline (both protocols) × 3 seeds → R3 → R4 → R1 × 3,
+  every run scored on both protocols plus onset-timing reports. v2 numbers are comparable within v2 only.
 - [ ] 🖥️ Stabilize: revisit LR / warmup / focal-or-class-balanced loss / sampler power under raw 37:1 (this *is* the "curated streaming training" recipe — see Stage 7)
 - [ ] 🖥️ Confirm a streaming-trained model that plateaus cleanly (not a single lucky epoch)
 
@@ -246,7 +292,21 @@ The negative-composition half answers a question that sizes the whole method eff
 crosses, someone who crosses in four seconds, and someone who has already finished crossing. Counting them
 is cheap and decides how much is on the table.
 
-**Metric suite (import from OAD/ODAS — brief §2.4)**
+**✅ The primary metric landed 2026-09-23 — `eval/detection_curve.py` + `scripts/report_detection_curve.py`
++ `tests/test_detection_curve.py`.** Detection rate and lead time at matched false-alarm budgets, per
+pedestrian, with both `per_window` and `per_track` alarm accounting. This is **the** headline instrument;
+the OAD suite below is now supporting context rather than the plan's centre, because the detection curve
+is what separates the arms (they tie on every window-level scalar). It reproduces the four-arm result from
+the arms' stored dumps and runs on the laptop. Promoting it out of scratchpad scripts made two previously
+unstated assumptions explicit — a hard false-alarm budget, and an order-independent lead time — which
+shifted 4 of 20 published cells by ≤1.5 pp without changing any ordering. Full note:
+[RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md) § The primary metric.
+- [x] 💻 **Detection rate + lead time vs false-alarm budget** — the deployment-specified metric
+- [x] 💻 Per-pedestrian alarm accounting alongside per-window (closes the stated "alarm accounting is an assumption" gap)
+- [x] 💻 Multi-seed aggregation (mean ± sample sd) for the pre-registered protocol
+- [x] 💻 Unit tests on synthetic streams (no data)
+
+**Metric suite (import from OAD/ODAS — brief §2.4)** — still open, now supporting rather than headline
 - [ ] 💻 Per-frame mAP over the stream
 - [ ] 💻 **Calibrated AP (cAP / mcAP)** — the OAD metric built for heavy-background imbalance
 - [ ] 💻 **Point-level AP (p-AP)** with temporal-offset tolerance (onset-timing quality; needs S1 onset ground truth)
@@ -296,14 +356,28 @@ reference. Kept here in summary so the tracker stays complete:
 
 **Onset-timing build order** (supersedes the pre-reframe recipe list below)
 - [x] 💻 S1 fields into `pack_meta` + the read path + collate
-- [x] 💻 Backfill script over the existing LMDBs — 🖥️ **still to run**
+- [x] 💻+🖥️ Backfill script over the existing LMDBs — run on the lab PC; the research-PC regen
+      (2026-09-16) writes the fields natively, no backfill needed there
 - [x] 💻 Timing output + a censoring-aware loss (`model.onset_head`, `losses/onset.py`; default off).
       Contracts and the three-arm weight table live in **[CLAUDE.md](../CLAUDE.md) § Onset Timing**.
 - [x] 💻 Conversion back to the baseline question — `hazard_to_horizon_logits`, pinned against the
       generator's own `crosses` label so the four baselines stay comparable
-- [ ] 🖥️ Short smoke run to check the head does not collapse to `h ~ 0` (the predicted failure mode)
-- [ ] 🖥️ Auxiliary-arm run first (reported number still from `crosses_frame` = baselines untouched),
-      then the pure-reformulation arm
+- [x] 🖥️ Short smoke run — R0 `20260916_035520` (research PC, 2 epochs). The head did **not** collapse to
+      the ~2.9% base rate; readout spread 0.37 → 0.09, saturating *high* in step with `crosses_frame`'s
+      all-positive calibration swing (AUC 0.81 / 0.78), both epochs inside the 4-epoch warmup. Not a clean
+      pass; decision (2026-09-16): run R1 in full rather than gate on early epochs.
+- [x] 💻 Results-matrix policy for onset runs — train streaming only, evaluate on both protocols, shared
+      R2 anchored-trained row, R3/R4 scored at the ≤32 readout →
+      [RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md) § Onset-arm runs
+- [ ] 🖥️ **R1** auxiliary arm `20260916_075501_pose_full_pose_onset_aux` — training (~22 h; resumed at
+      epoch 3 after an open-file-limit crash). Streaming val → test runs automatically; anchored val → test
+      queued after it.
+- [ ] 🖥️ **R2** `pose_baseline` — same-machine twin of `20260714_134253`, trained on **both** protocols
+      with identical flags (which also fixes Model B's anchored-leg sampler mismatch). Its anchored leg is
+      the shared anchored-trained row for R1–R4.
+- [ ] 🖥️ **R3** pure reformulation, **R4** hedge — queued straight after R2. setup.md's condition ("once
+      R1 shows a live head") is met by R1 epochs 5–9: readout spread 0.10–0.38, val hazard NLL ~6 → ~0.5.
+      Streaming-trained, evaluated on both protocols.
 - [ ] 💻+🖥️ Censored windows restored — needs a **regen** with the M4 filter relaxed, NOT the backfill
       (`window_track` skips them at generation, so they were never in the pkls). Separate experiment.
 - [ ] 🖥️ Restore censored windows to training — a data-quantity change, measured separately from the objective change

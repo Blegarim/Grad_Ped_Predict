@@ -73,7 +73,7 @@ tight crop + motion → MotionEncoder    ───┘
 
 | Component | Role |
 |---|---|
-| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. The visual stream is **swappable** via `model.vit_backbone` (RQ1): a `timm` model name builds `TimmBackbone` (`models/timm_backbone.py`) behind the same `[B,T,3,H,W]→[B,T,d_model]` contract, `model.vit_pretrained` gating ImageNet weights \| `legacy` is this module. **Default is `tiny_vit_5m_224` + `freeze_vit_backbone=true`** — the recipe all four `pose_full` baselines were trained under, so a run launched without backbone overrides stays comparable to them (pinned by `tests/test_timm_backbone.py`); this module stays golden-pinned in tests but is no longer the default — see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). |
+| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. The visual stream is **swappable** via `model.vit_backbone` (RQ1): a `timm` model name builds `TimmBackbone` (`models/timm_backbone.py`) behind the same `[B,T,3,H,W]→[B,T,d_model]` contract, `model.vit_pretrained` gating ImageNet weights \| `legacy` is this module. **Default is `tiny_vit_5m_224` + `freeze_vit_backbone=true`** — the recipe all four `pose_full` baselines were trained under, so a run launched without backbone overrides stays comparable to them (pinned by `tests/test_timm_backbone.py`); this module stays golden-pinned in tests but is no longer the default — see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). ⚠️ **"Frozen" is v1-frozen:** `requires_grad=False` only, so the Trainer's `model.train()` lets TinyViT's BatchNorm statistics drift, and `vit.frame_proj` stays at its random init. Recipe v2 flags (default off, pinned by `tests/test_frozen_backbone.py`): `model.vit_frozen_eval` (backbone kept in eval mode — truly frozen) and `model.train_frame_proj`. Plan: [docs/RECIPE_V2_PLAN.md](docs/RECIPE_V2_PLAN.md). |
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + fusion + GRU + learned pos-encoding + MultiheadAttention. In-forward motion norm is config-gated: `model.motion_norm` = `image` (fixed frame-dim scale, default) \| `per_sequence` (legacy z-norm, A4 ablation arm). Outputs `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → pooling MLP → softmax temporal weights → per-task classifier heads. `model.fusion_residual` (A3/RQ2, **default on**) adds the motion query back at fusion (`attn_output + motion_feats`) so motion *content* reaches the heads, not just motion-as-attention-mask; `=false` is the no-residual A3 ablation (golden-pinned). |
 | `EnsembleModel` | Wires all components; applies **LayerNorm before fusion**; `return_feats` path used by viz. |
@@ -130,7 +130,13 @@ balance/augment → runtime `LMDBChunkDataset` + collate. The runtime dataset al
 on-the-fly augmentation** (`augment.runtime`, default off, train split only, seeded per run+epoch+index):
 fresh ratio-preserving transforms per sample in the read path (applied pre-ImageNet-norm) — a data-scarcity
 regularizer, distinct from the offline minority-oversampling `augment.enabled` and NOT one of the three
-imbalance levers below. Sequence-gen params (`seq_len`, `stride`,
+imbalance levers below. **Recipe v2 feature cache** (`data.visual_input=cached_features`, default `images`;
+[data/feature_cache.py](src/pedpredict/data/feature_cache.py), built by `scripts/build_feature_cache.py`):
+the eval-mode frozen backbone's pooled features replace the context-crop JPEG decode in train, eval and dumps.
+Requires `model.vit_frozen_eval=true` and a context-only model (`pose_full` | `visual_only`); readers check
+window order, crop size, norm and a weights+BN fingerprint, so a stale cache fails loudly. In cached mode
+`augment.runtime` picks pre-built flip / color-jitter variants (flip still goes through the shared
+`augment.flip_motions_pose` rule for motions + pose); frame erase is skipped. Sequence-gen params (`seq_len`, `stride`,
 `future_offset`, `context_scale`, …) live in `configs/data.yaml`; the **LMDB schema v2** key/value contract
 is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim motion channel table in
 [data/transforms.py](src/pedpredict/data/transforms.py). Crops are stored un-normalized (ImageNet norm at
@@ -156,6 +162,14 @@ record but is no longer required reading):
   dropped. This is the full knowability rule `data/onset_stats.is_usable` already stated but generation
   never applied. **It changes the window population** — regen + a four-way Dataset Statistics re-pin, and
   it invalidates comparisons against runs built without it.
+  **`data.emit_censored` (default off, BUILT 2026-09-19).** The third outcome: keep censored windows as
+  CENSORED OBSERVATIONS instead of dropping them. Their `crosses` is a **placeholder 0, not a label** --
+  the real content is the S1 fields, which the hazard loss reads to mask the unobserved bins. Config
+  validation (`loader._validate_censored_dirs`) refuses any training dir whose name contains `_censored`
+  unless `loss_weight['crosses'] == 0` **and** `model.onset_head=true`, so a binary head can never consume
+  them. `emit_censored` yields the UNION, so `scripts/filter_censored_sequences.py` extracts the censored
+  subset into its own LMDB dir; adding that dir to `paths.lmdb_train` is per-experiment and changes
+  nothing until an arm opts in.
 - **M5** — a separate TTE **benchmark** (anchored-protocol) set labels `crosses` by the crossing *event*
   and carries `tte`; built via `make_sequences.py --benchmark --split {train,val,test}` +
   `build_lmdb[_incremental].py --split {train,val,test}_benchmark` → `preprocessed_{split}_benchmark`.
@@ -200,9 +214,10 @@ record but is no longer required reading):
   > verifies `track_id` + `crosses` per sample before writing, so a mismatched pkl aborts instead of
   > corrupting. Augmented dirs are not backfillable (oversampling breaks the positional map) — backfill
   > the base dir and re-run `augment_dataset.py`, which now carries the keys through.
-  > **The M4-dropped windows do NOT come back from the backfill**: `window_track` skips them at
-  > generation, so they were never written to the pkls. Recovering them needs a regen with the M4 filter
-  > relaxed — a separate experiment, deliberately not bundled with the objective change.
+  > **The M4-dropped windows do NOT come back from the backfill** — `window_track` skipped them at
+  > generation. **Recovered 2026-09-19** via `data.emit_censored`: `preprocessed_train_censored` holds the
+  > **7,470** train windows (8.5% of the split) as censored observations. The R3C arm consumes them; no
+  > arm with a binary crossing head can.
 
 ### Dataset Statistics
 
@@ -297,6 +312,11 @@ Row 3 is what the binary label cannot say; row 4 is a bug it cannot avoid (today
   asserted with autograd in `tests/test_onset_loss.py::test_no_gradient_past_the_event_or_censor_point`.
 - **`onset_report_crosses` affects metrics only**, never loss routing — so "auxiliary" and "pure
   reformulation" are two configs of one code path, with only one gradient path onto any head.
+- **Streaming-only training, both-protocol evaluation.** Anchored (benchmark) windows carry no onset
+  fields, so an onset model cannot train on them (`onset_target._require` raises). `evaluate.py` computes
+  no loss and builds no targets, so an onset checkpoint *is* scored on both protocols. Its anchored-trained
+  matrix row is the shared no-onset R2 anchored leg; never train an onset recipe through `run_arm.py`.
+  Policy: [RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) § Onset-arm runs.
 
 **Three formulations, selected by weights alone** (no code branches):
 
@@ -331,6 +351,33 @@ all val-side). **`p95 − p05` collapsing toward 0 is the dead head.** Check at 
 run `20260911_040852` predated these columns and so spent 17.5 h answering nothing.
 
 ## Evaluation
+
+### The primary metric is the detection curve (not F1, not AUC)
+
+**Streaming crossing-onset methods are compared on detection rate + lead time at matched false-alarm
+budgets** — `eval/detection_curve.py`, reported by `scripts/report_detection_curve.py`, budgets
+`{1200, 460, 205, 95, 41}` alarms/hour. Window metrics are reported **alongside** it as context, never in
+its place. This is a measured decision, not a preference: the four onset arms **tie on window-F1
+(0.220 vs 0.225) while differing 2–6× on detection rate**, and no cheap window-level scalar reproduces the
+curve's ranking — AUC ranks the best arm *last*, and AP matched on three arms then failed on the fourth.
+Within-track score smoothing moves AUC (+0.024) by more than the entire gap between arms (0.023). **Report
+the curve; do not substitute a scalar for it.**
+
+Per pedestrian, not per window: a crossing pedestrian is **detected** if any window whose crossing is
+still ahead (`onset_offset >= 0`) clears the threshold, and the **lead time** is the largest such
+`onset_offset` — the earliest warning. Alarms after the person has already stepped out are neither
+credited nor penalised. Thresholds are never swept freely: each budget fixes the lowest threshold whose
+realised alarm rate still fits, so an arm cannot buy detections with alarms. Two accounting rules, both
+reported: `per_window` (each alarming window) and `per_track` (each nuisance pedestrian) — **they can
+disagree at loose budgets**, so state which one a number came from. Lineage is quickest change detection
+(Page 1954; Shiryaev/Roberts/Lorden); its *metric* transfers, its *detector* does not (CUSUM measures
+2–10× worse here).
+
+Order-independent by construction: `track_id` is the PIE pedestrian id and PIE splits one pedestrian
+across occlusion gaps, so ~5% of tracks reach a dump as several segments whose relative order is not
+recoverable. Any metric over these dumps must not assume row order.
+
+### Window-level metrics (context, and the training-time selection signal)
 
 Report **Accuracy, F1, AUC, Precision, Recall** (per task + macro-F1), logged to CSV. Also report
 efficiency: **params, FLOPs (fvcore), latency, FPS, peak VRAM** per `model_type`. A single
@@ -419,6 +466,7 @@ When you change… update (in the same change):
 |---|---|
 | Sequence-gen params / PIE annotations | Dataset Statistics table + `tests/fixtures/golden/pie_sequences_counts.json` + the expected dict in `test_stats.py::test_reference_fixture_matches_claude_table` + re-run `count_labels.py` (gate) — **all four move together or the gate lies** |
 | A run's eval numbers | `outputs/runs/RESULTS_MATRIX.md` (prose ledger, hand-maintained) + `rebuild_index` for `index.csv` (machine table) — never put prose in the CSV |
+| Detection-curve definition (budgets, accounting, lead-time rule) | Evaluation § "The primary metric" + `eval/detection_curve.py` docstring + `tests/test_detection_curve.py` — the definition is pinned by tests, so a change that does not break one is probably not the change you meant |
 | Output-dict keys / head wiring | Architecture output-keys note + `heads.py`/`ensemble.py` docstrings |
 | Imbalance levers (balance / sampler / loss weights) | Imbalance Policy section — all three levers together |
 | `d_model` / module dims | Architecture table (CLAUDE.md + README) — never one module alone |

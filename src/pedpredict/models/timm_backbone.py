@@ -43,11 +43,14 @@ class TimmBackbone(nn.Module):
         in_channels: int = 3,
         pretrained: bool = True,
         img_size: int = 224,
+        keep_eval: bool = False,
     ) -> None:
         super().__init__()
         self.name = name
         self.img_size = img_size
         self.d_model = d_model
+        # Recipe v2 (`model.vit_frozen_eval`): the feature extractor ignores train mode — see `train()`.
+        self.keep_eval = keep_eval
         # num_classes=0 + global_pool="avg" -> forward returns the pooled feature [B*T, num_features].
         self.net = timm.create_model(
             name, pretrained=pretrained, num_classes=0, global_pool="avg", in_chans=in_channels
@@ -64,10 +67,35 @@ class TimmBackbone(nn.Module):
             in_channels=cfg.in_channels,
             pretrained=cfg.vit_pretrained,
             img_size=img_size,
+            keep_eval=cfg.vit_frozen_eval,
         )
 
+    def train(self, mode: bool = True) -> TimmBackbone:
+        """Standard ``train``, except that with ``keep_eval`` the timm feature extractor stays in eval mode.
+
+        ``requires_grad=False`` stops gradients but not BatchNorm: in train mode a frozen backbone still
+        normalises with per-batch statistics and overwrites its pretrained running statistics. Keeping
+        ``self.net`` in eval mode makes it truly frozen. ``frame_proj`` still follows ``mode``.
+        """
+        super().train(mode)
+        if self.keep_eval:
+            self.net.eval()
+        return self
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """``[B, T, C, H, W]`` context crops -> ``[B, T, d_model]``."""
+        """``[B, T, C, H, W]`` context crops -> ``[B, T, d_model]``.
+
+        Also accepts ``[B, T, num_features]`` pooled features from the recipe-v2 feature cache
+        (``data.visual_input=cached_features``): the frozen extractor already ran offline, so only
+        ``frame_proj`` applies.
+        """
+        if x.dim() == 3:
+            if x.shape[-1] != self.net.num_features:
+                raise ValueError(
+                    f"TimmBackbone({self.name}): cached features have width {x.shape[-1]}, the backbone "
+                    f"emits {self.net.num_features} — cache built for a different backbone?"
+                )
+            return self.frame_proj(x)
         b, t = x.shape[:2]
         feats = self.net(x.flatten(0, 1))              # [B*T, num_features]
         return self.frame_proj(feats.view(b, t, -1))   # [B, T, d_model]

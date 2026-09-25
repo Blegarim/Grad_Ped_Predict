@@ -26,6 +26,66 @@ away from it, and to an examiner who has never seen the code.
 
 ---
 
+## ⭐ Amendment 2026-09-19 — the evaluation was the missing half of the method
+
+**Measured, not proposed.** The method was built and tested against fixed-horizon binary metrics (F1, AUC
+at H=32) and it *tied* the baseline: R3 `onset_pure` scored 0.220 tuned F1 against the baseline's 0.225.
+Under **detection-latency evaluation** the same checkpoint detects **2-6x more crossings** at matched
+false-alarm budgets, the advantage widening as the budget tightens. Numbers in
+[RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md) and the roadmap.
+
+**Where it comes from.** Quickest change detection -- Shewhart's control charts (1920s), Page's CUSUM
+(1954), Shiryaev/Roberts/Lorden (1960s-70s) -- the statistics of catching a change in a stream as early as
+possible under a false-alarm constraint. Deployed in radar, seismology, intrusion detection, clinical
+monitors. Its metrics are **detection delay** against **average run length to false alarm**. Mirrored for
+anticipation: **lead time before onset** against **false alarms per hour**.
+
+**Why it fits, mechanically.** Sequential detection wants a statistic that accumulates evidence about an
+impending change. A fixed-horizon binary classifier emits one number about one window and has no notion of
+*when*. A discrete-time hazard model emits a probability per future bin -- which is exactly such a
+statistic. That is why the two tie when alarms are cheap and separate sharply when alarms are expensive.
+
+**What this does to the thesis claim.** It narrows and strengthens it. Not "timing beats classification"
+(R3 ties on the binary metric, and that stands), but: *the field's standard metric is blind to what
+onset-timing training buys, and under the evaluation a deployed system is actually specified on, the
+timing formulation is decisively better.* The censoring machinery, the recovered 7,470 windows, and the
+timing outputs all remain -- they are now the reasons the detection curve separates, rather than claims
+needing separate defence.
+
+**Boundary, stated honestly.** Absolute performance is still poor at usable alarm budgets (~41% detection
+at ~95 alarms/hour) and that is true of every arm. This is a *relative* result about formulations and
+metrics, not a deployable system.
+
+**Status of the evidence (updated 2026-09-23).** All four arms are measured at seed 42 and the ordering
+held: R4 (hazard + horizon CE) is worse than *both* pure arms, which is what kills the "this is just
+multi-task learning" objection, and R3C trades detection rate for ~3× lead time. The open weakness is that
+every number was n = 1; two arms × three seeds are in flight against a **pre-registered** protocol
+([`SEED_PLAN_2026-09-21.md`](SEED_PLAN_2026-09-21.md)), including a success criterion fixed before the
+numbers were seen.
+
+**The metric is now repo code, not a scratchpad script** — [`eval/detection_curve.py`](
+../src/pedpredict/eval/detection_curve.py), run by `scripts/report_detection_curve.py`, its definition
+pinned by `tests/test_detection_curve.py`. Promoting it changed two things that had been unstated
+assumptions in the ad-hoc analysis, and both are now explicit:
+
+* **The budget is a hard constraint.** Each budget fixes the *lowest* threshold whose realised alarm rate
+  still fits inside it. The scratchpad version used a quantile that overshot slightly, which inflated 4 of
+  20 published cells by ≤3 pedestrians (≤1.5 pp). No ordering or claim changes; the repo numbers are
+  marginally more conservative and are the ones to quote.
+* **Lead time is the *earliest* qualifying alarm, not the first row in the file.** `track_id` is the PIE
+  pedestrian id and PIE splits one pedestrian across occlusion gaps, so ~5% of tracks arrive as several
+  segments whose relative order cannot be recovered from a dump. Taking the largest qualifying
+  `onset_offset` is order-independent and identical to "first" within a segment. Lead times therefore read
+  slightly longer than the pre-promotion table.
+
+**Alarm accounting is a real choice, not a detail.** `per_window` counts every alarming window;
+`per_track` counts each nuisance pedestrian once. Under `per_track` the binary baseline *overtakes* the
+hazard arm at loose budgets (71.7% vs 65.4% at 120 alarms/hr) while the hazard arm still wins ~9× at tight
+ones (27.3% vs 2.9% at 4/hr). Both rules are reported and every number says which one it used — the
+headline is a low-false-alarm claim, and it must be stated as one.
+
+---
+
 ## Why we are building a method
 
 Short version; the roadmap's "Where the thesis stands" header carries the same framing at tracker altitude.

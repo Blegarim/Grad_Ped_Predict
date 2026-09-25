@@ -80,8 +80,12 @@ def unfreeze_all(model: nn.Module) -> None:
         param.requires_grad = True
 
 
-def freeze_vit_backbone(model: nn.Module) -> int:
+def freeze_vit_backbone(model: nn.Module, *, train_frame_proj: bool = False) -> int:
     """Freeze ONLY the visual backbone (``vit.*`` params); train motion + fusion + heads.
+
+    ``train_frame_proj`` (``model.train_frame_proj``, recipe v2) leaves ``vit.frame_proj.*`` trainable: it is
+    a randomly initialised projection, not part of the pretrained backbone, and freezing it fixes a random
+    projection of the visual features for the whole run.
 
     Distinct from :func:`freeze_backbone` (which freezes everything except the task heads): this locks
     only the ViT — the memorization-prone stream on the small anchored set (~4.9k windows) — leaving the
@@ -94,9 +98,12 @@ def freeze_vit_backbone(model: nn.Module) -> int:
     """
     n_frozen = 0
     for name, param in model.named_parameters():
-        if name.startswith("vit.") or ".vit." in name:
-            param.requires_grad = False
-            n_frozen += 1
+        if not (name.startswith("vit.") or ".vit." in name):
+            continue
+        if train_frame_proj and (name.startswith("vit.frame_proj.") or ".vit.frame_proj." in name):
+            continue
+        param.requires_grad = False
+        n_frozen += 1
     return n_frozen
 
 

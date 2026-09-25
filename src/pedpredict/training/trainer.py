@@ -660,13 +660,16 @@ def build_trainer(
         # Freeze the visual stream BEFORE Trainer.__init__ builds the optimizer (it filters requires_grad,
         # so a frozen ViT is simply excluded from Adam). Deferred import: schedule.py imports trainer.py.
         from pedpredict.training.schedule import freeze_vit_backbone
-        n_frozen = freeze_vit_backbone(model)
+        n_frozen = freeze_vit_backbone(model, train_frame_proj=cfg.model.train_frame_proj)
         if n_frozen == 0:
             print(f"[freeze_vit_backbone] WARNING: no 'vit.*' params in model_type={cfg.eval.model_type!r} "
                   "— nothing frozen.")
         else:
             n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
             print(f"[freeze_vit_backbone] froze {n_frozen} ViT tensors; {n_train:,} trainable params remain.")
+    # Recipe v2 cached mode: refuse a feature cache built from different backbone weights (no-op otherwise).
+    from pedpredict.data.feature_cache import verify_model_cache
+    verify_model_cache(cfg, model, list(getattr(chunks, "train_lmdb_paths", [])))
     run = init_run(cfg, tag=tag, resume_dir=resume_run_dir)       # run id + scaffold + config snapshot
     run_dir = run.path
     logger = run.train_logger(

@@ -1,0 +1,275 @@
+{
+  "accounting": "per_track",
+  "budgets": [
+    1200,
+    460,
+    205,
+    95,
+    41
+  ],
+  "decisions_per_hour": 36000.0,
+  "arms": {
+    "binary": {
+      "n_seeds": 1,
+      "sources": [
+        {
+          "dump": "outputs/diagnostics/r2s_s42/onset_test.npz",
+          "score": "p_frame",
+          "checkpoint": "outputs/runs/20260917_082845_pose_full_pose_baseline_trainstreaming/checkpoints/best.pth"
+        }
+      ],
+      "aggregate": [
+        {
+          "budget_per_hour": 1200.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 1.0,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 14.34,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            1.0
+          ]
+        },
+        {
+          "budget_per_hour": 460.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.9804878048780488,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 14.024378109452739,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.9804878048780488
+          ]
+        },
+        {
+          "budget_per_hour": 205.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.848780487804878,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 9.5772030651341,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.848780487804878
+          ]
+        },
+        {
+          "budget_per_hour": 95.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.4975609756097561,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 4.636601307189543,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.4975609756097561
+          ]
+        },
+        {
+          "budget_per_hour": 41.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.2731707317073171,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 3.757142857142857,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.2731707317073171
+          ]
+        }
+      ],
+      "curves": [
+        [
+          {
+            "budget_per_hour": 1200.0,
+            "threshold": -Infinity,
+            "accounting": "per_track",
+            "false_alarms": 495,
+            "false_alarm_rate": 477.54314503162186,
+            "detected": 205,
+            "n_positive": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "median_lead_s": 7.466666666666667
+          },
+          {
+            "budget_per_hour": 460.0,
+            "threshold": 0.0025043755304068327,
+            "accounting": "per_track",
+            "false_alarms": 476,
+            "false_alarm_rate": 459.2132061314182,
+            "detected": 201,
+            "n_positive": 205,
+            "detection_rate": 0.9804878048780488,
+            "mean_lead_s": 14.024378109452739,
+            "median_lead_s": 6.966666666666667
+          },
+          {
+            "budget_per_hour": 205.0,
+            "threshold": 0.12662151455879211,
+            "accounting": "per_track",
+            "false_alarms": 212,
+            "false_alarm_rate": 204.52352878121988,
+            "detected": 174,
+            "n_positive": 205,
+            "detection_rate": 0.848780487804878,
+            "mean_lead_s": 9.5772030651341,
+            "median_lead_s": 3.55
+          },
+          {
+            "budget_per_hour": 95.0,
+            "threshold": 0.6190253496170044,
+            "accounting": "per_track",
+            "false_alarms": 98,
+            "false_alarm_rate": 94.54389537999786,
+            "detected": 102,
+            "n_positive": 205,
+            "detection_rate": 0.4975609756097561,
+            "mean_lead_s": 4.636601307189543,
+            "median_lead_s": 2.05
+          },
+          {
+            "budget_per_hour": 41.0,
+            "threshold": 0.8467814326286316,
+            "accounting": "per_track",
+            "false_alarms": 42,
+            "false_alarm_rate": 40.51881230571337,
+            "detected": 56,
+            "n_positive": 205,
+            "detection_rate": 0.2731707317073171,
+            "mean_lead_s": 3.757142857142857,
+            "median_lead_s": 1.6
+          }
+        ]
+      ]
+    },
+    "hazard": {
+      "n_seeds": 1,
+      "sources": [
+        {
+          "dump": "outputs/diagnostics/r3/onset_test.npz",
+          "score": "p_readout",
+          "checkpoint": "outputs/runs/20260918_105518_pose_full_onset_pure/checkpoints/best.pth"
+        }
+      ],
+      "aggregate": [
+        {
+          "budget_per_hour": 1200.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 1.0,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 14.34,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            1.0
+          ]
+        },
+        {
+          "budget_per_hour": 460.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.9853658536585366,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 13.999834983498348,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.9853658536585366
+          ]
+        },
+        {
+          "budget_per_hour": 205.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8439024390243902,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 9.99942196531792,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.8439024390243902
+          ]
+        },
+        {
+          "budget_per_hour": 95.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.6048780487804878,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 5.518548387096776,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.6048780487804878
+          ]
+        },
+        {
+          "budget_per_hour": 41.0,
+          "n_seeds": 1,
+          "detection_rate_mean": 0.47804878048780486,
+          "detection_rate_sd": NaN,
+          "mean_lead_s_mean": 3.029931972789116,
+          "mean_lead_s_sd": NaN,
+          "detection_rate_values": [
+            0.47804878048780486
+          ]
+        }
+      ],
+      "curves": [
+        [
+          {
+            "budget_per_hour": 1200.0,
+            "threshold": -Infinity,
+            "accounting": "per_track",
+            "false_alarms": 495,
+            "false_alarm_rate": 477.54314503162186,
+            "detected": 205,
+            "n_positive": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "median_lead_s": 7.466666666666667
+          },
+          {
+            "budget_per_hour": 460.0,
+            "threshold": 0.008449374698102474,
+            "accounting": "per_track",
+            "false_alarms": 476,
+            "false_alarm_rate": 459.2132061314182,
+            "detected": 202,
+            "n_positive": 205,
+            "detection_rate": 0.9853658536585366,
+            "mean_lead_s": 13.999834983498348,
+            "median_lead_s": 6.433333333333334
+          },
+          {
+            "budget_per_hour": 205.0,
+            "threshold": 0.23620958626270294,
+            "accounting": "per_track",
+            "false_alarms": 212,
+            "false_alarm_rate": 204.52352878121988,
+            "detected": 173,
+            "n_positive": 205,
+            "detection_rate": 0.8439024390243902,
+            "mean_lead_s": 9.99942196531792,
+            "median_lead_s": 3.4
+          },
+          {
+            "budget_per_hour": 95.0,
+            "threshold": 0.5556279420852661,
+            "accounting": "per_track",
+            "false_alarms": 98,
+            "false_alarm_rate": 94.54389537999786,
+            "detected": 124,
+            "n_positive": 205,
+            "detection_rate": 0.6048780487804878,
+            "mean_lead_s": 5.518548387096776,
+            "median_lead_s": 2.0999999999999996
+          },
+          {
+            "budget_per_hour": 41.0,
+            "threshold": 0.815210223197937,
+            "accounting": "per_track",
+            "false_alarms": 42,
+            "false_alarm_rate": 40.51881230571337,
+            "detected": 98,
+            "n_positive": 205,
+            "detection_rate": 0.47804878048780486,
+            "mean_lead_s": 3.029931972789116,
+            "median_lead_s": 0.6666666666666666
+          }
+        ]
+      ]
+    }
+  }
+}

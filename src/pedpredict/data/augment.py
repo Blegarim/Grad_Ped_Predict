@@ -96,6 +96,21 @@ class AugItem:
 # --------------------------------------------------------------------------- tensor transforms
 
 
+def flip_motions_pose(
+    motions: torch.Tensor, pose: torch.Tensor | None, source_width: float
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    """The non-image half of a horizontal flip — the single rule shared by the image path
+    (:meth:`SequenceAugmenter.horizontal_flip`) and the cached-feature path (``data.feature_cache``).
+
+    Negates ``dx`` and reflects ``cx`` about the frame width (M9: skipping either corrupts augmented
+    data silently), and mirrors raw pose keypoints (reflect x + swap left/right joints). Never mutates.
+    """
+    motions = motions.clone()
+    motions[:, _FLIP_NEGATE_IDX] *= -1
+    motions[:, _FLIP_REFLECT_IDX] = source_width - motions[:, _FLIP_REFLECT_IDX]
+    return motions, (flip_pose(pose, source_width) if pose is not None else None)
+
+
 class SequenceAugmenter:
     """Faithful port of OLD ``SequenceAugmenter``'s four transforms, operating on ``ProcessedSample``.
 
@@ -118,15 +133,13 @@ class SequenceAugmenter:
     def horizontal_flip(self, s: ProcessedSample) -> ProcessedSample:
         """Mirror the width axis of both crops; negate ``dx``, reflect ``cx`` about the frame width,
         and mirror the raw pose keypoints (reflect x + swap left/right joints) when present."""
-        motions = s.motions.clone()
-        motions[:, _FLIP_NEGATE_IDX] *= -1
-        motions[:, _FLIP_REFLECT_IDX] = self.source_width - motions[:, _FLIP_REFLECT_IDX]
+        motions, pose = flip_motions_pose(s.motions, s.pose, self.source_width)
         return replace(
             s,
             images_tight=torch.flip(s.images_tight, dims=[3]),
             images_context=torch.flip(s.images_context, dims=[3]),
             motions=motions,
-            pose=flip_pose(s.pose, self.source_width) if s.pose is not None else None,
+            pose=pose,
         )
 
     def color_augment(self, s: ProcessedSample) -> ProcessedSample:

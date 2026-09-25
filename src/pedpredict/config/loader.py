@@ -69,6 +69,9 @@ _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
 _FRAME_POOLS = frozenset({"logsumexp", "max", "mean"})  # CrossAttentionModule frame-pool modes (2.3)
 _SELECTION_METRICS = frozenset({"val_loss", "macro_f1", "crosses_f1"})  # M8 best-ckpt/early-stop scalar
 _PROTOCOLS = frozenset({"streaming", "anchored"})  # S1 pivot: data.protocol LMDB-set selector
+_VISUAL_INPUTS = frozenset({"images", "cached_features"})  # recipe v2: data.visual_input
+#: Model types whose only visual input is the context crop — the one thing the feature cache replaces.
+_CONTEXT_ONLY_MODEL_TYPES = frozenset({"pose_full", "visual_only"})
 
 
 class ConfigError(ValueError):
@@ -205,6 +208,27 @@ def apply_overrides(root: RootCfg, flat: dict[str, str]) -> RootCfg:
 # --------------------------------------------------------------------------- validation
 
 
+def _validate_visual_input(root: RootCfg) -> None:
+    """Recipe v2 feature cache: only valid where cached features are exactly what the model would compute."""
+    d, m = root.data, root.model
+    if d.visual_input not in _VISUAL_INPUTS:
+        raise ConfigError(f"data.visual_input must be one of {sorted(_VISUAL_INPUTS)}; got {d.visual_input!r}")
+    if root.augment.cache_color_variants < 0:
+        raise ConfigError(f"augment.cache_color_variants must be >= 0; got {root.augment.cache_color_variants}")
+    if d.visual_input != "cached_features":
+        return
+    if not m.vit_frozen_eval:
+        raise ConfigError(
+            "data.visual_input=cached_features requires model.vit_frozen_eval=true — a train-mode backbone's "
+            "BatchNorm makes its features depend on the batch, so a cache would not match training"
+        )
+    if root.eval.model_type not in _CONTEXT_ONLY_MODEL_TYPES:
+        raise ConfigError(
+            f"data.visual_input=cached_features supports eval.model_type in {sorted(_CONTEXT_ONLY_MODEL_TYPES)} "
+            f"(the cache replaces the context crop only); got {root.eval.model_type!r}"
+        )
+
+
 def _validate_onset(m: ModelCfg, d: DataCfg) -> None:
     """Onset-head geometry (docs/METHODOLOGY.md prong 2), checked only when the head is on.
 
@@ -278,6 +302,17 @@ def validate_config(root: RootCfg) -> None:
     # loading free of the heavy timm import; here we only reject an empty selector.
     if not m.vit_backbone.strip():
         raise ConfigError("model.vit_backbone must be non-empty ('legacy' or a timm model name)")
+    # Recipe v2 backbone flags (docs/RECIPE_V2_PLAN.md) only mean something on a frozen backbone.
+    if m.vit_frozen_eval and (not m.freeze_vit_backbone or m.vit_backbone == "legacy"):
+        raise ConfigError(
+            "model.vit_frozen_eval keeps a frozen timm feature extractor in eval mode — it requires "
+            "model.freeze_vit_backbone=true and a timm model.vit_backbone (not 'legacy')"
+        )
+    if m.train_frame_proj and not m.freeze_vit_backbone:
+        raise ConfigError(
+            "model.train_frame_proj only applies with model.freeze_vit_backbone=true — an unfrozen "
+            "backbone already trains vit.frame_proj"
+        )
 
     if d.motion_dim != m.motion_dim:  # B7: dataset-slice / model-input agreement
         raise ConfigError(f"data.motion_dim ({d.motion_dim}) != model.motion_dim ({m.motion_dim})")
@@ -344,6 +379,7 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(f"data.benchmark_overlap must be in [0, 1); got {d.benchmark_overlap}")
     if d.protocol not in _PROTOCOLS:
         raise ConfigError(f"data.protocol must be one of {sorted(_PROTOCOLS)}; got {d.protocol!r}")
+    _validate_visual_input(root)
 
     if set(m.num_classes) != _TASK_KEYS:
         raise ConfigError(f"model.num_classes keys must be {sorted(_TASK_KEYS)}; got {sorted(m.num_classes)}")
@@ -531,6 +567,46 @@ def validate_config(root: RootCfg) -> None:
             raise ConfigError(
                 f"schedule.phases[{i}].early_stop_patience must be > 0; got {phase.early_stop_patience}"
             )
+
+    _validate_censored_dirs(root)
+
+
+
+CENSORED_DIR_MARKER = "_censored"
+
+
+def _validate_censored_dirs(root: RootCfg) -> None:
+    """A censored-window LMDB dir may only be consumed by the hazard formulation, at crosses weight 0.
+
+    Windows kept by ``data.emit_censored`` carry a PLACEHOLDER ``crosses`` of 0 -- the crossing was never
+    observed, so no honest binary label exists (see ``pie_sequences._label_window``). Their real content
+    is the S1 fields, which the onset hazard loss reads to MASK the unobserved bins. Training a binary
+    crossing head on them would fabricate negatives, which is the exact failure M4 exists to prevent, and
+    it would do so silently -- the run would simply look slightly worse.
+
+    The dir-name marker is the contract: build censored windows into a dir whose name contains
+    ``_censored`` and nothing else has to be scanned to stay safe.
+    """
+    dirs = [*root.paths.lmdb_train, *root.paths.lmdb_train_balanced, *root.paths.lmdb_train_benchmark]
+    censored = sorted({d for d in dirs if CENSORED_DIR_MARKER in d})
+    if not censored:
+        return
+    crosses_weight = root.train.effective_loss_weight().get("crosses", 0.0)
+    if crosses_weight != 0.0:
+        raise ConfigError(
+            f"censored-window dirs {censored} are in the training set but "
+            f"train.loss_weight['crosses'] resolves to {crosses_weight} (non-zero). Those windows carry a "
+            "placeholder crosses=0 for a crossing that was never observed, so a binary crossing head would "
+            "train on fabricated negatives. Set the crosses weight to 0 (the onset_pure/onset_hedge arms) "
+            "or remove the censored dir from paths.lmdb_train."
+        )
+    if not root.model.onset_head:
+        raise ConfigError(
+            f"censored-window dirs {censored} are in the training set but model.onset_head is false, so "
+            "nothing can read their onset fields. They would contribute no gradient at all while still "
+            "shifting the sampler distribution. Enable the onset head or remove the dir."
+        )
+
 
 
 # --------------------------------------------------------------------------- public load / dump

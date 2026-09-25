@@ -54,6 +54,7 @@ from torch.utils.data import DataLoader
 from pedpredict.config.schema import RootCfg
 from pedpredict.data.augment import RuntimeAugmentor
 from pedpredict.data.collate import build_collate
+from pedpredict.data.feature_cache import CachedFeatureAugmentor, open_chunk_features
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset
 from pedpredict.data.lmdb_warm import WarmResult, warm_lmdb_chunk
 from pedpredict.data.pose import pose_motion_transform
@@ -289,9 +290,15 @@ class ChunkPrefetcher:
         # ``random`` (module) and ``random.Random`` both expose ``.shuffle``; default to global RNG (OLD).
         self._rng = shuffle_rng if shuffle_rng is not None else random
         self._collate = build_collate(cfg.data)
-        # On-the-fly train-time aug (opt-in via augment.runtime); train loaders only, never val.
+        # On-the-fly train-time aug (opt-in via augment.runtime); train loaders only, never val. In the
+        # recipe-v2 cached mode the image augmentor is replaced by one that picks cached variants.
+        self._cached = cfg.data.visual_input == "cached_features"
+        runtime_aug = cfg.augment.runtime
         self._augmentor = (
-            RuntimeAugmentor(cfg.augment, cfg.data.source_width) if cfg.augment.runtime else None
+            RuntimeAugmentor(cfg.augment, cfg.data.source_width) if runtime_aug and not self._cached else None
+        )
+        self._feature_augmentor = (
+            CachedFeatureAugmentor(cfg.augment, cfg.data.source_width) if runtime_aug and self._cached else None
         )
         # Pose arm: read-time [T, 9+pose] motion builder for every loader; None when pose is disabled.
         self._pose_transform = pose_motion_transform(cfg)
@@ -374,7 +381,13 @@ class ChunkPrefetcher:
 
     def _build_train_loader(self, path: str, epoch: int = 0) -> DataLoader:
         """Train loader with the optional online ``WeightedRandomSampler`` (OLD train.py:413-454)."""
-        if self._augmentor is not None:
+        if self._cached:
+            dataset = LMDBChunkDataset.from_config(
+                path, self.cfg.data, aug_seed=self.cfg.train.seed * 1_000_003 + epoch,
+                pose_transform=self._pose_transform, features=open_chunk_features(self.cfg, path),
+                feature_augmentor=self._feature_augmentor,
+            )
+        elif self._augmentor is not None:
             # run seed + epoch -> reproducible within a run, fresh each epoch (per-sample seed adds idx)
             aug_seed = self.cfg.train.seed * 1_000_003 + epoch
             dataset = LMDBChunkDataset.from_config(
@@ -394,5 +407,7 @@ class ChunkPrefetcher:
 
     def _build_val_loader(self, path: str) -> DataLoader:
         """Validation loader: stable order, no sampler (OLD validate path)."""
-        dataset = LMDBChunkDataset.from_config(path, self.cfg.data, pose_transform=self._pose_transform)
+        dataset = LMDBChunkDataset.from_config(
+            path, self.cfg.data, pose_transform=self._pose_transform, features=open_chunk_features(self.cfg, path)
+        )
         return DataLoader(dataset, shuffle=False, **self._loader_kwargs())

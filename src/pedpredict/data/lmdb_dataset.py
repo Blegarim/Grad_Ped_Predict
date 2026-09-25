@@ -23,6 +23,7 @@ import pickle
 import random
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import lmdb
 import torch
@@ -39,6 +40,9 @@ from pedpredict.data.transforms import (
     imagenet_normalize,
     resize_to_tensor,
 )
+
+if TYPE_CHECKING:  # data.feature_cache imports this module (via augment) — type-only import avoids the cycle
+    from pedpredict.data.feature_cache import CachedFeatureAugmentor, ChunkFeatures
 
 __all__ = ["LMDBChunkDataset", "read_raw_sample"]
 
@@ -107,7 +111,13 @@ class LMDBChunkDataset(Dataset):
         aug_seed: int = 0,
         normalize: Callable[[Tensor], Tensor] | None = None,
         pose_transform: Callable[[Tensor, Tensor], Tensor] | None = None,
+        features: ChunkFeatures | None = None,
+        feature_augmentor: CachedFeatureAugmentor | None = None,
     ) -> None:
+        if features is not None and augmentor is not None:
+            raise ValueError("LMDBChunkDataset: cached features take a feature_augmentor, not an image augmentor")
+        if feature_augmentor is not None and features is None:
+            raise ValueError("LMDBChunkDataset: feature_augmentor requires cached features")
         self.lmdb_path = str(lmdb_path)
         self.transform_tight = transform_tight
         self.transform_context = transform_context
@@ -122,6 +132,10 @@ class LMDBChunkDataset(Dataset):
         # Pose arm (docs/POSE_ENCODER.md): (pose [T,23,3], motions [T,9]) -> [T, 9+dim] "motions".
         # Applied AFTER the augmentor (flip mutates raw pose + motions); implies motion_dim=None.
         self._pose_transform = pose_transform
+        # Recipe v2 (data.feature_cache): the frozen backbone's cached features replace the context-crop
+        # decode entirely; images_tight comes back empty ([T, 0]) and images_context holds [T, F] features.
+        self._features = features
+        self._feature_augmentor = feature_augmentor
         self._env: lmdb.Environment | None = None
         self._pid: int | None = None
 
@@ -137,6 +151,8 @@ class LMDBChunkDataset(Dataset):
         finally:
             env.close()
         _LOGGER.debug("Loaded index from %s: %d sequences", self.lmdb_path, len(self.seq_ids))
+        if self._features is not None:
+            self._features.check_seq_ids(self.seq_ids)
 
     @classmethod
     def from_config(
@@ -147,6 +163,8 @@ class LMDBChunkDataset(Dataset):
         augmentor: Callable[[ProcessedSample, random.Random], ProcessedSample] | None = None,
         aug_seed: int = 0,
         pose_transform: Callable[[Tensor, Tensor], Tensor] | None = None,
+        features: ChunkFeatures | None = None,
+        feature_augmentor: CachedFeatureAugmentor | None = None,
     ) -> LMDBChunkDataset:
         """Build with config-driven read transforms + the ``cfg.motion_dim`` consumed-width slice.
 
@@ -154,8 +172,15 @@ class LMDBChunkDataset(Dataset):
         ImageNet norm is deferred to after augmentation; without one the read path is unchanged.
         With a ``pose_transform`` (``pose_motion_transform(cfg)``, pose.enabled) the stored motions
         are kept full-width and replaced by the built ``[T, 9 + pose]`` vector.
+        With ``features`` (``data.feature_cache.open_chunk_features``) no crop is decoded at all.
         """
         motion_dim = None if pose_transform is not None else cfg.motion_dim
+        if features is not None:
+            transform_tight, transform_context = build_read_transforms(cfg)   # unused: nothing is decoded
+            return cls(
+                lmdb_path, transform_tight, transform_context, motion_dim=motion_dim, aug_seed=aug_seed,
+                pose_transform=pose_transform, features=features, feature_augmentor=feature_augmentor,
+            )
         if augmentor is None:
             transform_tight, transform_context = build_read_transforms(cfg)
             return cls(
@@ -234,26 +259,13 @@ class LMDBChunkDataset(Dataset):
                 motions = motions[:, : self.motion_dim]
 
             t_frames = motions.shape[0]   # frame count comes from the motion tensor (1.2 contract)
-            imgs_tight, imgs_context = [], []
-            for k in range(t_frames):
-                tbuf = txn.get(f"{seq_id}_{k}_tight".encode())
-                cbuf = txn.get(f"{seq_id}_{k}_context".encode())
-                if tbuf is None or cbuf is None:
-                    continue
-                timg = Image.open(io.BytesIO(tbuf)).convert("RGB")
-                cimg = Image.open(io.BytesIO(cbuf)).convert("RGB")
-                imgs_tight.append(self.transform_tight(timg))
-                imgs_context.append(self.transform_context(cimg))
+            if self._features is None:
+                tight, context = self._decode_frames(txn, seq_id, t_frames)
 
-            if len(imgs_tight) != t_frames:
-                raise ValueError(
-                    f"[LMDBChunkDataset] Sequence {seq_id!r}: expected {t_frames} frames, "
-                    f"found {len(imgs_tight)} — missing LMDB frame keys. "
-                    f"Chunk may be corrupted: {self.lmdb_path}"
-                )
-
-        tight, context = torch.stack(imgs_tight), torch.stack(imgs_context)
-        if self._augmentor is not None:
+        if self._features is not None:
+            context, motions, pose = self._cached_inputs(idx, seq_id, motions, pose)
+            tight = torch.empty(t_frames, 0)
+        elif self._augmentor is not None:
             assert self._normalize is not None  # from_config pairs augmentor with the deferred norm
             ps = ProcessedSample(
                 images_tight=tight, images_context=context, motions=motions,
@@ -290,3 +302,43 @@ class LMDBChunkDataset(Dataset):
             if key in meta:
                 sample[key] = torch.as_tensor(meta[key], dtype=torch.long)
         return sample
+
+    def _decode_frames(self, txn: lmdb.Transaction, seq_id: str, t_frames: int) -> tuple[Tensor, Tensor]:
+        """Decode + transform every stored tight/context crop of one window (the image path)."""
+        imgs_tight, imgs_context = [], []
+        for k in range(t_frames):
+            tbuf = txn.get(f"{seq_id}_{k}_tight".encode())
+            cbuf = txn.get(f"{seq_id}_{k}_context".encode())
+            if tbuf is None or cbuf is None:
+                continue
+            timg = Image.open(io.BytesIO(tbuf)).convert("RGB")
+            cimg = Image.open(io.BytesIO(cbuf)).convert("RGB")
+            imgs_tight.append(self.transform_tight(timg))
+            imgs_context.append(self.transform_context(cimg))
+
+        if len(imgs_tight) != t_frames:
+            raise ValueError(
+                f"[LMDBChunkDataset] Sequence {seq_id!r}: expected {t_frames} frames, "
+                f"found {len(imgs_tight)} — missing LMDB frame keys. "
+                f"Chunk may be corrupted: {self.lmdb_path}"
+            )
+        return torch.stack(imgs_tight), torch.stack(imgs_context)
+
+    def _cached_inputs(
+        self, idx: int, seq_id: str, motions: Tensor, pose: Tensor | None
+    ) -> tuple[Tensor, Tensor, Tensor | None]:
+        """Cached-feature path: pick the variant (train-time augmentation draws), then read ``[T, F]``."""
+        assert self._features is not None
+        variant = "clean"
+        if self._feature_augmentor is not None:
+            rng = random.Random(self._aug_seed * 1_000_003 + idx)
+            choice = self._feature_augmentor.choose(rng, self._features.color_variants)
+            motions, pose = self._feature_augmentor.apply(choice, motions, pose)
+            variant = choice.variant
+        context = self._features.read(idx, variant)
+        if context.shape[0] != motions.shape[0]:
+            raise ValueError(
+                f"[LMDBChunkDataset] Sequence {seq_id!r}: cached features have {context.shape[0]} frames, "
+                f"motions have {motions.shape[0]} — stale feature cache for {self.lmdb_path}"
+            )
+        return context, motions, pose

@@ -8,6 +8,7 @@ lmdb_test: preprocessed_test
 lmdb_test_benchmark: preprocessed_test_benchmark  # M5 TTE-protocol eval set (test split only)
 lmdb_train_benchmark: [preprocessed_train_benchmark]  # anchored-protocol train (data.protocol=anchored)
 lmdb_val_benchmark: preprocessed_val_benchmark        # anchored-protocol val (data.protocol=anchored)
+feature_cache_dir: feature_cache  # recipe v2 cached backbone features (data.visual_input=cached_features)
 log_dir: training_log            # legacy flat dirs (kept for reading OLD artifacts)
 ckpt_dir: best_model_outputs     # legacy flat dirs
 run_ckpt_dir: model_outputs      # legacy flat dirs
