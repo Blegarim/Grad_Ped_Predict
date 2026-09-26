@@ -596,6 +596,23 @@ def validate_config(root: RootCfg) -> None:
             )
 
     _validate_censored_dirs(root)
+    _validate_meta_only_dirs(root)
+
+
+def _validate_meta_only_dirs(root: RootCfg) -> None:
+    """A metadata-only train dir (``reshuffle --meta-only``) holds no crops: only a pixel-free read may use it.
+
+    Otherwise an image model would build, scan labels and start the epoch before the first missing-blob error.
+    """
+    from pedpredict.data.reshuffle import META_ONLY_DIR_MARKER  # local: keeps loader free of lmdb at import
+
+    dirs = [*root.paths.lmdb_train, *root.paths.lmdb_train_balanced, *root.paths.lmdb_train_benchmark]
+    meta_only = sorted(d for d in dirs if META_ONLY_DIR_MARKER in d)
+    if meta_only and root.data.visual_input != "none":
+        raise ConfigError(
+            f"metadata-only dirs {meta_only} carry no image crops; they need data.visual_input=none "
+            f"(got {root.data.visual_input!r})"
+        )
 
 
 

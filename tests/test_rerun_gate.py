@@ -141,7 +141,9 @@ def test_cli_exit_codes(tmp_path: Path) -> None:
     for s, r in zip((42, 43, 44), runs, strict=True):
         _write_dump(tmp_path / "diag" / r.name / "onset_test.npz", s)
     assert main(args) == 0
-    assert json.loads((tmp_path / "gate" / "verdict.json").read_text())["verdict"] == "GO"
+    verdict = json.loads((tmp_path / "gate" / "verdict.json").read_text())
+    assert verdict["verdict"] == "GO"
+    assert verdict["mean_selected_val_auc"] == pytest.approx(max(_learning()), abs=0.01)
     bad = _write_run(tmp_path, "r_ctrl", _CTRL_AUC + [0.80] * 5, 0.80)
     _write_dump(tmp_path / "diag" / bad.name / "onset_test.npz", 7)
     assert main([*args, "--run", str(bad)]) == 1

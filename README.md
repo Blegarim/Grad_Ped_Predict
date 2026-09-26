@@ -153,6 +153,8 @@ python scripts/reshuffle_train_lmdb.py --dry-run # merge paths.lmdb_train dirs i
                                                  # (verbatim blob copy; labels/counts unchanged). Fixes the
                                                  # block-ordered chunk visits (aug dir = minority only);
                                                  # then --set "paths.lmdb_train=[preprocessed_train_shuffled]"
+                                                 # --meta-only: _meta records only (pixel-free runs), into a
+                                                 # dir named *_metaonly (image models are refused it)
 python scripts/compute_input_stats.py --out <stats.json> <pose bundle --set flags>
                                                  # per-channel mean/std of the pose read-path vector (metas
                                                  # only); train with --set pose.input_stats=<stats.json>.

@@ -136,7 +136,7 @@ the eval-mode frozen backbone's pooled features replace the context-crop JPEG de
 Requires `model.vit_frozen_eval=true` and a context-only model (`pose_full` | `visual_only`); readers check
 window order, crop size, norm and a weights+BN fingerprint, so a stale cache fails loudly. In cached mode
 `augment.runtime` picks pre-built flip / color-jitter variants (flip still goes through the shared
-`augment.flip_motions_pose` rule for motions + pose); frame erase is skipped. **Pixel-free read** (`data.visual_input=none`, `pose_kinematics`/`kinematics_only` only): no crop is decoded (image slots `[T, 0]`) and runtime aug applies only its motion/pose half with the same RNG draws — JPEG decode is the training bottleneck, so this is what makes a pixel-free run ~10× faster. Eval does **not** inherit `visual_input`; pass it. Sequence-gen params (`seq_len`, `stride`,
+`augment.flip_motions_pose` rule for motions + pose); frame erase is skipped. **Pixel-free read** (`data.visual_input=none`, `pose_kinematics`/`kinematics_only` only): no crop is decoded (image slots `[T, 0]`) and runtime aug applies only its motion/pose half with the same RNG draws — JPEG decode is the training bottleneck, so this is what makes a pixel-free run ~10× faster. Eval does **not** inherit `visual_input`; pass it. Since it reads only the `_meta` records, `reshuffle_train_lmdb.py --meta-only` can write its train store without the crops (a few GB, not 54+); such a dir is named `*_metaonly` and config validation refuses it to any model that decodes images. Sequence-gen params (`seq_len`, `stride`,
 `future_offset`, `context_scale`, …) live in `configs/data.yaml`; the **LMDB schema v2** key/value contract
 is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim motion channel table in
 [data/transforms.py](src/pedpredict/data/transforms.py). Crops are stored un-normalized (ImageNet norm at
@@ -411,7 +411,9 @@ early-stop counted from epoch 2. `active_tasks` makes that impossible; always pa
 - **Every run is seeded** (`train.seed`, default 42; in the config snapshot). Multi-seed protocol:
   screen with 1 seed, confirm finalists with 3, report mean±std.
 - **Model selection + early stopping read `train.selection_metric`** (default `macro_f1`, maximized;
-  options `val_loss`, `crosses_f1`). The LR follows `train.lr_schedule`: default `warmup_cosine`
+  options `val_loss`, `crosses_f1`, `crosses_auc`). Prefer **`crosses_auc`** for crosses-only runs: F1 at the
+  fixed 0.5 cut moves with calibration under the sampler's train/val prior gap (~29% vs ~2.8%), and on
+  `pf_fix_s42` it picked epoch 7 while val AUC peaked at 17. The LR follows `train.lr_schedule`: default `warmup_cosine`
   (deterministic linear-warmup→cosine to `lr_min`, decoupled from val_loss) or `plateau`
   (`ReduceLROnPlateau` on `val_loss`, the legacy arm). `best_val_loss` in checkpoints/index = the val
   loss at the *selected* best epoch.

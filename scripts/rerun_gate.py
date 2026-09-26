@@ -45,12 +45,12 @@ def _rate_at(points: list[dc.DetectionPoint], budget: float) -> float:
     return next(p.detection_rate for p in points if p.budget_per_hour == budget)
 
 
-def _gather(runs: list[Path], dumps_root: Path, th: GateThresholds) -> tuple[list[Check], list[str]]:
-    """All L1–L5 checks, plus the list of missing inputs (non-empty -> exit 2)."""
+def _gather(runs: list[Path], dumps_root: Path, th: GateThresholds) -> tuple[list[Check], list[str], list[float]]:
+    """All L1–L5 checks, the missing inputs (non-empty -> exit 2), and each run's selected-epoch val AUC."""
     missing = [str(p) for r in runs for p in (r / "train_log.csv", r / "eval_log.csv",
                                              dumps_root / r.name / "onset_test.npz") if not p.exists()]
     if missing:
-        return [], missing
+        return [], missing, []
     checks: list[Check] = []
     val_aucs, test_aucs, spread, level = [], [], [], []
     for run in runs:
@@ -63,7 +63,7 @@ def _gather(runs: list[Path], dumps_root: Path, th: GateThresholds) -> tuple[lis
         spread.append(_rate_at(points, th.spread_budget))
         level.append(_rate_at(points, th.level_budget))
     checks += seed_checks(val_aucs, test_aucs, spread, level, th)
-    return checks, []
+    return checks, [], val_aucs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     th = GateThresholds()
-    checks, missing = _gather([Path(r) for r in args.run], Path(args.dumps_root), th)
+    checks, missing, val_aucs = _gather([Path(r) for r in args.run], Path(args.dumps_root), th)
     go = bool(checks) and all(c.passed for c in checks) and not missing
     verdict = "GO" if go else ("MISSING INPUTS" if missing else "NO-GO")
     lines = [f"# Re-run gate: **{verdict}**", "", *(f"- {'PASS' if c.passed else 'FAIL'} **{c.name}** — {c.detail}"
@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     (out / "verdict.json").write_text(json.dumps({
         "verdict": verdict, "runs": args.run, "thresholds": asdict(th),
         "checks": [asdict(c) for c in checks], "missing": missing,
+        # validation-only summary: what a choice between several passing recipes may be based on
+        "mean_selected_val_auc": sum(val_aucs) / len(val_aucs) if val_aucs else None,
     }, indent=2), encoding="utf-8")
     print("\n".join(lines))
     return 0 if go else (2 if missing else 1)

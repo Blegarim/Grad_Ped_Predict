@@ -107,3 +107,33 @@ def test_rewritten_chunks_use_contiguous_in_chunk_ids(tmp_path: Path) -> None:
     for chunk in sorted(p for p in out.iterdir() if p.name.startswith("chunk_")):
         ids = sorted(int(r.seq_id) for r in enumerate_dir(chunk.parent) if r.chunk == chunk)
         assert ids == list(range(len(ids)))
+
+
+def test_meta_only_rewrite_keeps_every_meta_and_no_blob(tmp_path: Path) -> None:
+    """Pixel-free store: every _meta record survives byte-for-byte; no crop key is written."""
+    sources = _build_sources(tmp_path)
+    refs = plan_shuffle(enumerate_dirs(sources), 42)
+    out = tmp_path / "preprocessed_train_metaonly"
+    write_shuffled(refs, out, _CFG, meta_only=True)
+
+    original: dict[str, dict[str, bytes]] = {}
+    for src in sources:
+        original.update(_dump(src))
+    got = _dump(out)
+    assert set(got) == set(original)
+    for track, blobs in got.items():
+        assert blobs == {"meta": original[track]["meta"]}
+    assert [r.crosses for r in enumerate_dir(out)] == [r.crosses for r in refs]
+
+
+def test_config_refuses_meta_only_dir_to_an_image_model() -> None:
+    from pedpredict.config import load_config
+    from pedpredict.config.loader import ConfigError
+
+    configs = Path(__file__).resolve().parents[1] / "configs"
+    with pytest.raises(ConfigError, match="metadata-only"):
+        load_config(configs, ["paths.lmdb_train=[preprocessed_train_metaonly]"])
+    pixel_free = ["eval.model_type=pose_kinematics", "pose.enabled=true", "model.motion_norm=none",
+                  "data.motion_dim=58", "model.motion_dim=58", "data.visual_input=none",
+                  "paths.lmdb_train=[preprocessed_train_metaonly]"]
+    assert load_config(configs, pixel_free).data.visual_input == "none"

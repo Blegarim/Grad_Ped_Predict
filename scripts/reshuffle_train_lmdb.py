@@ -25,6 +25,7 @@ from pathlib import Path
 
 from pedpredict.config import build_argparser, load_config
 from pedpredict.data.reshuffle import (
+    META_ONLY_DIR_MARKER,
     chunk_positive_rates,
     enumerate_dir,
     enumerate_dirs,
@@ -56,6 +57,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="Additional source dir to fold in (e.g. preprocessed_train_censored).")
     parser.add_argument("--dry-run", action="store_true", help="Enumerate and report; write nothing.")
     parser.add_argument("--verify-only", action="store_true", help="Re-scan an existing output dir and exit.")
+    parser.add_argument("--meta-only", action="store_true",
+                        help="Copy only the _meta records (pixel-free training); --out must contain "
+                             f"{META_ONLY_DIR_MARKER!r} so config validation keeps image models off it.")
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config_dir, overrides=args.overrides)
@@ -70,6 +74,8 @@ def main(argv: list[str] | None = None) -> None:
         lo, hi = _report("shuffled", rates)
         raise SystemExit(0 if hi - lo <= SPREAD_TOLERANCE else 1)
 
+    if args.meta_only and META_ONLY_DIR_MARKER not in args.out:
+        raise SystemExit(f"--meta-only output must be named with {META_ONLY_DIR_MARKER!r}; got {args.out!r}")
     sources += [data_root / d for d in args.extra_dir]
     for src in sources:
         if not src.is_dir():
@@ -94,10 +100,11 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     print(f"[reshuffle] writing {out_dir} (verbatim blob copy)...")
-    written = write_shuffled(shuffled, out_dir, cfg.data)
+    written = write_shuffled(shuffled, out_dir, cfg.data, meta_only=args.meta_only)
     manifest = {
         "sources": [s.name for s in sources],
         "seed": args.seed,
+        "meta_only": args.meta_only,
         "n_samples": len(refs),
         "global_crosses_rate": n_pos / len(refs),
         "chunk_size": cfg.data.chunk_size,

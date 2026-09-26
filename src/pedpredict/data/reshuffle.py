@@ -18,6 +18,11 @@ Only storage order changes. The source dirs are never modified.
 
 Val/test need no equivalent pass: the validation loader iterates chunks in stable order with no sampler
 and the metric accumulates across all of them, so order cannot bias it.
+
+**Metadata-only output** (``meta_only=True``): copies each sample's ``_meta`` record verbatim and nothing
+else. A pixel-free run (``data.visual_input=none``) reads nothing but those records, so this is the same
+training data at a few percent of the disk — 54 GB of JPEG crops never get duplicated. Name such a dir with
+:data:`META_ONLY_DIR_MARKER` so config validation refuses it to any model that decodes images.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from pedpredict.config.schema import DataCfg
 from pedpredict.data.lmdb_writer import compute_map_size
 
 __all__ = [
+    "META_ONLY_DIR_MARKER",
     "SampleRef",
     "enumerate_dir",
     "enumerate_dirs",
@@ -43,6 +49,8 @@ __all__ = [
 
 #: Suffix marking a per-sample metadata key; the part before it is the sample's in-chunk id.
 _META_SUFFIX = "_meta"
+#: A train dir whose name contains this holds ``_meta`` records only (no crops): pixel-free models only.
+META_ONLY_DIR_MARKER = "_metaonly"
 
 
 @dataclass(frozen=True)
@@ -127,8 +135,17 @@ class _EnvCache:
         self._envs.clear()
 
 
-def _copy_sample(src_txn: lmdb.Transaction, dst_txn: lmdb.Transaction, seq_id: str, j: int) -> int:
-    """Copy every key of one sample under its new in-chunk index ``j``. Returns the key count."""
+def _copy_sample(
+    src_txn: lmdb.Transaction, dst_txn: lmdb.Transaction, seq_id: str, j: int, *, meta_only: bool = False
+) -> int:
+    """Copy every key of one sample (or only its ``_meta`` record) under its new in-chunk index ``j``.
+    Returns the key count."""
+    if meta_only:
+        meta = src_txn.get(f"{seq_id}{_META_SUFFIX}".encode())
+        if meta is None:
+            raise KeyError(f"sample {seq_id!r} has no meta record")
+        dst_txn.put(f"{j}{_META_SUFFIX}".encode(), meta)
+        return 1
     prefix = f"{seq_id}_".encode()
     cursor = src_txn.cursor()
     if not cursor.set_range(prefix):
@@ -145,11 +162,12 @@ def _copy_sample(src_txn: lmdb.Transaction, dst_txn: lmdb.Transaction, seq_id: s
 
 
 def write_shuffled(
-    refs: list[SampleRef], out_dir: Path, cfg: DataCfg, *, chunk_size: int | None = None
+    refs: list[SampleRef], out_dir: Path, cfg: DataCfg, *, chunk_size: int | None = None, meta_only: bool = False
 ) -> list[Path]:
     """Write ``refs`` (already permuted) into ``chunk_*.lmdb`` files under ``out_dir``.
 
-    Blobs are copied verbatim, so this never decodes or re-encodes an image. Returns the chunk paths.
+    Blobs are copied verbatim, so this never decodes or re-encodes an image; ``meta_only`` copies the
+    ``_meta`` records alone (see the module docstring). Returns the chunk paths.
     """
     size = cfg.chunk_size if chunk_size is None else chunk_size
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +182,7 @@ def write_shuffled(
                 with dst.begin(write=True) as dst_txn:
                     for j, ref in enumerate(group):
                         with envs.get(ref.chunk).begin(write=False) as src_txn:
-                            _copy_sample(src_txn, dst_txn, ref.seq_id, j)
+                            _copy_sample(src_txn, dst_txn, ref.seq_id, j, meta_only=meta_only)
             finally:
                 dst.close()
             written.append(path)

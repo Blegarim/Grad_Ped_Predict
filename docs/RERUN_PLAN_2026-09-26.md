@@ -13,7 +13,7 @@ launches, and the verdict says which check failed (§7).
 > 0.870 / 0.854, trained at a tenth of the learning rate during warmup), then fall to 0.76 / 0.73 while train
 > loss drops 0.54 → 0.06: memorization, which no selection metric fixes. The seed spread IS fixed, though:
 > detection sd 3.1 pp at 205/hr (v1: 18.5), mean 20.2% at 41/hr (v1 binary 11.9%, GBM 38.9%), test AUC 0.785.
-> Unless overridden, the campaign will not launch.
+> The hub recipe will therefore not launch; the memorization ladder below decides instead (§11).
 
 **The idea.** The paper's claim is about the *training objective* (binary vs hazard), not the architecture.
 If the pixel-free model (`pose_kinematics`: the 58-number pose + motion vector per frame, no images) trains
@@ -125,7 +125,7 @@ recipe (sampler off) was caught, and the censored folder under a binary arm is r
 | P2 | Warm-up reads only the `_meta` records when `data.visual_input=none`; the dataset opens LMDB without OS readahead when it decodes no image (`lmdb_warm.py`, `chunk_loader.py`, `lmdb_dataset.py`) | ✅ deployed mid-ladder 2026-09-26 ~05:43 UTC. Backward compatible with the process that was already running (older callers keep the full walk). Every run from `pf_fix_s42` on uses it |
 | P3 | Threshold sweep widened 0.10–0.90 @ 0.05 → **0.01–0.99 @ 0.01** (`eval.threshold_sweep_*` default) | ✅ every ladder eval from `pf_ctrl` on already uses the wide grid, so reused runs need no re-eval |
 | P4 | Commit + tag the code the campaign runs | ✅ the box's 106 `src/`/`scripts/`/`configs/` files match the laptop's, line-endings aside |
-| P5 | R3C's train dir: base + aug + censored reshuffled into `preprocessed_train_censored_shuffled` | queued: `censored_shuffle` job in `queue_v4` (needs ≥ 100 GB free; ~119 GB now) |
+| P5 | R3C's train dir: its training data + censored, reshuffled, metadata-only (`preprocessed_train_censored_shuffled_metaonly`) | queued: `censored_shuffle` job in `queue_v4` (a few GB) |
 | P6 | Anchored input stats from the anchored training set (`pose58_train_benchmark.json`) | queued: `anchored_stats` job in `queue_v4` |
 | P7 | Config-diff check (`scripts/check_run_config.py`, `src/pedpredict/config/diff.py`) | ✅ runs as each arm's `_cfg` job and as the reuse check |
 | P8 | 2-epoch smoke of each new recipe | **dropped** to launch sooner. What covers it: the pre-training config check (every recipe loads and validates); a crash fails fast and is retried then marked; `pf_fixonset_s42` in the ladder is the pixel-free onset-head smoke |
@@ -214,3 +214,39 @@ ladder.
 ## 10. Out of scope
 
 Image-model runs of any kind (the recipe-v2 queue stays parked), JAAD, retrained published baselines.
+
+## 11. Memorization ladder (added 2026-09-27, armed)
+
+The pf_fix preview failed on memorization, not on seed spread, so a second stage now sits between the ladder
+and the campaign. It runs automatically when the stage-1 gate on `pf_fix_s42/43/44` says NO-GO.
+
+**Why these three.** Each real crossing window is drawn ~15× per epoch: ~7.5 stored copies (offline
+augmentation re-emits minority records) × the weighted sampler's ~2×. Two of three seeds were best after one
+warmup epoch at a tenth of the learning rate. The GBM probe, trained on the base windows only with no
+sampler, does not overfit this way.
+
+| arm | tags | the one change from the hub (campaign R2-streaming recipe, AUC-selected) |
+|---|---|---|
+| A | `m_base_s42/43` | base windows only, no augmentation copies: `preprocessed_train_base_shuffled_metaonly` (reshuffled; per-chunk crossing 2.4–3.3%, was 0.2–5.0% in the base dir's own order) |
+| B | `m_nosamp_s42/43` | `train.use_weighted_sampler=false` |
+| C | `m_lr5_s42/43` | `train.lr=1e-5` (same warmup-cosine shape; "flat" would have changed a second axis) |
+
+Input scaling stays the hub's (`pose58_train_shuffled.json`) in every arm, so each changes exactly one thing.
+
+**Pre-registered choice.** Each arm is gated on its two seeds with the same thresholds (§2). Among arms that
+pass every check, the one with the highest mean validation AUC at the selected epoch is adopted
+(validation only, never test; ties A > B > C). The ladder writes `queue_v4/RECIPE.env` (the change, folded
+into every campaign arm by `recipes_v4.sh`), then `GATE_GO`, and the trigger launches the campaign. If no arm
+passes → `GATE_NOGO`, nothing launches. Adopting A also rebuilds R3C's censored store from base + censored.
+
+**Stages** (`queue_v4_trigger.sh`, cron): 0 wait for queue_v3 → 1 gate `pf_fix` once (`HUB_GO` also writes
+`GATE_GO`) → 2 run `queue_mem.sh` (tmux `queuem`) → 3 on `GATE_GO` run `queue_v4.sh`. All sandbox-tested:
+the ladder picks the best passing arm, all-fail stays idle, a hub pass skips the ladder, the tie rule holds,
+a missing seed is ineligible, and `RECIPE.env` folds in correctly. Every arm (3 ladder + 8 campaign × 4
+possible outcomes) passes the config check against the real reference.
+
+**Disk.** Both new stores are metadata-only (`reshuffle --meta-only`; config refuses them to image models).
+The campaign's censored store is metadata-only too, which removed the ~88 GB copy §4 P5 budgeted.
+
+**Results:** `outputs/diagnostics/mem_report/` (curves) and `outputs/diagnostics/mem_gate/choice.md` (verdicts + pick).
+
