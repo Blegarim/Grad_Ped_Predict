@@ -19,6 +19,7 @@ queue/skip/window logic synchronously; only the leak tests pay for real processe
 
 from __future__ import annotations
 
+import dataclasses
 import multiprocessing as mp
 import pickle
 import queue as queue_mod
@@ -32,6 +33,7 @@ import torch
 from torch.utils.data import WeightedRandomSampler
 
 from pedpredict.config.schema import RootCfg
+from pedpredict.data.lmdb_warm import walk_chunk
 from pedpredict.data.sampler import LabelScanCache
 from pedpredict.training import Trainer
 from pedpredict.training.chunk_loader import (
@@ -51,11 +53,11 @@ _BASE_KW = {"preload_depth": 2, "ram_threshold": 100.0, "mem_interval": 0.01, "m
 class _InlineProcess:
     """A ``Process`` look-alike whose ``start()`` runs the target synchronously (no real spawn)."""
 
-    def __init__(self, target, args) -> None:
-        self._target, self._args = target, args
+    def __init__(self, target, args, kwargs=None) -> None:
+        self._target, self._args, self._kwargs = target, args, kwargs or {}
 
     def start(self) -> None:
-        self._target(*self._args)
+        self._target(*self._args, **self._kwargs)
 
     def is_alive(self) -> bool:
         return False
@@ -73,8 +75,8 @@ class _InlineCtx:
     def Queue(self, maxsize: int = 0) -> queue_mod.Queue:  # noqa: N802 (mp API name)
         return queue_mod.Queue(maxsize=maxsize)
 
-    def Process(self, target, args=(), daemon=None) -> _InlineProcess:  # noqa: N802, ARG002
-        return _InlineProcess(target, args)
+    def Process(self, target, args=(), kwargs=None, daemon=None) -> _InlineProcess:  # noqa: N802, ARG002
+        return _InlineProcess(target, args, kwargs)
 
 
 def _silent_warm(idx: int, path: str, queue) -> None:  # noqa: ARG001
@@ -143,6 +145,83 @@ def test_warm_chunk_err_on_bad_path(tmp_path) -> None:
 
 def test_warm_target_is_picklable() -> None:
     assert pickle.loads(pickle.dumps(warm_lmdb_chunk)) is warm_lmdb_chunk
+
+
+def _write_image_lmdb(path: str, n: int = 3, frames: int = 2) -> None:
+    """Meta + crop keys per sample, laid out like schema v2 (``<id>_meta``, ``<id>_<k>_tight|context``)."""
+    env = lmdb.open(path, map_size=8 * 1024 * 1024)
+    try:
+        with env.begin(write=True) as txn:
+            for i in range(n):
+                txn.put(f"{i}_meta".encode(), pickle.dumps({"crosses": 0}))
+                for k in range(frames):
+                    txn.put(f"{i}_{k}_tight".encode(), b"x" * 4096)
+                    txn.put(f"{i}_{k}_context".encode(), b"x" * 4096)
+    finally:
+        env.close()
+
+
+def test_walk_chunk_meta_only_reads_only_meta_values(tmp_path) -> None:
+    """Pixel-free warm: the full walk reads every value, meta_only reads exactly the _meta ones."""
+    p = str(tmp_path / "img.lmdb")
+    _write_image_lmdb(p, n=3, frames=2)
+    env = lmdb.open(p, readonly=True, lock=False)
+    try:
+        with env.begin() as txn:
+            assert walk_chunk(txn, meta_only=False) == 3 * (1 + 2 * 2)
+            assert walk_chunk(txn, meta_only=True) == 3
+    finally:
+        env.close()
+
+
+def test_warm_chunk_meta_only_reports_ok(tmp_path) -> None:
+    p = str(tmp_path / "img.lmdb")
+    _write_image_lmdb(p)
+    q: queue_mod.Queue = queue_mod.Queue()
+    warm_lmdb_chunk(4, p, q, meta_only=True)
+    assert q.get(timeout=5) == (4, "ok", p)
+
+
+_WARM_CALLS: list[dict] = []
+
+
+def _recording_warm(idx: int, path: str, queue, **kwargs) -> None:
+    """Inline warm worker that records the kwargs it was spawned with."""
+    _WARM_CALLS.append(kwargs)
+    queue.put((idx, "ok", path))
+
+
+@pytest.mark.parametrize(("meta_only", "expected"), [(False, {}), (True, {"meta_only": True})])
+def test_iterator_passes_meta_only_only_when_set(tmp_path, meta_only, expected) -> None:
+    """Default spawn args stay (idx, path, queue) — three-arg workers and older children keep working."""
+    _WARM_CALLS.clear()
+    paths = _make_chunks(tmp_path, 2)
+    with _inline_iter(paths, warm_fn=_recording_warm, warm_meta_only=meta_only) as it:
+        assert list(it) == paths
+    assert _WARM_CALLS == [expected, expected]
+
+
+@pytest.mark.parametrize(("visual_input", "expected"), [("images", False), ("none", True)])
+def test_prefetcher_warms_meta_only_for_pixel_free(tmp_path, monkeypatch, visual_input, expected) -> None:
+    import pedpredict.training.chunk_loader as cl
+
+    seen: list[bool] = []
+    real_iter = cl.ChunkLoaderIterator
+
+    def _recorder(paths, build_loader, **kw):
+        seen.append(kw["warm_meta_only"])
+        return real_iter(paths, build_loader, **kw)
+
+    monkeypatch.setattr(cl, "ChunkLoaderIterator", _recorder)
+    root = RootCfg()
+    cfg = dataclasses.replace(root, data=dataclasses.replace(root.data, visual_input=visual_input))
+    paths = _make_chunks(tmp_path, 1)
+    pf = ChunkPrefetcher(cfg, paths, paths, mp_context=_InlineCtx())
+    pf._build_train_loader = lambda p, epoch=0: p
+    pf._build_val_loader = lambda p: p
+    list(pf.epoch_loaders(0))
+    list(pf.val_loaders())
+    assert seen == [expected, expected]
 
 
 # --------------------------------------------------------------------------- traversal order / skip

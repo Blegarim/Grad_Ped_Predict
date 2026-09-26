@@ -98,6 +98,9 @@ class DataCfg:
     # JPEGs every epoch (v1) | "cached_features" reads the frozen backbone's pooled features from
     # paths.feature_cache_dir (built by scripts/build_feature_cache.py) — no JPEG decode. Cached mode needs
     # model.vit_frozen_eval=true, since only an eval-mode backbone is a fixed function of the crop.
+    # "none" decodes no crop at all (image slots come back empty [T, 0]) — for the pixel-free model types
+    # only (kinematics_only, pose_kinematics), which ignore pixels anyway; JPEG decode is the training
+    # bottleneck, so this is what makes a pixel-free run fast. NOT inherited by eval: pass it explicitly.
     visual_input: str = "images"
     # PIE source opts (generate_data_trajectory_sequence)
     min_track_size: int = 10
@@ -382,9 +385,11 @@ class EvalCfg:
     bench_batch_size: int = 1
     bench_warmup: int = 10               # latency warmup iterations
     latency_trials: int = 50
-    threshold_sweep_lo: float = 0.10
-    threshold_sweep_hi: float = 0.90
-    threshold_sweep_step: float = 0.05
+    # Val-tuned threshold grid (M2). Widened 2026-09 from 0.10..0.90 @ 0.05: anchored tuned thresholds sat
+    # on the 0.10 floor (the optimum was below the grid), so the reported tuned F1 was grid-capped.
+    threshold_sweep_lo: float = 0.01
+    threshold_sweep_hi: float = 0.99
+    threshold_sweep_step: float = 0.01
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,6 +487,19 @@ class PoseCfg:
     smooth_window: int = 5         # temporal smoothing window at extraction time (frames)
     min_conf: float = 0.3          # below -> joint treated as missing and interpolated (extraction)
     cache_dir: str = "pose_cache"  # extraction output root: {cache_dir}/{set}/{video}.npz
+    # Read-path input standardization (2026-09-25; OFF while input_mean is empty -> byte-identical reads).
+    # The [T, 9 + feature_dim] vector otherwise reaches the network raw: per-channel std spans ~770x
+    # (the dx/dy/dw/dh velocity channels ~5e-4, pose coordinates ~0.3 with outliers to ~66 sd) and the
+    # first layer is a Conv1d with BatchNorm only AFTER it. On, each channel becomes (x - mean) / std,
+    # clamped to +-input_clip. `input_stats` names the JSON scripts/compute_input_stats.py writes
+    # (relative paths resolve against the project root); load_config copies its numbers into
+    # input_mean/input_std, so the run's resolved_config.yaml carries the exact values and eval — which
+    # inherits this section from the checkpoint — applies them. A later recompute can never re-score
+    # an old checkpoint with different statistics.
+    input_stats: str = ""
+    input_mean: tuple[float, ...] = ()
+    input_std: tuple[float, ...] = ()
+    input_clip: float = 5.0
 
     def feature_dim(self) -> int:
         """Per-frame pose feature width: 2n coords + n confidences + 2 angle (sin, cos) pairs."""

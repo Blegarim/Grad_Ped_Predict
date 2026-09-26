@@ -79,6 +79,9 @@ class CheckpointPayload(NamedTuple):
         ├── epoch                   : int     0-indexed epoch that completed
         ├── best_val_loss           : float   val loss AT the selected best epoch
         ├── best_selection          : float   minimized M8 selection scalar (absent pre-M8 -> best_val_loss)
+        ├── best_epoch              : int     epoch of the selected best (absent in older files -> -1)
+        ├── early_stop_counter      : int     EarlyStopping patience counter after this epoch (absent -> 0)
+        ├── early_stop_best         : float   EarlyStopping best_loss after this epoch (absent -> inf)
         ├── run_id                  : str
         ├── model_type              : str
         ├── model_state_dict        : OrderedDict
@@ -96,6 +99,11 @@ class CheckpointPayload(NamedTuple):
     scaler_state_dict: dict[str, Any]
     scheduler_state_dict: dict[str, Any]
     best_selection: float = float("inf")
+    #: Resume state added 2026-09: without these a resumed run restarted its patience window and reported
+    #: its LAST epoch as its best. -1 / 0 / inf mark a file written before they existed.
+    best_epoch: int = -1
+    early_stop_counter: int = 0
+    early_stop_best: float = float("inf")
 
 
 class CheckpointManager:
@@ -212,6 +220,9 @@ class CheckpointManager:
             # pre-M8 checkpoints lack the key; best_val_loss is the right value for them (they were
             # selected on val_loss, whose selection scalar IS the val loss)
             best_selection=ckpt.get("best_selection", ckpt["best_val_loss"]),
+            best_epoch=ckpt.get("best_epoch", -1),
+            early_stop_counter=ckpt.get("early_stop_counter", 0),
+            early_stop_best=ckpt.get("early_stop_best", float("inf")),
         )
 
     # ------------------------------------------------------------------ Convenience queries
@@ -238,6 +249,9 @@ class CheckpointManager:
             "epoch": epoch,
             "best_val_loss": trainer.best_val_loss,
             "best_selection": trainer.best_selection,
+            "best_epoch": trainer._best_epoch,
+            "early_stop_counter": trainer.early_stopping.counter,
+            "early_stop_best": trainer.early_stopping.best_loss,
             "run_id": self.run_id,
             "model_type": self.model_type,
             "model_state_dict": trainer.model.state_dict(),

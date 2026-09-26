@@ -5,6 +5,6 @@ model_type: full
 bench_batch_size: 1          # efficiency-benchmark batch (shapes come from DataCfg / real inference)
 bench_warmup: 10             # latency warmup iterations before timing
 latency_trials: 50
-threshold_sweep_lo: 0.10
-threshold_sweep_hi: 0.90
-threshold_sweep_step: 0.05
+threshold_sweep_lo: 0.01     # val-tuned threshold grid (M2); widened 2026-09 from 0.10..0.90 @ 0.05 --
+threshold_sweep_hi: 0.99     # anchored tuned thresholds sat on the old 0.10 floor (grid-capped tuned F1)
+threshold_sweep_step: 0.01

@@ -12,6 +12,7 @@ import dataclasses
 import random
 
 import numpy as np
+import pytest
 import torch
 from PIL import Image
 
@@ -150,3 +151,18 @@ def test_prefetcher_runtime_off_no_aug(tmp_path) -> None:
     chunk, _ = _tiny_chunk(tmp_path)
     pf = ChunkPrefetcher(_root_cfg(runtime=False), [chunk], [chunk], pin_memory=False)
     assert pf._build_train_loader(chunk, epoch=0).dataset._augmentor is None
+
+
+# --------------------------------------------------------------------------- pixel-free read path
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_kinematics_half_matches_full_augmentor(seed: int) -> None:
+    """RuntimeAugmentor.kinematics draws the SAME flip/noise decisions as __call__ for one rng seed,
+    so a pixel-free run sees exactly the motion augmentation an image run would."""
+    aug = RuntimeAugmentor(AugmentCfg(p_flip=0.5, p_color=0.4, p_noise=0.5, p_erase=0.5, motion_noise_std=3.0),
+                           DataCfg().source_width)
+    sample = _proc_sample()
+    full = aug(sample, random.Random(seed))
+    motions, _ = aug.kinematics(sample.motions, None, random.Random(seed), sample.motions.shape[0])
+    torch.testing.assert_close(motions, full.motions)

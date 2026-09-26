@@ -195,3 +195,23 @@ def test_worker_safety_matches_single_process(tmp_path) -> None:
     torch.testing.assert_close(mo, exp_motions, rtol=0, atol=0)
     for k in ("actions", "looks", "crosses"):
         torch.testing.assert_close(lab[k], g["labels"][k], rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(("visual_input", "readahead"), [("images", True), ("none", False)])
+def test_env_readahead_off_only_for_pixel_free(tmp_path, monkeypatch, visual_input, readahead) -> None:
+    """Pixel-free reads open the env without OS readahead, so a _meta read does not pull its JPEG neighbours."""
+    fx = _load_fixture()
+    chunk, cfg = _rebuild_lmdb(fx, tmp_path)
+    ds = LMDBChunkDataset.from_config(chunk, dataclasses.replace(cfg, visual_input=visual_input))
+
+    seen: list[bool] = []
+    real_open = lmdb.open
+
+    def _recording_open(path, **kw):
+        seen.append(kw.get("readahead", True))
+        return real_open(path, **kw)
+
+    monkeypatch.setattr(lmdb, "open", _recording_open)
+    ds[0]
+    ds.close()
+    assert seen == [readahead]

@@ -48,6 +48,7 @@ benchmark_overlap: 0.7
 protocol: streaming
 # Recipe v2 — what the visual stream reads: images (decode context JPEGs each epoch, v1) | cached_features
 # (frozen-backbone features from paths.feature_cache_dir; needs model.vit_frozen_eval=true).
+# | none (decode no crop at all — pixel-free model types only; eval does NOT inherit it, pass it).
 visual_input: images
 # PIE source opts (generate_data_trajectory_sequence) — mirror the OLD data_opts literals.
 # ⚠️ Under seq_type=all, PIE's `_get_all` reads ONLY `data_split_type` and `seq_type`. It applies no

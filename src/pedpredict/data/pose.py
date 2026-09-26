@@ -157,7 +157,8 @@ class PoseMotionTransform:
 
     Image-normalizes the stored motion block with the same fixed per-channel scale
     ``KinematicsEncoder(motion_norm="image")`` applies in-forward, then concats the pose features —
-    which is why pose models run with ``motion_norm="none"``.
+    which is why pose models run with ``motion_norm="none"``. With ``pose.input_mean/input_std`` set,
+    every output channel is then standardized and clamped to ``+-pose.input_clip`` (see ``PoseCfg``).
     """
 
     def __init__(self, root: RootCfg) -> None:
@@ -167,12 +168,22 @@ class PoseMotionTransform:
         ).view(1, MOTION_STORE_DIM)
         self.include_arms = root.pose.include_arms
         self.conf_channel = root.pose.conf_channel
+        p = root.pose
+        self.mean = torch.tensor(p.input_mean, dtype=torch.float32).view(1, -1) if p.input_mean else None
+        self.std = torch.tensor(p.input_std, dtype=torch.float32).view(1, -1) if p.input_std else None
+        self.clip = float(p.input_clip)
 
     def __call__(self, pose: Tensor, motions: Tensor) -> Tensor:
         feats = build_pose_features(
             pose, motions, include_arms=self.include_arms, conf_channel=self.conf_channel
         )
-        return torch.cat([motions / self.scale, feats], dim=-1)
+        out = torch.cat([motions / self.scale, feats], dim=-1)
+        # getattr: an instance pickled by the pre-standardization version (a DataLoader worker spawned
+        # after a code update) has no mean/std — it read raw, so it keeps reading raw.
+        mean, std = getattr(self, "mean", None), getattr(self, "std", None)
+        if mean is None or std is None:
+            return out
+        return ((out - mean) / std).clamp(-self.clip, self.clip)
 
 
 def pose_motion_transform(root: RootCfg) -> PoseMotionTransform | None:

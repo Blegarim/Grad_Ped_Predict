@@ -44,7 +44,7 @@ from pedpredict.data.sampler import LabelScanCache, class_weights_ce
 from pedpredict.losses.multitask import TASKS, MultiTaskLoss, build_multitask_loss
 from pedpredict.losses.onset import READOUT_OUTPUT_KEY, crosses_metric_keys
 from pedpredict.models.registry import build_model, forward_model
-from pedpredict.training.callbacks import CheckpointManager, EarlyStopping
+from pedpredict.training.callbacks import CheckpointManager, CheckpointPayload, EarlyStopping
 from pedpredict.training.distribution import write_distribution_report
 from pedpredict.training.metrics import MetricAccumulator, MetricResult, metric_columns
 from pedpredict.utils.amp import autocast_ctx, make_grad_scaler, resolve_amp
@@ -548,11 +548,12 @@ class Trainer:
                     self._best_epoch = epoch
                     self.checkpointer.save_best(self, epoch, val_loss)
                 results.append(EpochResult(epoch, train_loss, val_loss, metrics))
-                # save_last after full epoch (train + validate + scheduler.step) so that
-                # resume with _start_epoch = epoch + 1 is correct; OLD train.py:509 wrote
-                # model-only weights pre-validation (fine for warm-start, wrong for full resume)
-                self.checkpointer.save_last(self, epoch)
                 self.early_stopping(selection)                   # M8: stop on the selection scalar
+                # save_last after full epoch (train + validate + scheduler.step + early-stop update) so
+                # that resume with _start_epoch = epoch + 1 is correct and carries this epoch's patience
+                # state; OLD train.py:509 wrote model-only weights pre-validation (fine for warm-start,
+                # wrong for full resume)
+                self.checkpointer.save_last(self, epoch)
                 if self.early_stopping.early_stop:
                     break
         finally:
@@ -626,6 +627,22 @@ class Trainer:
             best_ckpt=run.best_ckpt_path if run.best_ckpt_path.exists() else None,
         )
         append_index_row(Path(self.cfg.paths.runs_dir), row)
+
+
+def _restore_resume_state(trainer: Trainer, payload: CheckpointPayload) -> None:
+    """Restore the best epoch and the early-stop patience state from a resume checkpoint.
+
+    A file written before these keys existed (``best_epoch == -1``) keeps the old behaviour for the best
+    epoch (the resumed epoch) and seeds early stopping from ``best_selection`` — the scalar it monitors —
+    with a fresh counter, which is the closest state that file can recover.
+    """
+    if payload.best_epoch >= 0:
+        trainer._best_epoch = payload.best_epoch
+        trainer.early_stopping.counter = payload.early_stop_counter
+        trainer.early_stopping.best_loss = payload.early_stop_best
+    else:
+        trainer._best_epoch = payload.epoch
+        trainer.early_stopping.best_loss = payload.best_selection
 
 
 def build_trainer(
@@ -707,7 +724,7 @@ def build_trainer(
         )
         trainer.best_val_loss = payload.best_val_loss
         trainer.best_selection = payload.best_selection
-        trainer._best_epoch = payload.epoch
+        _restore_resume_state(trainer, payload)
         trainer._start_epoch = payload.epoch + 1
         print(f"[resume] {Path(resume_from)}: continuing at epoch {payload.epoch + 1}/"
               f"{cfg.train.num_epochs} (best_val_loss={payload.best_val_loss:.4f}) -> {run_dir}")

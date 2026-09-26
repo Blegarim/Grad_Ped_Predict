@@ -71,6 +71,8 @@ class _FakeTrainer:
         self.scheduler = scheduler
         self.best_val_loss = best_val_loss
         self.best_selection = best_selection
+        self._best_epoch = -1
+        self.early_stopping = EarlyStopping(patience=3)
 
 
 class _ListChunkProvider:
@@ -366,4 +368,80 @@ def test_build_trainer_with_resume(tmp_path: Path) -> None:
 
     assert trainer._start_epoch == expected_epoch + 1
     assert trainer.best_val_loss == pytest.approx(expected_best)
+    # a file without the resume-state keys: best epoch falls back to the resumed epoch, and early
+    # stopping is seeded from the selection scalar it monitors (best_selection -> best_val_loss here)
+    assert trainer._best_epoch == expected_epoch
+    assert trainer.early_stopping.counter == 0
+    assert trainer.early_stopping.best_loss == pytest.approx(expected_best)
+    trainer.chunks.close()
+
+
+def _resume_state_ckpt(tmp_path: Path, cfg: RootCfg, **extra: object) -> Path:
+    """A version-1 checkpoint whose model/optimizer/scheduler state build_trainer can load under ``cfg``."""
+    from pedpredict.training.trainer import build_trainer
+
+    donor = build_trainer(cfg, _ListChunkProvider([], []), device=_CPU)
+    ckpt_path = tmp_path / "resume_state" / "last.pth"
+    ckpt_path.parent.mkdir(parents=True)
+    torch.save(
+        {
+            "pedpredict_ckpt_version": 1,
+            "epoch": 18,
+            "best_val_loss": 0.21,
+            "best_selection": -0.27,
+            "run_id": "saved_run",
+            "model_type": "full",
+            "model_state_dict": donor.model.state_dict(),
+            "optimizer_state_dict": donor.optimizer.state_dict(),
+            "scaler_state_dict": donor.scaler.state_dict(),
+            "scheduler_state_dict": donor.scheduler.state_dict(),
+            **extra,
+        },
+        ckpt_path,
+    )
+    donor.chunks.close()
+    return ckpt_path
+
+
+def test_resume_restores_patience_and_true_best_epoch(tmp_path: Path) -> None:
+    """A resumed run keeps its early-stop counter and reports the real best epoch, not the resumed one.
+
+    Before the fix a run killed at epoch 18 with best epoch 4 restarted a full patience window on resume
+    and wrote best_epoch=18 to its index row.
+    """
+    from pedpredict.training.trainer import build_trainer
+
+    new_paths = dataclasses.replace(RootCfg().paths, runs_dir=str(tmp_path / "runs"))
+    cfg = dataclasses.replace(RootCfg(), paths=new_paths)
+    ckpt = _resume_state_ckpt(tmp_path, cfg, best_epoch=4, early_stop_counter=14, early_stop_best=-0.27)
+
+    trainer = build_trainer(cfg, _ListChunkProvider([], []), device=_CPU, resume_from=ckpt)
+
+    assert trainer._start_epoch == 19
+    assert trainer._best_epoch == 4
+    assert trainer.early_stopping.counter == 14
+    assert trainer.early_stopping.best_loss == pytest.approx(-0.27)
+    trainer.early_stopping(-0.20)            # one more non-improving epoch exhausts patience=15
+    assert trainer.early_stopping.early_stop
+    trainer.chunks.close()
+
+
+def test_payload_carries_resume_state(tmp_path: Path) -> None:
+    """save_last writes the patience state AFTER this epoch's early-stop update, plus the best epoch."""
+    from pedpredict.training.trainer import build_trainer
+
+    new_paths = dataclasses.replace(RootCfg().paths, runs_dir=str(tmp_path / "runs"))
+    cfg = dataclasses.replace(RootCfg(), paths=new_paths)
+    trainer = build_trainer(cfg, _ListChunkProvider([], []), device=_CPU)
+    trainer._best_epoch = 4
+    trainer.early_stopping.counter = 6
+    trainer.early_stopping.best_loss = -0.3
+    mgr = CheckpointManager(tmp_path / "ckpt", run_id="r", model_type="full")
+    mgr.save_last(trainer, 10)
+
+    payload = CheckpointManager.load(
+        tmp_path / "ckpt" / "last.pth", trainer.model, trainer.optimizer, trainer.scaler, trainer.scheduler
+    )
+    assert (payload.best_epoch, payload.early_stop_counter) == (4, 6)
+    assert payload.early_stop_best == pytest.approx(-0.3)
     trainer.chunks.close()

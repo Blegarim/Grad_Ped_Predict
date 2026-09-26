@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import types
 import typing
 from collections.abc import Sequence
@@ -69,7 +70,9 @@ _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
 _FRAME_POOLS = frozenset({"logsumexp", "max", "mean"})  # CrossAttentionModule frame-pool modes (2.3)
 _SELECTION_METRICS = frozenset({"val_loss", "macro_f1", "crosses_f1"})  # M8 best-ckpt/early-stop scalar
 _PROTOCOLS = frozenset({"streaming", "anchored"})  # S1 pivot: data.protocol LMDB-set selector
-_VISUAL_INPUTS = frozenset({"images", "cached_features"})  # recipe v2: data.visual_input
+_VISUAL_INPUTS = frozenset({"images", "cached_features", "none"})  # recipe v2 + pixel-free: data.visual_input
+#: Model types that never read a pixel — the only ones data.visual_input="none" may feed.
+_PIXEL_FREE_MODEL_TYPES = frozenset({"kinematics_only", "pose_kinematics"})
 #: Model types whose only visual input is the context crop — the one thing the feature cache replaces.
 _CONTEXT_ONLY_MODEL_TYPES = frozenset({"pose_full", "visual_only"})
 
@@ -215,6 +218,11 @@ def _validate_visual_input(root: RootCfg) -> None:
         raise ConfigError(f"data.visual_input must be one of {sorted(_VISUAL_INPUTS)}; got {d.visual_input!r}")
     if root.augment.cache_color_variants < 0:
         raise ConfigError(f"augment.cache_color_variants must be >= 0; got {root.augment.cache_color_variants}")
+    if d.visual_input == "none" and root.eval.model_type not in _PIXEL_FREE_MODEL_TYPES:
+        raise ConfigError(
+            f"data.visual_input=none decodes no image, so it supports eval.model_type in "
+            f"{sorted(_PIXEL_FREE_MODEL_TYPES)} only; got {root.eval.model_type!r}"
+        )
     if d.visual_input != "cached_features":
         return
     if not m.vit_frozen_eval:
@@ -227,6 +235,24 @@ def _validate_visual_input(root: RootCfg) -> None:
             f"data.visual_input=cached_features supports eval.model_type in {sorted(_CONTEXT_ONLY_MODEL_TYPES)} "
             f"(the cache replaces the context crop only); got {root.eval.model_type!r}"
         )
+
+
+def _validate_input_standardization(p: PoseCfg) -> None:
+    """``pose.input_mean/input_std``: one positive entry per read-path channel, only on a pose build."""
+    if p.input_clip <= 0:
+        raise ConfigError(f"pose.input_clip must be > 0; got {p.input_clip}")
+    if not (p.input_mean or p.input_std):
+        return
+    if not p.enabled:
+        raise ConfigError("pose.input_mean/input_std (read-path standardization) require pose.enabled=true")
+    width = MOTION_STORE_DIM + p.feature_dim()
+    if len(p.input_mean) != width or len(p.input_std) != width:
+        raise ConfigError(
+            f"pose.input_mean/input_std need one entry per read-path channel ({width}); "
+            f"got {len(p.input_mean)}/{len(p.input_std)}"
+        )
+    if min(p.input_std) <= 0:
+        raise ConfigError(f"pose.input_std entries must be > 0; got min {min(p.input_std)}")
 
 
 def _validate_onset(m: ModelCfg, d: DataCfg) -> None:
@@ -350,6 +376,7 @@ def validate_config(root: RootCfg) -> None:
         )
     if e.model_type.startswith("pose_") and not p.enabled:
         raise ConfigError(f"eval.model_type={e.model_type!r} requires pose.enabled=true")
+    _validate_input_standardization(p)
     if tuple(m.motion_norm_image_size) != (d.source_width, d.source_height):
         raise ConfigError(
             f"model.motion_norm_image_size {tuple(m.motion_norm_image_size)} != "
@@ -631,9 +658,31 @@ def load_config(
     root = _build_root(nested)
     if overrides:
         root = apply_overrides(root, parse_overrides(overrides))
+    root = _fill_input_stats(root, base.resolve().parent)
     if validate:
         validate_config(root)
     return root
+
+
+def _fill_input_stats(root: RootCfg, project_root: Path) -> RootCfg:
+    """Copy the ``pose.input_stats`` JSON numbers into ``pose.input_mean/input_std`` (explicit values win).
+
+    Doing this at load time is what makes the numbers part of the run's ``resolved_config.yaml`` — the
+    snapshot eval inherits — instead of a file eval would have to re-read and could find changed.
+    """
+    p = root.pose
+    if not p.input_stats or p.input_mean or p.input_std:
+        return root
+    path = Path(p.input_stats)
+    if not path.is_absolute():
+        path = project_root / path
+    if not path.is_file():
+        raise ConfigError(f"pose.input_stats file not found: {path} — run scripts/compute_input_stats.py first")
+    stats = json.loads(path.read_text(encoding="utf-8"))
+    pose = dataclasses.replace(
+        p, input_mean=tuple(float(x) for x in stats["mean"]), input_std=tuple(float(x) for x in stats["std"])
+    )
+    return dataclasses.replace(root, pose=pose)
 
 
 def load_resolved_config(path: str | Path, *, validate: bool = False) -> RootCfg:

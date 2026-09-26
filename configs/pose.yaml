@@ -9,3 +9,10 @@ conf_channel: true       # feed per-joint confidence scores
 smooth_window: 5         # temporal smoothing window at extraction (frames)
 min_conf: 0.3            # below -> joint treated as missing and interpolated (extraction)
 cache_dir: pose_cache    # extraction output root: {cache_dir}/{set}/{video}.npz
+# Read-path input standardization (OFF while input_mean is empty). input_stats names a JSON from
+# scripts/compute_input_stats.py; load_config copies its numbers into input_mean/input_std so the run's
+# resolved_config.yaml (which eval inherits) carries the exact values. Output clamped to +-input_clip.
+input_stats: ""
+input_mean: []
+input_std: []
+input_clip: 5.0

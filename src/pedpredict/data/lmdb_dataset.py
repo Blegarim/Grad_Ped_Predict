@@ -113,7 +113,11 @@ class LMDBChunkDataset(Dataset):
         pose_transform: Callable[[Tensor, Tensor], Tensor] | None = None,
         features: ChunkFeatures | None = None,
         feature_augmentor: CachedFeatureAugmentor | None = None,
+        decode_images: bool = True,
     ) -> None:
+        if not decode_images and augmentor is not None and not hasattr(augmentor, "kinematics"):
+            raise ValueError("LMDBChunkDataset: a pixel-free read (decode_images=False) needs an augmentor with "
+                             ".kinematics() (RuntimeAugmentor) — an image augmentor has no pixels to act on")
         if features is not None and augmentor is not None:
             raise ValueError("LMDBChunkDataset: cached features take a feature_augmentor, not an image augmentor")
         if feature_augmentor is not None and features is None:
@@ -136,6 +140,8 @@ class LMDBChunkDataset(Dataset):
         # decode entirely; images_tight comes back empty ([T, 0]) and images_context holds [T, F] features.
         self._features = features
         self._feature_augmentor = feature_augmentor
+        # Pixel-free read (data.visual_input=none): no crop is decoded; both image slots come back [T, 0].
+        self._decode_images = decode_images
         self._env: lmdb.Environment | None = None
         self._pid: int | None = None
 
@@ -144,7 +150,9 @@ class LMDBChunkDataset(Dataset):
         env = lmdb.open(self.lmdb_path, readonly=True, lock=False)
         try:
             with env.begin(write=False) as txn:
-                for key, _ in txn.cursor():
+                # Keys only (same lexicographic order): a key+value cursor copies every JPEG in the chunk
+                # just to find the _meta keys.
+                for key in txn.cursor().iternext(keys=True, values=False):
                     key_str = key.decode()
                     if key_str.endswith("_meta"):
                         self.seq_ids.append(key_str.split("_")[0])
@@ -175,6 +183,7 @@ class LMDBChunkDataset(Dataset):
         With ``features`` (``data.feature_cache.open_chunk_features``) no crop is decoded at all.
         """
         motion_dim = None if pose_transform is not None else cfg.motion_dim
+        decode = cfg.visual_input != "none"
         if features is not None:
             transform_tight, transform_context = build_read_transforms(cfg)   # unused: nothing is decoded
             return cls(
@@ -185,14 +194,14 @@ class LMDBChunkDataset(Dataset):
             transform_tight, transform_context = build_read_transforms(cfg)
             return cls(
                 lmdb_path, transform_tight, transform_context, motion_dim=motion_dim,
-                pose_transform=pose_transform,
+                pose_transform=pose_transform, decode_images=decode,
             )
         transform_tight = resize_to_tensor((cfg.img_height, cfg.img_width))
         transform_context = resize_to_tensor((cfg.read_context_height, cfg.read_context_width))
         return cls(
             lmdb_path, transform_tight, transform_context, motion_dim=motion_dim,
             augmentor=augmentor, aug_seed=aug_seed, normalize=imagenet_normalize(cfg),
-            pose_transform=pose_transform,
+            pose_transform=pose_transform, decode_images=decode,
         )
 
     def __getstate__(self) -> dict:
@@ -221,7 +230,11 @@ class LMDBChunkDataset(Dataset):
         if self._env is None or self._pid != pid:
             if self._env is not None:
                 self._env.close()
-            self._env = lmdb.open(self.lmdb_path, readonly=True, lock=False)
+            # No OS readahead when no crop is decoded: each _meta read would otherwise pull the neighbouring
+            # JPEG pages into cache with it.
+            # getattr: an instance pickled by a pre-pixel-free parent has no _decode_images (it decodes).
+            readahead = getattr(self, "_decode_images", True)
+            self._env = lmdb.open(self.lmdb_path, readonly=True, lock=False, readahead=readahead)
             self._pid = pid
         return self._env
 
@@ -259,12 +272,22 @@ class LMDBChunkDataset(Dataset):
                 motions = motions[:, : self.motion_dim]
 
             t_frames = motions.shape[0]   # frame count comes from the motion tensor (1.2 contract)
-            if self._features is None:
+            # getattr: a DataLoader worker spawned after a code update unpickles an instance built by the
+            # previous version, which has no such attribute — keep that read on the image path.
+            decode_images = getattr(self, "_decode_images", True)
+            if self._features is None and decode_images:
                 tight, context = self._decode_frames(txn, seq_id, t_frames)
 
         if self._features is not None:
             context, motions, pose = self._cached_inputs(idx, seq_id, motions, pose)
             tight = torch.empty(t_frames, 0)
+        elif not decode_images:
+            tight = context = torch.empty(t_frames, 0)
+            if self._augmentor is not None:   # same draws as the image path, minus the pixel transforms
+                rng = random.Random(self._aug_seed * 1_000_003 + idx)
+                motions, pose = self._augmentor.kinematics(  # type: ignore[attr-defined]
+                    torch.as_tensor(motions), pose, rng, t_frames
+                )
         elif self._augmentor is not None:
             assert self._normalize is not None  # from_config pairs augmentor with the deferred norm
             ps = ProcessedSample(

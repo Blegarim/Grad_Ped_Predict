@@ -236,6 +236,26 @@ class RuntimeAugmentor:
             sample = self._aug.random_erase_frames(sample, rng)
         return sample
 
+    def kinematics(
+        self, motions: torch.Tensor, pose: torch.Tensor | None, rng: random.Random, n_frames: int
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """The non-image half of :meth:`__call__` for the pixel-free read path (``data.visual_input=none``).
+
+        Consumes ``rng`` in exactly ``__call__``'s order, so a given (seed, epoch, index) draws the same
+        flip and noise decisions it would on the image path; color and erase touch pixels only, so their
+        draws are consumed and nothing is applied.
+        """
+        if rng.random() < self._probs[TransformName.FLIP]:
+            motions, pose = flip_motions_pose(motions, pose, self._aug.source_width)
+        if rng.random() < self._probs[TransformName.COLOR]:
+            rng.randrange(2**31)
+        if rng.random() < self._probs[TransformName.NOISE]:
+            with _isolated_torch_seed(rng.randrange(2**31)):
+                motions = motions + torch.randn_like(motions) * self._aug.cfg.motion_noise_std
+        if rng.random() < self._probs[TransformName.ERASE] and n_frames >= self._aug.cfg.erase_n_frames:
+            rng.sample(range(n_frames), self._aug.cfg.erase_n_frames)
+        return motions, pose
+
 
 def _expand(subset: list[int], multiplier: int, cfg: AugmentCfg, rng: random.Random) -> list[AugItem]:
     """Cycle ``subset``, emitting ``original + selected single-transform copies`` until ``len*multiplier``.

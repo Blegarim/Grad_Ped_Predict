@@ -53,9 +53,9 @@ checkable.
 | **2** | v2 data regeneration + baseline runs | ✅ done (streaming + anchored builds exist, trained) |
 | **3** | Streaming pivot: onset metadata + protocol switch + pose arm | ✅ done — onset fields reach the trainer (lab-PC backfill; the 2026-09-16 research-PC regen writes them natively) |
 | **4** | The decomposition (G_prior / G_hardneg) — **now the motivation, not the headline** | ✅ measured + written up ([RESULTS_MATRIX.md](../outputs/runs/RESULTS_MATRIX.md)) |
-| **5** | Streaming-leg convergence + baseline hygiene | 🟡 demoted from headline — the Model B sampler mismatch is fixed by R2's anchored leg (queued) |
+| **5** | Streaming-leg convergence + baseline hygiene | 🟡 collapse epochs + seed spread traced to block-ordered chunk visits (fixed 2026-09-24, reshuffled train dir) and unscaled inputs (read-path standardization); pixel-free ladder running — if it passes the gate, **every paper run is redone on it** ([RERUN_PLAN_2026-09-26.md](RERUN_PLAN_2026-09-26.md), armed, auto-launch) |
 | **6** | Rare-event metrics + negative-composition report | 🟢 composition ✅ · **detection-latency evaluation ✅ built + measured 2026-09-19 (the instrument that works)** · ODAS/track suite still 💻 |
-| **7** | **The method** — onset timing under censoring + supporting studies | 🟢 R0 ✅ · R1 ✅ · **R3 ✅ (ties on F1, WINS 2-6x on detection latency)** · R4 running · R3C queued |
+| **7** | **The method** — onset timing under censoring + supporting studies | 🟡 R0–R4 + R3C measured on the v1 image recipe; the 2–6× detection win was single-seed and is **retracted** (3 seeds each: inconclusive, 0 of 5 budgets). R1–R4 + R3C re-run at 3 seeds on the pixel-free recipe is armed behind the gate |
 | **8** | Write-up, defense, release | ⬜ not started |
 
 The critical path is now **6 → 7 → 8** (Stage 4 is done). Stage 6 comes first because it is entirely

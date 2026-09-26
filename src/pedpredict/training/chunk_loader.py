@@ -98,12 +98,14 @@ class ChunkLoaderIterator:
         mp_context: mp.context.BaseContext | None = None,
         warm_fn: WarmWorker = warm_lmdb_chunk,
         skip_policy: str = "warn",
+        warm_meta_only: bool = False,
     ) -> None:
         if skip_policy not in ("warn", "raise"):
             raise ValueError(f"skip_policy must be 'warn' or 'raise'; got {skip_policy!r}")
         self._paths = list(chunk_paths)
         self._build_loader = build_loader
         self._warm_fn = warm_fn
+        self._warm_meta_only = warm_meta_only  # pixel-free read: warm the _meta values only
         self._skip_policy = skip_policy        # C1: "warn" = legacy skip but LOUD; "raise" = hard error (val)
         self._preload = max(1, min(preload_depth, len(self._paths))) if self._paths else 0
         self._ram_threshold = ram_threshold
@@ -194,8 +196,10 @@ class ChunkLoaderIterator:
         if idx >= len(self._paths) or idx in self._procs or self._queue is None:
             return
         wait_for_memory(self._ram_threshold, self._mem_interval, timeout=self._mem_timeout)
+        # The kwarg is passed only when set, so a three-arg warm_fn (test doubles) still works by default.
+        kwargs = {"meta_only": True} if self._warm_meta_only else {}
         proc = self._ctx.Process(
-            target=self._warm_fn, args=(idx, self._paths[idx], self._queue), daemon=True
+            target=self._warm_fn, args=(idx, self._paths[idx], self._queue), kwargs=kwargs, daemon=True
         )
         proc.start()
         self._procs[idx] = proc
@@ -357,6 +361,9 @@ class ChunkPrefetcher:
             "mem_timeout": t.chunk_warm_mem_timeout,
             "queue_timeout": t.chunk_queue_timeout,
             "mp_context": self._ctx,
+            # Pixel-free read never decodes a crop, so warming the JPEGs is pure disk I/O (the whole store,
+            # every epoch). Page cache only — the batches are identical either way.
+            "warm_meta_only": self.cfg.data.visual_input == "none",
         }
 
     def _loader_kwargs(self) -> dict[str, object]:

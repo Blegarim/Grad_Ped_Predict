@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import pickle
 
 import lmdb
@@ -265,3 +266,149 @@ def test_augment_flip_transforms_pose(tmp_path) -> None:
     flipped = SequenceAugmenter(AugmentCfg(), cfg.source_width).horizontal_flip(sample)
     torch.testing.assert_close(flipped.pose[:, 0, 0], cfg.source_width - sample.pose[:, 0, 0])
     torch.testing.assert_close(flipped.pose[:, 5, 1], sample.pose[:, 6, 1])  # L <- R shoulder y
+
+
+# --------------------------------------------------------------------------- input standardization (2026-09-25)
+
+
+def _stats_cfg(mean, std, clip: float = 5.0) -> RootCfg:
+    root = _pose_cfg()
+    pose = dataclasses.replace(root.pose, input_mean=tuple(mean), input_std=tuple(std), input_clip=clip)
+    return dataclasses.replace(root, pose=pose)
+
+
+def test_input_standardization_off_by_default_is_byte_identical() -> None:
+    root = _pose_cfg()
+    pose, motions = torch.rand(_T, POSE_STORE_JOINTS, 3) * 500, torch.rand(_T, 9) * 50
+    raw = PoseMotionTransform(root)(pose, motions)
+    assert PoseMotionTransform(root).mean is None
+    torch.testing.assert_close(PoseMotionTransform(root)(pose, motions), raw)
+
+
+def test_input_standardization_applies_and_clamps() -> None:
+    root = _pose_cfg()
+    width = root.data.motion_dim
+    pose, motions = torch.rand(_T, POSE_STORE_JOINTS, 3) * 500, torch.rand(_T, 9) * 50
+    raw = PoseMotionTransform(root)(pose, motions)
+    mean, std = torch.rand(width), torch.rand(width) * 0.01 + 1e-3   # tiny std -> some entries clamp
+    out = PoseMotionTransform(_stats_cfg(mean.tolist(), std.tolist(), clip=2.0))(pose, motions)
+    torch.testing.assert_close(out, ((raw - mean) / std).clamp(-2.0, 2.0))
+    assert out.abs().max() <= 2.0
+
+
+def test_input_stats_json_fills_config_and_survives_the_resolved_snapshot(tmp_path) -> None:
+    """The numbers travel in resolved_config.yaml, so eval never needs (or re-reads) the JSON."""
+    from pedpredict.config import dump_config, load_config, load_resolved_config
+
+    width = _pose_cfg().data.motion_dim
+    stats = tmp_path / "stats.json"
+    stats.write_text(json.dumps({"mean": [0.5] * width, "std": [2.0] * width}), encoding="utf-8")
+    bundle = ["pose.enabled=true", "model.motion_norm=none", f"data.motion_dim={width}", f"model.motion_dim={width}"]
+    root = load_config("configs", overrides=[*bundle, f"pose.input_stats={stats.as_posix()}"])
+    assert root.pose.input_mean == (0.5,) * width and root.pose.input_std == (2.0,) * width
+
+    snapshot = dump_config(root, tmp_path / "run")
+    stats.unlink()                                             # eval must not need the file
+    again = load_resolved_config(snapshot, validate=True)
+    assert again.pose.input_mean == root.pose.input_mean and again.pose.input_std == root.pose.input_std
+
+
+def test_input_stats_validation() -> None:
+    from pedpredict.config import ConfigError
+    from pedpredict.config.loader import validate_config
+
+    width = _pose_cfg().data.motion_dim
+    with pytest.raises(ConfigError, match="one entry per read-path channel"):
+        validate_config(_stats_cfg([0.0] * (width - 1), [1.0] * (width - 1)))
+    with pytest.raises(ConfigError, match="must be > 0"):
+        validate_config(_stats_cfg([0.0] * width, [1.0] * (width - 1) + [0.0]))
+    with pytest.raises(ConfigError, match="input_clip"):
+        validate_config(_stats_cfg([0.0] * width, [1.0] * width, clip=0.0))
+    no_pose = dataclasses.replace(RootCfg(), pose=PoseCfg(input_mean=(0.0,) * 9, input_std=(1.0,) * 9))
+    with pytest.raises(ConfigError, match="require pose.enabled"):
+        validate_config(no_pose)
+    with pytest.raises(ConfigError, match="not found"):
+        from pedpredict.config import load_config
+        load_config("configs", overrides=["pose.enabled=true", "model.motion_norm=none", f"data.motion_dim={width}",
+                                          f"model.motion_dim={width}", "pose.input_stats=does/not/exist.json"])
+
+
+def test_compute_input_stats_matches_numpy(tmp_path) -> None:
+    from pedpredict.data.input_stats import compute_input_stats, raw_transform
+
+    chunk, _, _ = _write_chunk(tmp_path, with_pose=True)
+    root = _stats_cfg([9.0] * _pose_cfg().data.motion_dim, [9.0] * _pose_cfg().data.motion_dim)  # must be stripped
+    stats = compute_input_stats([chunk.parent], root)
+
+    env = lmdb.open(str(chunk), readonly=True, lock=False)
+    with env.begin() as txn:
+        meta = pickle.loads(txn.get(b"0_meta"))
+    env.close()
+    frames = raw_transform(root)(torch.as_tensor(meta["pose"]), torch.as_tensor(meta["motions"])).double()
+    np.testing.assert_allclose(stats["mean"], frames.mean(0).numpy(), rtol=1e-6, atol=1e-9)
+    expected_std = frames.std(0, unbiased=False).clamp_min(1e-6).numpy()
+    np.testing.assert_allclose(stats["std"], expected_std, rtol=1e-5, atol=1e-7)
+    assert stats["n_windows"] == 1 and stats["width"] == root.data.motion_dim
+
+
+# --------------------------------------------------------------------------- pixel-free read (data.visual_input=none)
+
+
+def _pixel_free(root: RootCfg) -> RootCfg:
+    return dataclasses.replace(root, data=dataclasses.replace(root.data, visual_input="none"),
+                               eval=dataclasses.replace(root.eval, model_type="pose_kinematics"))
+
+
+def test_pixel_free_read_skips_images_and_keeps_motions(tmp_path) -> None:
+    chunk, _, seq_len = _write_chunk(tmp_path, with_pose=True)
+    root = _pose_cfg()
+    image_path = LMDBChunkDataset.from_config(chunk, root.data, pose_transform=pose_motion_transform(root))[0]
+    pf = _pixel_free(root)
+    sample = LMDBChunkDataset.from_config(chunk, pf.data, pose_transform=pose_motion_transform(pf))[0]
+    assert sample["images_tight"].shape == (seq_len, 0) and sample["images_context"].shape == (seq_len, 0)
+    torch.testing.assert_close(sample["motions"], image_path["motions"])
+    assert sample["crosses"] == image_path["crosses"]
+
+
+@pytest.mark.parametrize("aug_seed", range(6))
+def test_pixel_free_augmentation_matches_image_path(tmp_path, aug_seed: int) -> None:
+    """Same (seed, idx) -> same flip + noise on motions AND pose, with or without pixels."""
+    from pedpredict.data.augment import RuntimeAugmentor
+
+    chunk, _, _ = _write_chunk(tmp_path, with_pose=True)
+    root = _pose_cfg()
+    aug_cfg = AugmentCfg(p_flip=0.5, p_color=0.5, p_noise=0.5, p_erase=0.5, motion_noise_std=5.0)
+    aug = RuntimeAugmentor(aug_cfg, root.data.source_width)
+    img = LMDBChunkDataset.from_config(chunk, root.data, augmentor=aug, aug_seed=aug_seed,
+                                       pose_transform=pose_motion_transform(root))[0]
+    pf = _pixel_free(root)
+    free = LMDBChunkDataset.from_config(chunk, pf.data, augmentor=aug, aug_seed=aug_seed,
+                                        pose_transform=pose_motion_transform(pf))[0]
+    torch.testing.assert_close(free["motions"], img["motions"])
+
+
+def test_visual_input_none_rejects_models_that_read_pixels() -> None:
+    from pedpredict.config import ConfigError
+    from pedpredict.config.loader import validate_config
+
+    root = _pose_cfg()
+    bad = dataclasses.replace(root, data=dataclasses.replace(root.data, visual_input="none"),
+                              eval=dataclasses.replace(root.eval, model_type="pose_full"))
+    with pytest.raises(ConfigError, match="pixel|kinematics"):
+        validate_config(bad)
+    validate_config(_pixel_free(root))
+
+
+def test_objects_pickled_by_the_previous_version_still_read(tmp_path) -> None:
+    """A live run's DataLoader workers re-import the package from disk on every spawn: instances built by
+    the pre-update code (no _decode_images, no mean/std) must keep reading exactly as before."""
+    chunk, _, _ = _write_chunk(tmp_path, with_pose=True)
+    root = _pose_cfg()
+    ds = LMDBChunkDataset.from_config(chunk, root.data, pose_transform=pose_motion_transform(root))
+    expected = ds[0]["motions"]
+    del ds._decode_images
+    del ds._pose_transform.mean, ds._pose_transform.std
+    old = pickle.loads(pickle.dumps(ds))
+    sample = old[0]
+    torch.testing.assert_close(sample["motions"], expected)
+    assert sample["images_context"].ndim == 4          # still decoding images

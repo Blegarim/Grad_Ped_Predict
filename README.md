@@ -51,16 +51,20 @@ iterable without re-extraction; all pose math lives in [data/pose.py](src/pedpre
 ```
 src/pedpredict/        # installable package (pip install -e .)
   config/   schema.py loader.py    # yaml → dataclass → argparse override merge
+            diff.py                # field-level config diff (campaign comparability check)
   paths.py
   utils/    seed device amp memory logging
   data/     pie_sequences pie_annotations transforms lmdb_writer lmdb_dataset lmdb_warm
             balance augment collate sampler stats pose
             onset_stats onset_target onset_backfill      # onset-timing arm (METHODOLOGY prong 2)
             feature_cache                                # recipe v2: cached frozen-backbone features
+            reshuffle                                    # global shuffle-rewrite of the train chunks
+            input_stats                                  # pose-arm read-path mean/std (pose.input_stats)
   models/   vit timm_backbone geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask onset
   training/ trainer chunk_loader callbacks schedule metrics distribution
   eval/     evaluate benchmark inference diagnostics onset_timing detection_curve
+            rerun_gate                                   # go/no-go for the pixel-free re-run campaign
   viz/      plots qualitative
   export/   onnx.py
 scripts/    # thin one-job CLIs (make_sequences, build_lmdb, train, evaluate, ...)
@@ -145,6 +149,15 @@ python scripts/build_feature_cache.py --split all --verify-windows 64
                                                  # eval-mode backbone's features (+ flip / color variants
                                                  # for train dirs); then train with
                                                  # --set data.visual_input=cached_features
+python scripts/reshuffle_train_lmdb.py --dry-run # merge paths.lmdb_train dirs into ONE globally shuffled dir
+                                                 # (verbatim blob copy; labels/counts unchanged). Fixes the
+                                                 # block-ordered chunk visits (aug dir = minority only);
+                                                 # then --set "paths.lmdb_train=[preprocessed_train_shuffled]"
+python scripts/compute_input_stats.py --out <stats.json> <pose bundle --set flags>
+                                                 # per-channel mean/std of the pose read-path vector (metas
+                                                 # only); train with --set pose.input_stats=<stats.json>.
+                                                 # Pixel-free models add --set data.visual_input=none (no
+                                                 # JPEG decode; NOT inherited by eval — pass it there too)
 python scripts/dump_onset_predictions.py --split test --checkpoint <best.pth> --out <dump.npz>
                                                  # per-window probs, hazard logits + onset labels
 python scripts/report_onset_timing.py --test <test.npz> --val <val.npz> --eval-log <eval_log.csv>
@@ -154,6 +167,11 @@ python scripts/report_detection_curve.py --arm "binary=<dump.npz>#p_frame"      
                                                  # THE PRIMARY METRIC: detection rate + lead time at
                                                  # matched false-alarm budgets; repeat a label to pool
                                                  # seeds (mean +- sd); no data needed
+python scripts/check_run_config.py --reference <run>/resolved_config.yaml --allow train.seed <--set flags>
+                                                 # refuse a run whose config differs from the reference by
+                                                 # anything but its intended flags (before or after training)
+python scripts/rerun_gate.py --out <dir> --run <pf_fix_s42 dir> --run <..s43> --run <..s44>
+                                                 # re-run campaign go/no-go (docs/RERUN_PLAN_2026-09-26.md)
 python scripts/diagnose_backbone_bn.py --checkpoint <best.pth> --out-dir <dir>
                                                  # frozen-backbone BatchNorm drift + re-scoring with
                                                  # pretrained / re-estimated BN stats (recipe v2 check)

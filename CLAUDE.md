@@ -136,7 +136,7 @@ the eval-mode frozen backbone's pooled features replace the context-crop JPEG de
 Requires `model.vit_frozen_eval=true` and a context-only model (`pose_full` | `visual_only`); readers check
 window order, crop size, norm and a weights+BN fingerprint, so a stale cache fails loudly. In cached mode
 `augment.runtime` picks pre-built flip / color-jitter variants (flip still goes through the shared
-`augment.flip_motions_pose` rule for motions + pose); frame erase is skipped. Sequence-gen params (`seq_len`, `stride`,
+`augment.flip_motions_pose` rule for motions + pose); frame erase is skipped. **Pixel-free read** (`data.visual_input=none`, `pose_kinematics`/`kinematics_only` only): no crop is decoded (image slots `[T, 0]`) and runtime aug applies only its motion/pose half with the same RNG draws — JPEG decode is the training bottleneck, so this is what makes a pixel-free run ~10× faster. Eval does **not** inherit `visual_input`; pass it. Sequence-gen params (`seq_len`, `stride`,
 `future_offset`, `context_scale`, …) live in `configs/data.yaml`; the **LMDB schema v2** key/value contract
 is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim motion channel table in
 [data/transforms.py](src/pedpredict/data/transforms.py). Crops are stored un-normalized (ImageNet norm at
@@ -198,7 +198,11 @@ record but is no longer required reading):
   (COCO-WholeBody body-17+feet-6, absolute px, from the `extract_pose.py` cache); existing consumers
   ignore it. Features are built at **read time** (`data/pose.py`), so `motions` leaves the dataset as
   `[T, 58]` with the 9-dim block already image-normalized — hence pose models run
-  `model.motion_norm="none"`. `horizontal_flip` **must** also mirror pose (`flip_pose`: reflect x about
+  `model.motion_norm="none"`. **Read-path standardization** (`pose.input_stats`, default off): the 58 channels otherwise arrive
+  unscaled (std spans ~600–770×, velocity channels smallest) into a `Conv1d` whose BatchNorm sits *after* it;
+  on, each channel is `(x−mean)/std` clamped to `±pose.input_clip`. `load_config` copies the JSON's numbers into
+  `pose.input_mean/input_std`, so `resolved_config.yaml` carries them and eval (which inherits `pose`) applies
+  the same values — a stats recompute can never re-score an old checkpoint. `horizontal_flip` **must** also mirror pose (`flip_pose`: reflect x about
   `data.source_width` + swap left/right joints) — same silent-corruption stakes as the motion-flip rule.
 - **S1 (streaming pivot)** — each standard `SequenceRecord` also carries pure per-window onset annotation:
   `onset_offset` (frames from end-of-obs to the first future crossing; `-1` if none), `future_observed`

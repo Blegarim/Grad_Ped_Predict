@@ -262,7 +262,7 @@ def test_validation_vit_requires_square_context() -> None:
 
 def test_validation_threshold_sweep_order() -> None:
     with pytest.raises(ConfigError):
-        load_config(_CONFIG_DIR, overrides=["eval.threshold_sweep_lo=0.95"])
+        load_config(_CONFIG_DIR, overrides=["eval.threshold_sweep_lo=0.995"])
 
 
 # --------------------------------------------------------------------------- dump / immutability / argparse
