@@ -5,6 +5,16 @@ PC waits for the pixel-free ladder (`queue_v3.sh`, tmux `queue3`) to finish, run
 once, and on GO starts `queue_v4.sh` in tmux `queue4`. Nobody has to be watching. On NO-GO nothing
 launches, and the verdict says which check failed (§7).
 
+> **2026-09-27 update.** (1) Every campaign arm now selects `best.pth` (and early-stops) on **val
+> `crosses_auc`**, not F1 at the fixed 0.5 cut. Keeping F1 (old D4) was a mistake: its revisit condition
+> fired on `pf_fix_s42` (F1 picked epoch 7, the AUC peak was epoch 17) and was not acted on. As a result no
+> ladder run is reused (they were F1-selected), and the campaign trains all **20** runs itself.
+> (2) **Gate preview on the three `pf_fix` seeds: NO-GO.** `pf_fix_s43`/`s44` peak at **epoch 1** (val AUC
+> 0.870 / 0.854, trained at a tenth of the learning rate during warmup), then fall to 0.76 / 0.73 while train
+> loss drops 0.54 → 0.06: memorization, which no selection metric fixes. The seed spread IS fixed, though:
+> detection sd 3.1 pp at 205/hr (v1: 18.5), mean 20.2% at 41/hr (v1 binary 11.9%, GBM 38.9%), test AUC 0.785.
+> Unless overridden, the campaign will not launch.
+
 **The idea.** The paper's claim is about the *training objective* (binary vs hazard), not the architecture.
 If the pixel-free model (`pose_kinematics`: the 58-number pose + motion vector per frame, no images) trains
 stably, it becomes the canonical model, and every run the paper cites is redone on it: the motivation
@@ -70,13 +80,13 @@ GBM-probe ceiling (38.9 ± 1.0% at 41/hr) are reported in `v3_report`, not gated
 
 ## 3. The canonical recipe
 
-Exactly `pf_fix` from `queue_v3.sh`, so the ladder's runs can be reused. The arm flags live in
+`pf_fix` from `queue_v3.sh` with one change: selection on val `crosses_auc` (2026-09-27). The arm flags live in
 `/workspace/setup_logs/recipes_v4.sh`:
 
 ```
 PF      eval.model_type=pose_kinematics  pose.enabled=true  model.motion_norm=none
         data.motion_dim=58  model.motion_dim=58  data.visual_input=none
-COMMON  train.active_tasks=[crosses]  train.selection_metric=crosses_f1  augment.runtime=true
+COMMON  train.active_tasks=[crosses]  train.selection_metric=crosses_auc  augment.runtime=true
         train.lr_schedule=warmup_cosine
 BS32    train.batch_size=32  train.accum_steps=1
 STREAM  paths.lmdb_train=[preprocessed_train_shuffled]  pose.input_stats=<pose58_train_shuffled.json>
@@ -95,7 +105,9 @@ of optimizer steps is identical; only the BatchNorm batch changes.
 | R3 pure | `onset_head`, `onset_report_crosses`, hazard 1.0, crosses weight 0 | + `train.loss_weight` |
 | R4 hedge | R3 + `onset_readout_weight=0.5` | as R3 |
 | R3C censored | R3 on `preprocessed_train_censored_shuffled` | as R3 + `paths.lmdb_train` |
-| Model A (3-task), seed 42 only | `active_tasks=[actions,looks,crosses]`, `selection_metric=macro_f1`, both protocols | seed, protocol, `pose.input_*`, the two task keys |
+| Model A (3-task), seed 42 only | `active_tasks=[actions,looks,crosses]`, both protocols | seed, protocol, `pose.input_*`, `train.active_tasks` |
+
+`train.selection_metric` is an allowed difference for every arm: the reference (`pf_fix_s42`) was F1-selected.
 
 The reference is `pf_fix_s42`'s `resolved_config.yaml`. Every arm is diffed against it **before it trains**
 (`scripts/check_run_config.py`). Any difference outside its column fails that arm's `_cfg` job, so it never
@@ -122,25 +134,19 @@ recipe (sampler off) was caught, and the censored folder under a binary arm is r
 
 ## 5. Run inventory
 
-**Reused from the ladder** if the config check passes (marker `queue_v4/reuse_<tag>.done`). If it fails
-(`.no`), the campaign trains a `c4_` twin instead:
-
-| ladder run | becomes |
-|---|---|
-| `pf_fix_s42`, `pf_fix_s43`, `pf_fix_s44` | R2 streaming s42/43/44 |
-| `pf_fixonset_s42` | R3 s42 |
-
-**New runs** (tags `c4_*`):
+**No ladder run is reused** (they were F1-selected; only `best`/`last` checkpoints exist, so their selection
+cannot be redone). All runs are new (tags `c4_*`):
 
 | arm | seeds | runs | feeds |
 |---|---|---|---|
-| R3 pure | 43, 44 | 2 | `tab:seedspread`, `tab:detection`, `tab:onset` (**the headline**) |
+| R2 streaming (binary baseline) | 42, 43, 44 | 3 | `tab:seedspread`, `tab:matrix`, `tab:detection` (**the headline**) |
+| R3 pure | 42, 43, 44 | 3 | `tab:seedspread`, `tab:detection`, `tab:onset` (**the headline**) |
 | R2 anchored | 42, 43, 44 | 3 | `tab:matrix`, the gap decomposition, every onset arm's anchored-trained row |
 | Model A, 3-task | 42 | 2 | `tab:matrix` rows A |
 | R1 auxiliary | 42, 43, 44 | 3 | `tab:onset`, `tab:detection` |
 | R4 hedge | 42, 43, 44 | 3 | same |
 | R3C censored | 42, 43, 44 | 3 | same + the lead-time trade |
-| **total** | | **16** | |
+| **total** | | **20** | |
 
 **Per run:** config check → train → val + test on **both** protocols → streaming-test dump → report refresh.
 
@@ -154,8 +160,8 @@ of which come from labels. The GBM probe stays as an external reference row.
 
 ## 6. Run order
 
-1. **W1, headline:** R3 s43, s44. With the reused runs this completes R2s ×3 vs R3 ×3, and the
-   pre-registered criterion is computed straight away into `v4_report/headline.md`.
+1. **W1, headline:** R2s and R3 as a matched pair per seed (42, 43, 44). The pre-registered criterion is
+   computed into `v4_report/headline.md` as soon as both arms have 3 seeds.
 2. **W2, motivation:** `anchored_stats`, R2 anchored ×3, Model A streaming + anchored.
 3. **W3, every arm at one seed:** `censored_shuffle`, R1 s42, R4 s42, R3C s42.
 4. **W4, remaining seeds:** R1, R4, R3C at 43 then 44.
@@ -202,7 +208,7 @@ Unchanged from `SEED_PLAN_2026-09-21.md`:
 ## 9. Decisions (settled 2026-09-26)
 
 D1 Model A kept at seed 42 only · D2 R3C at 3 seeds · D3 anchored arms scaled by their own training set ·
-D4 `selection_metric=crosses_f1` kept (so ladder runs are reusable) · D5 warm-up fix applied to the running
+D4 ~~`selection_metric=crosses_f1` kept~~ → **`crosses_auc`** (2026-09-27; reuse dropped) · D5 warm-up fix applied to the running
 ladder.
 
 ## 10. Out of scope

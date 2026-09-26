@@ -68,7 +68,7 @@ _SECTIONS: dict[str, tuple[type, str]] = {
 
 _TASK_KEYS = frozenset({"actions", "looks", "crosses"})
 _FRAME_POOLS = frozenset({"logsumexp", "max", "mean"})  # CrossAttentionModule frame-pool modes (2.3)
-_SELECTION_METRICS = frozenset({"val_loss", "macro_f1", "crosses_f1"})  # M8 best-ckpt/early-stop scalar
+_SELECTION_METRICS = frozenset({"val_loss", "macro_f1", "crosses_f1", "crosses_auc"})  # M8 best-ckpt/early-stop
 _PROTOCOLS = frozenset({"streaming", "anchored"})  # S1 pivot: data.protocol LMDB-set selector
 _VISUAL_INPUTS = frozenset({"images", "cached_features", "none"})  # recipe v2 + pixel-free: data.visual_input
 #: Model types that never read a pixel — the only ones data.visual_input="none" may feed.
@@ -482,9 +482,9 @@ def validate_config(root: RootCfg) -> None:
         )
     # selection metric must reference an ACTIVE task, else best.pth/early-stop track a dead head
     # (the exact epoch-1 macro_f1 poisoning that crosses-only was built to remove).
-    if t.selection_metric == "crosses_f1" and "crosses" not in set(active):
+    if t.selection_metric in ("crosses_f1", "crosses_auc") and "crosses" not in set(active):
         raise ConfigError(
-            "train.selection_metric='crosses_f1' requires 'crosses' in train.active_tasks; "
+            f"train.selection_metric={t.selection_metric!r} requires 'crosses' in train.active_tasks; "
             f"got active_tasks={active}"
         )
 

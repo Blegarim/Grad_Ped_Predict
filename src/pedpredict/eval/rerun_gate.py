@@ -94,8 +94,12 @@ def curve_checks(label: str, rows: Sequence[dict[str, float]], th: GateThreshold
 
 
 def selected_epoch_auc(rows: Sequence[dict[str, float]], metric: str = "crosses_f1") -> float:
-    """Validation AUC at the epoch best.pth was taken from (first epoch with the max selection metric)."""
-    scores = [r[metric] for r in rows]
+    """Validation AUC at the epoch best.pth was taken from — the first epoch at the best value of the run's
+    own ``train.selection_metric`` (``val_loss`` minimized, the rest maximized), as the Trainer keeps it."""
+    if metric == "val_loss":
+        scores = [-r["val_loss"] for r in rows]
+    else:
+        scores = [r[metric if metric in rows[0] else "crosses_f1"] for r in rows]
     return rows[scores.index(max(scores))]["crosses_auc"]
 
 

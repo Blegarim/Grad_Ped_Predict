@@ -276,7 +276,9 @@ class TrainCfg:
     num_workers: int = 4
     use_amp: bool = True             # request; runtime-gated by CUDA availability in utils/amp.py
     seed: int = 42                   # global RNG seed; set_seed() at the top of train/evaluate scripts
-    # picks best.pth + drives early stop: {"val_loss", "macro_f1", "crosses_f1"} (F1s maximized).
+    # picks best.pth + drives early stop: {"val_loss", "macro_f1", "crosses_f1", "crosses_auc"} (F1s and AUC
+    # maximized). crosses_auc is rank-based, so it is immune to the train/val prior gap (the sampler trains at
+    # ~29% crossing, val sits at ~2.8%) that makes F1 at the fixed 0.5 cut noisy epoch to epoch.
     # Independent of the LR schedule below.
     selection_metric: str = "macro_f1"
     # Supervised-task set (single source of truth for the head-selection mode). Default = all three

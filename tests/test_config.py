@@ -197,13 +197,19 @@ def test_active_tasks_validation() -> None:
             load_config(_CONFIG_DIR, overrides=bad)
 
 
-def test_selection_metric_must_reference_active_task() -> None:
-    """selection_metric=crosses_f1 requires crosses to be active (else best-ckpt tracks a dead head)."""
-    with pytest.raises(ConfigError, match="crosses_f1"):
+@pytest.mark.parametrize("metric", ["crosses_f1", "crosses_auc"])
+def test_selection_metric_must_reference_active_task(metric: str) -> None:
+    """A crosses selection metric requires crosses to be active (else best-ckpt tracks a dead head)."""
+    with pytest.raises(ConfigError, match=metric):
         load_config(
             _CONFIG_DIR,
-            overrides=["train.active_tasks=[actions]", "train.selection_metric=crosses_f1"],
+            overrides=["train.active_tasks=[actions]", f"train.selection_metric={metric}"],
         )
+
+
+def test_crosses_auc_selection_loads() -> None:
+    cfg = load_config(_CONFIG_DIR, overrides=["train.active_tasks=[crosses]", "train.selection_metric=crosses_auc"])
+    assert cfg.train.selection_metric == "crosses_auc"
 
 
 def test_validation_motion_norm_image_size_must_match_source() -> None:

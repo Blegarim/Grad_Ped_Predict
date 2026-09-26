@@ -398,7 +398,7 @@ class Trainer:
     # ----------------------------------------------------------------- validation
 
     def _selection_value(self, val_loss: float, metrics: MetricResult) -> float:
-        """The minimized scalar for best-ckpt + early stop (M8). F1 metrics are negated (maximized).
+        """The minimized scalar for best-ckpt + early stop (M8). F1 / AUC metrics are negated (maximized).
 
         ``macro_f1`` averages ONLY active tasks; with a single active task there is no ``macro_f1``
         column, so it resolves to that task's own macro (``metrics.macro_f1``, which ``compute`` set to

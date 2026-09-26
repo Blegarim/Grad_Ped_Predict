@@ -18,6 +18,8 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+import yaml
+
 from pedpredict.eval import detection_curve as dc
 from pedpredict.eval.onset_timing import load_dump
 from pedpredict.eval.rerun_gate import (
@@ -29,6 +31,14 @@ from pedpredict.eval.rerun_gate import (
     selected_epoch_auc,
     streaming_test_auc,
 )
+
+
+def _selection_metric(run: Path) -> str:
+    """The run's own ``train.selection_metric`` (what picked its best.pth); crosses_f1 if unrecorded."""
+    snapshot = run / "resolved_config.yaml"
+    if not snapshot.exists():
+        return "crosses_f1"
+    return yaml.safe_load(snapshot.read_text(encoding="utf-8")).get("train", {}).get("selection_metric", "crosses_f1")
 
 
 def _rate_at(points: list[dc.DetectionPoint], budget: float) -> float:
@@ -46,7 +56,7 @@ def _gather(runs: list[Path], dumps_root: Path, th: GateThresholds) -> tuple[lis
     for run in runs:
         rows = read_train_log(run / "train_log.csv")
         checks += curve_checks(run.name, rows, th)
-        val_aucs.append(selected_epoch_auc(rows))
+        val_aucs.append(selected_epoch_auc(rows, _selection_metric(run)))
         test_aucs.append(streaming_test_auc(run / "eval_log.csv"))
         arrays, _ = load_dump(dumps_root / run.name / "onset_test.npz")
         points = dc.detection_curve(arrays, "p_frame", budgets=(int(th.spread_budget), int(th.level_budget)))

@@ -336,7 +336,7 @@ def test_selection_value_modes(golden: dict) -> None:
     from pedpredict.training.metrics import MetricResult, TaskMetrics
 
     tm = TaskMetrics(accuracy=0.5, f1=0.6, auc=0.5, precision=0.5, recall=0.5)
-    crosses_tm = TaskMetrics(accuracy=0.5, f1=0.2, auc=0.5, precision=0.5, recall=0.5)
+    crosses_tm = TaskMetrics(accuracy=0.5, f1=0.2, auc=0.83, precision=0.5, recall=0.5)
     metrics = MetricResult(
         per_task={"actions": tm, "looks": tm, "crosses": crosses_tm},
         macro_f1=0.47, overall_accuracy=0.5,
@@ -344,7 +344,9 @@ def test_selection_value_modes(golden: dict) -> None:
 
     model = _fresh_model(golden)
     loss = _loss_from_golden(golden)
-    for metric_name, expected in (("macro_f1", -0.47), ("crosses_f1", -0.2), ("val_loss", 1.23)):
+    for metric_name, expected in (
+        ("macro_f1", -0.47), ("crosses_f1", -0.2), ("crosses_auc", -0.83), ("val_loss", 1.23)
+    ):
         cfg = dataclasses.replace(RootCfg(), train=dataclasses.replace(TrainCfg(), selection_metric=metric_name))
         trainer = Trainer(cfg, model, _CPU, _ListChunkProvider([], []), loss=loss)
         assert trainer.selection_metric == metric_name

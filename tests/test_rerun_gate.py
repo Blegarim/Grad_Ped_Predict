@@ -69,6 +69,15 @@ def test_selected_epoch_is_first_max_of_selection_metric() -> None:
     assert selected_epoch_auc(rows) == pytest.approx(0.84)
 
 
+def test_selected_epoch_follows_the_runs_own_metric() -> None:
+    rows = _rows([0.80, 0.84, 0.82])
+    rows[0]["crosses_f1"] = 0.9                               # F1 would pick epoch 1 ...
+    assert selected_epoch_auc(rows, "crosses_f1") == pytest.approx(0.80)
+    assert selected_epoch_auc(rows, "crosses_auc") == pytest.approx(0.84)   # ... AUC selection picks epoch 2
+    rows[2]["val_loss"] = 0.05
+    assert selected_epoch_auc(rows, "val_loss") == pytest.approx(0.82)      # val_loss is minimized
+
+
 def test_seed_checks_pass_when_tight_and_good() -> None:
     checks = seed_checks([0.85, 0.86, 0.855], [0.79, 0.80, 0.795], [0.55, 0.57, 0.56], [0.30, 0.32, 0.31], _TH)
     assert all(c.passed for c in checks)
