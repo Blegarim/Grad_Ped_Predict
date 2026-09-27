@@ -5,6 +5,11 @@ PC waits for the pixel-free ladder (`queue_v3.sh`, tmux `queue3`) to finish, run
 once, and on GO starts `queue_v4.sh` in tmux `queue4`. Nobody has to be watching. On NO-GO nothing
 launches, and the verdict says which check failed (§7).
 
+> **2026-09-27 02:05 UTC: LAUNCHED BY MANUAL OVERRIDE** (user decision, gate NO-GO). Recipe = hub (`pf_fix` +
+> `crosses_auc` selection), no memorization fix. Memorization ladder held (`queue_mem/HOLD`): A s42 done, B s42
+> stopped mid-run, C not run; if resumed it only records verdicts. Record: `queue_v4/OVERRIDE.md`. The paper must
+> state the model still overfits after epochs 1–2 (best checkpoint = the val-AUC peak).
+>
 > **2026-09-27 update.** (1) Every campaign arm now selects `best.pth` (and early-stops) on **val
 > `crosses_auc`**, not F1 at the fixed 0.5 cut. Keeping F1 (old D4) was a mistake: its revisit condition
 > fired on `pf_fix_s42` (F1 picked epoch 7, the AUC peak was epoch 17) and was not acted on. As a result no
