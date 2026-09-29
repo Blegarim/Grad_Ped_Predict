@@ -1,0 +1,9 @@
+{
+  "tuned_on_split": "val",
+  "protocol": "streaming",
+  "thresholds": {
+    "actions": 0.22,
+    "looks": 0.53,
+    "crosses": 0.62
+  }
+}

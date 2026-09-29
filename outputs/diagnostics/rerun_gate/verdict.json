@@ -1,0 +1,91 @@
+{
+  "verdict": "NO-GO",
+  "runs": [
+    "outputs/runs/20260926_081908_pose_kinematics_pf_fix_s42",
+    "outputs/runs/20260926_164754_pose_kinematics_pf_fix_s43",
+    "outputs/runs/20260926_184323_pose_kinematics_pf_fix_s44"
+  ],
+  "thresholds": {
+    "tail_epochs": 5,
+    "tail_tolerance": 0.02,
+    "min_epochs": 10,
+    "min_peak_epoch": 8,
+    "collapse_recall": 0.8,
+    "collapse_val_loss": 1.0,
+    "spread_budget": 205.0,
+    "max_spread_pp": 5.0,
+    "max_val_auc_range": 0.02,
+    "min_test_auc": 0.78,
+    "level_budget": 41.0,
+    "min_detection_pct": 15.61
+  },
+  "checks": [
+    {
+      "name": "L1 20260926_081908_pose_kinematics_pf_fix_s42",
+      "passed": false,
+      "detail": "last 5 val AUC min 0.8202 vs peak 0.8438 (tolerance 0.02)"
+    },
+    {
+      "name": "L2 20260926_081908_pose_kinematics_pf_fix_s42",
+      "passed": true,
+      "detail": "val AUC peak at epoch 17 (needs >= 8)"
+    },
+    {
+      "name": "L3 20260926_081908_pose_kinematics_pf_fix_s42",
+      "passed": true,
+      "detail": "collapse epochs: none"
+    },
+    {
+      "name": "L1 20260926_164754_pose_kinematics_pf_fix_s43",
+      "passed": false,
+      "detail": "last 5 val AUC min 0.7620 vs peak 0.8701 (tolerance 0.02)"
+    },
+    {
+      "name": "L2 20260926_164754_pose_kinematics_pf_fix_s43",
+      "passed": false,
+      "detail": "val AUC peak at epoch 1 (needs >= 8)"
+    },
+    {
+      "name": "L3 20260926_164754_pose_kinematics_pf_fix_s43",
+      "passed": true,
+      "detail": "collapse epochs: none"
+    },
+    {
+      "name": "L1 20260926_184323_pose_kinematics_pf_fix_s44",
+      "passed": false,
+      "detail": "last 5 val AUC min 0.7327 vs peak 0.8539 (tolerance 0.02)"
+    },
+    {
+      "name": "L2 20260926_184323_pose_kinematics_pf_fix_s44",
+      "passed": false,
+      "detail": "val AUC peak at epoch 1 (needs >= 8)"
+    },
+    {
+      "name": "L3 20260926_184323_pose_kinematics_pf_fix_s44",
+      "passed": true,
+      "detail": "collapse epochs: none"
+    },
+    {
+      "name": "L4 detection spread",
+      "passed": true,
+      "detail": "sd 3.1 pp at 205/hr (needs <= 5.0); rates [38.5, 43.9, 38.5]"
+    },
+    {
+      "name": "L4 val AUC range",
+      "passed": false,
+      "detail": "range 0.0297 over [0.8404, 0.8701, 0.8539] (needs <= 0.02)"
+    },
+    {
+      "name": "L5 test AUC",
+      "passed": true,
+      "detail": "mean streaming test AUC 0.7851 over [0.7803, 0.7919, 0.7831] (needs >= 0.78)"
+    },
+    {
+      "name": "L5 detection level",
+      "passed": true,
+      "detail": "mean 20.2% at 41/hr (needs > 15.61)"
+    }
+  ],
+  "missing": [],
+  "mean_selected_val_auc": 0.8548
+}

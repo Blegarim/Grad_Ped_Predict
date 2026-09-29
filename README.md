@@ -65,6 +65,7 @@ src/pedpredict/        # installable package (pip install -e .)
   training/ trainer chunk_loader callbacks schedule metrics distribution
   eval/     evaluate benchmark inference diagnostics onset_timing detection_curve
             rerun_gate                                   # go/no-go for the pixel-free re-run campaign
+            campaign_report                              # per-dump analyses behind the campaign tables
   viz/      plots qualitative
   export/   onnx.py
 scripts/    # thin one-job CLIs (make_sequences, build_lmdb, train, evaluate, ...)
@@ -173,6 +174,9 @@ python scripts/check_run_config.py --reference <run>/resolved_config.yaml --allo
                                                  # refuse a run whose config differs from the reference by
                                                  # anything but its intended flags (before or after training)
 python scripts/rerun_gate.py --out <dir> --run <pf_fix_s42 dir> --run <..s43> --run <..s44>
+python scripts/report_campaign.py                # every campaign table (matrix, gap, window metrics, detection,
+                                                 # pre-registered criterion, training, analyses) from logged
+                                                 # runs + dumps -> outputs/diagnostics/v4_report/tables/
                                                  # re-run campaign go/no-go (docs/RERUN_PLAN_2026-09-26.md)
 python scripts/diagnose_backbone_bn.py --checkpoint <best.pth> --out-dir <dir>
                                                  # frozen-backbone BatchNorm drift + re-scoring with

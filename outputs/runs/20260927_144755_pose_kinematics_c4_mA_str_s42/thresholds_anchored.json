@@ -1,0 +1,9 @@
+{
+  "tuned_on_split": "val",
+  "protocol": "anchored",
+  "thresholds": {
+    "actions": 0.17,
+    "looks": 0.7,
+    "crosses": 0.2
+  }
+}
