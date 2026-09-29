@@ -23,7 +23,13 @@ import numpy as np
 import yaml
 
 from pedpredict.eval import detection_curve as dc
-from pedpredict.eval.campaign_report import intent_timing, mean_sd, onset_separability, smoothed_scores
+from pedpredict.eval.campaign_report import (
+    compare_curves,
+    intent_timing,
+    mean_sd,
+    onset_separability,
+    smoothed_scores,
+)
 from pedpredict.eval.onset_timing import load_dump
 
 SEEDS = (42, 43, 44)
@@ -213,21 +219,9 @@ def table_detection(data: dict, gbm: dict, acc: str) -> str:
 
 
 def criterion(data: dict, arm: str, acc: str) -> tuple[str, list[dict]]:
-    """Pre-registered rule: arm beats R2 by more than the sum of sds at >= 3 of 5 budgets."""
-    a_curves = [s["detection"][acc] for s in data[arm]]
-    b_curves = [s["detection"][acc] for s in data["R2 binary"]]
-    rows, a_wins, b_wins = [], 0, 0
-    for i in range(len(a_curves[0])):
-        am, asd = mean_sd([c[i]["detection_rate"] for c in a_curves])
-        bm, bsd = mean_sd([c[i]["detection_rate"] for c in b_curves])
-        gap, sds = am - bm, asd + bsd
-        mark = arm if gap > sds else ("R2 binary" if -gap > sds else "neither")
-        a_wins += mark == arm
-        b_wins += mark == "R2 binary"
-        rows.append({"budget": a_curves[0][i]["budget_per_hour"], "arm": am, "arm_sd": asd, "r2": bm, "r2_sd": bsd,
-                     "gap": gap, "sd_sum": sds, "beyond_sd": mark})
-    verdict = f"{arm} WINS" if a_wins >= 3 else ("R2 binary WINS" if b_wins >= 3 else "INCONCLUSIVE")
-    return verdict, rows
+    """Pre-registered rule (``campaign_report.compare_curves``): arm vs R2 at >= 3 of 5 budgets."""
+    return compare_curves([s["detection"][acc] for s in data[arm]],
+                          [s["detection"][acc] for s in data["R2 binary"]], arm_name=arm, base_name="R2 binary")
 
 
 def table_criterion(data: dict) -> tuple[str, dict]:
@@ -242,7 +236,7 @@ def table_criterion(data: dict) -> tuple[str, dict]:
             tag = " (PRIMARY)" if arm == "R3 pure hazard" and acc == "per_window" else ""
             lines += [f"## {arm} vs R2, `{acc}`{tag}: **{verdict}**", "",
                       "| alarms/hr | R2 | arm | gap | sd sum | beyond sd |", "|---|---|---|---|---|---|"]
-            lines += [f"| {r['budget']:g} | {100 * r['r2']:.1f} ± {100 * r['r2_sd']:.1f} | "
+            lines += [f"| {r['budget']:g} | {100 * r['base']:.1f} ± {100 * r['base_sd']:.1f} | "
                       f"{100 * r['arm']:.1f} ± {100 * r['arm_sd']:.1f} | {100 * r['gap']:+.1f} | "
                       f"{100 * r['sd_sum']:.1f} | {r['beyond_sd']} |" for r in rows]
             lines.append("")

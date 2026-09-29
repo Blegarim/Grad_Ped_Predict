@@ -89,6 +89,13 @@ Mean lead times and the `per_track` curves: `detection_per_window.md` / `detecti
   but its timing is **inverted** (crossers only, <32 frames vs later: 0.414; streaming arms 0.753–0.766), and
   its separability *rises* with time to onset (0.60 at <1 s → 0.71 at ≥10 s). It fires early (mean lead ~21 s).
   This is why it collapses on the streaming protocol.
+- **Combining the anchored "who" with a streaming "when" does not help** (pre-registered 2026-09-29 before any
+  number, `outputs/diagnostics/combo_test/PREREG.md`, commit `a9f67ff`; results `combo_test/results.md`, from
+  `python scripts/report_combination.py`). Primary `p_anc × p_R2` vs R2 alone, `per_window`, 3 paired seeds:
+  **INCONCLUSIVE** (42.3 ± 2.0 vs 42.3 ± 3.2 at 205/hr; 23.1 ± 4.3 vs 22.9 ± 3.5 at 41/hr; window AUC 0.757 vs
+  0.783). Every secondary is also inconclusive: a causal running-mean intent (S1) is worse, a combination fitted
+  on val (S2) reproduces R2, and `p_anc × p_R3` (S3) is level with R2 though with a smaller seed spread
+  (45.0 ± 1.1 at 205/hr). No post-hoc use of the anchored model rescues streaming deployment here.
 - **Within-track smoothing (k=15):** causal (deployable) *lowers* AUC by 0.004–0.017; centered (looks ahead)
   raises it by 0.009–0.015. The paper's earlier +0.024 (v1 R1) did not record which; neither variant
   reproduces it here.

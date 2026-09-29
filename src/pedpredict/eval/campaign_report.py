@@ -18,9 +18,22 @@ import statistics
 from collections.abc import Sequence
 
 import numpy as np
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-__all__ = ["mean_sd", "intent_timing", "onset_separability", "smoothed_scores"]
+__all__ = [
+    "ALIGN_KEYS",
+    "StackedCombiner",
+    "assert_aligned",
+    "compare_curves",
+    "intent_timing",
+    "mean_sd",
+    "onset_separability",
+    "smoothed_scores",
+]
+
+#: Per-window fields that must match exactly for two dumps' scores to be combined window by window.
+ALIGN_KEYS: tuple[str, ...] = ("track_id", "onset_offset", "future_observed", "crosses")
 
 Arrays = dict[str, np.ndarray]
 
@@ -83,6 +96,58 @@ def smoothed_scores(arrays: Arrays, score: np.ndarray, *, k: int = 15, causal: b
             lo, hi = np.maximum(pos - k // 2, 0), np.minimum(pos + k // 2 + 1, len(idx))
         out[idx] = (csum[hi] - csum[lo]) / (hi - lo)
     return out
+
+
+def compare_curves(
+    arm: list[list[dict]], base: list[list[dict]], *, arm_name: str = "arm", base_name: str = "baseline"
+) -> tuple[str, list[dict]]:
+    """The pre-registered rule (SEED_PLAN_2026-09-21): an arm wins if its mean detection rate beats the
+    baseline's by more than the sum of the two sample sds at >= 3 budgets. Curves are ``DetectionPoint`` dicts,
+    one list per seed. Returns the verdict and one row per budget."""
+    rows, arm_wins, base_wins = [], 0, 0
+    for i in range(len(arm[0])):
+        am, asd = mean_sd([c[i]["detection_rate"] for c in arm])
+        bm, bsd = mean_sd([c[i]["detection_rate"] for c in base])
+        gap, sds = am - bm, asd + bsd
+        mark = arm_name if gap > sds else (base_name if -gap > sds else "neither")
+        arm_wins += mark == arm_name
+        base_wins += mark == base_name
+        rows.append({"budget": arm[0][i]["budget_per_hour"], "arm": am, "arm_sd": asd, "base": bm, "base_sd": bsd,
+                     "gap": gap, "sd_sum": sds, "beyond_sd": mark})
+    verdict = f"{arm_name} WINS" if arm_wins >= 3 else (f"{base_name} WINS" if base_wins >= 3 else "INCONCLUSIVE")
+    return verdict, rows
+
+
+def assert_aligned(a: Arrays, b: Arrays) -> None:
+    """Refuse to combine two dumps unless they list the same windows in the same order."""
+    for key in ALIGN_KEYS:
+        if not np.array_equal(np.asarray(a[key]), np.asarray(b[key])):
+            raise ValueError(f"dumps are not window-aligned on {key!r}; combining them would mix windows")
+
+
+def _logit(p: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    p = np.clip(np.asarray(p, dtype=float), eps, 1 - eps)
+    return np.log(p / (1 - p))
+
+
+class StackedCombiner:
+    """Logistic regression over ``logit p_a``, ``logit p_b`` and their product — fitted on one split (val),
+    applied unchanged to another (test). The only fitted combination rule; everything else is fixed."""
+
+    def __init__(self) -> None:
+        self._model = LogisticRegression(max_iter=1000)
+
+    @staticmethod
+    def _features(p_a: np.ndarray, p_b: np.ndarray) -> np.ndarray:
+        la, lb = _logit(p_a), _logit(p_b)
+        return np.column_stack([la, lb, la * lb])
+
+    def fit(self, p_a: np.ndarray, p_b: np.ndarray, y: np.ndarray) -> StackedCombiner:
+        self._model.fit(self._features(p_a, p_b), np.asarray(y).astype(int))
+        return self
+
+    def score(self, p_a: np.ndarray, p_b: np.ndarray) -> np.ndarray:
+        return self._model.predict_proba(self._features(p_a, p_b))[:, 1]
 
 
 def intent_timing(arrays: Arrays, score: np.ndarray, *, horizon: int = 32) -> dict[str, float]:

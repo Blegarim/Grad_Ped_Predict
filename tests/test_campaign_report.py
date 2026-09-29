@@ -64,3 +64,27 @@ def test_mean_sd_keeps_n1_visibly_n1() -> None:
     m, s = mean_sd([0.5])
     assert m == 0.5 and math.isnan(s)
     assert mean_sd([1.0, 3.0]) == (2.0, pytest.approx(math.sqrt(2)))
+
+
+def test_combination_refuses_misaligned_dumps() -> None:
+    from pedpredict.eval.campaign_report import assert_aligned
+
+    a, _ = _arrays([("t", 5, 90, 1, 0.1), ("u", -1, 90, 0, 0.2)])
+    assert_aligned(a, {k: v.copy() for k, v in a.items()})
+    b = {k: v[::-1].copy() for k, v in a.items()}          # same windows, different order
+    with pytest.raises(ValueError, match="not window-aligned"):
+        assert_aligned(a, b)
+
+
+def test_stacked_combiner_learns_on_one_split_and_scores_another() -> None:
+    from pedpredict.eval.campaign_report import StackedCombiner
+
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 2, 400)
+    p_a = np.clip(0.5 + 0.3 * (y - 0.5) + 0.1 * rng.standard_normal(400), 0.01, 0.99)   # informative
+    p_b = rng.uniform(0.01, 0.99, 400)                                                   # noise
+    combo = StackedCombiner().fit(p_a[:200], p_b[:200], y[:200])
+    out = combo.score(p_a[200:], p_b[200:])
+    assert out.shape == (200,) and ((out > 0) & (out < 1)).all()
+    from sklearn.metrics import roc_auc_score
+    assert roc_auc_score(y[200:], out) > 0.9

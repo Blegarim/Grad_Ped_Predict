@@ -177,6 +177,8 @@ python scripts/rerun_gate.py --out <dir> --run <pf_fix_s42 dir> --run <..s43> --
 python scripts/report_campaign.py                # every campaign table (matrix, gap, window metrics, detection,
                                                  # pre-registered criterion, training, analyses) from logged
                                                  # runs + dumps -> outputs/diagnostics/v4_report/tables/
+python scripts/report_combination.py            # pre-registered test: anchored "who" x streaming "when"
+                                                 # (paired seeds) -> outputs/diagnostics/combo_test/
                                                  # re-run campaign go/no-go (docs/RERUN_PLAN_2026-09-26.md)
 python scripts/diagnose_backbone_bn.py --checkpoint <best.pth> --out-dir <dir>
                                                  # frozen-backbone BatchNorm drift + re-scoring with
