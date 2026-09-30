@@ -25,7 +25,7 @@ tight crop + motion → MotionEncoder    ───┘
 
 | Component | Role |
 |---|---|
-| `ViT_Hierarchical` | Hierarchical windowed-attention ViT over context crops (A1 monotonic stage schedule `[48,96,192,384]`, 7×7 windows) → `[B, T, d_model]`. Swappable via `model.vit_backbone` (RQ1, see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md)); the default is the pretrained `tiny_vit_5m_224`, frozen — the baselines' recipe — and `legacy` selects this from-scratch module. |
+| `ViT_Hierarchical` | Hierarchical windowed-attention ViT over context crops (A1 monotonic stage schedule `[48,96,192,384]`, 7×7 windows) → `[B, T, d_model]`. Swappable via `model.vit_backbone` (RQ1); the default is the pretrained `tiny_vit_5m_224`, frozen — the baselines' recipe — and `legacy` selects this from-scratch module. |
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + GRU + attention → `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → temporal pooling → per-task heads. |
 | `EnsembleModel` | Wires the branches (LayerNorm before fusion); ablations swap or drop a branch. |
@@ -35,7 +35,7 @@ A unified `d_model = 128` is shared across every module, and models are selected
 The output-dict contract, the severe `crosses` class imbalance, and the single imbalance policy are
 documented in [CLAUDE.md](CLAUDE.md).
 
-**Pose-keypoint arm** ([docs/POSE_ENCODER.md](docs/POSE_ENCODER.md)): tests whether 2D pose is a cleaner
+**Pose-keypoint arm**: tests whether 2D pose is a cleaner
 geometric substitute for the noisy tight crop. `scripts/extract_pose.py` runs a bbox-conditioned
 whole-body extractor (DWPose via `rtmlib`, PIE GT boxes as the person prior) once per unique frame and
 caches raw `[23, 3]` keypoints; with `pose.enabled` the LMDB build stores them and the dataset builds a
@@ -56,7 +56,7 @@ src/pedpredict/        # installable package (pip install -e .)
   utils/    seed device amp memory logging
   data/     pie_sequences pie_annotations transforms lmdb_writer lmdb_dataset lmdb_warm
             balance augment collate sampler stats pose
-            onset_stats onset_target onset_backfill      # onset-timing arm (METHODOLOGY prong 2)
+            onset_stats onset_target onset_backfill      # onset-timing arm
             feature_cache                                # recipe v2: cached frozen-backbone features
             reshuffle                                    # global shuffle-rewrite of the train chunks
             input_stats                                  # pose-arm read-path mean/std (pose.input_stats)
@@ -174,12 +174,12 @@ python scripts/check_run_config.py --reference <run>/resolved_config.yaml --allo
                                                  # refuse a run whose config differs from the reference by
                                                  # anything but its intended flags (before or after training)
 python scripts/rerun_gate.py --out <dir> --run <pf_fix_s42 dir> --run <..s43> --run <..s44>
+                                                 # re-run campaign go/no-go
 python scripts/report_campaign.py                # every campaign table (matrix, gap, window metrics, detection,
                                                  # pre-registered criterion, training, analyses) from logged
                                                  # runs + dumps -> outputs/diagnostics/v4_report/tables/
 python scripts/report_combination.py            # pre-registered test: anchored "who" x streaming "when"
                                                  # (paired seeds) -> outputs/diagnostics/combo_test/
-                                                 # re-run campaign go/no-go (docs/RERUN_PLAN_2026-09-26.md)
 python scripts/diagnose_backbone_bn.py --checkpoint <best.pth> --out-dir <dir>
                                                  # frozen-backbone BatchNorm drift + re-scoring with
                                                  # pretrained / re-estimated BN stats (recipe v2 check)

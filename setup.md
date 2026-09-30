@@ -163,7 +163,7 @@ protocols no longer clobber each other's val-tuned cutoffs — still run each pr
 its own `--split test` so the file exists.
 
 ## 10. Pretrained backbone + runtime aug (RQ1 / scarcity)
-Both are train-time-only, no data rebuild; see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). First
+Both are train-time-only, no data rebuild. First
 pretrained run downloads timm weights (needs network once).
 ```powershell
 # The DEFAULT is already tiny_vit_5m_224 + freeze_vit_backbone=true (the baselines' recipe) — a plain
@@ -176,7 +176,7 @@ python scripts/train.py --set augment.runtime=true                   # on-the-fl
 ```
 
 ## 11. Pose arm (needs a pose-enabled rebuild — fold into the final data pass)
-[docs/POSE_ENCODER.md](docs/POSE_ENCODER.md). Extraction streams frames **in memory from `PIE_clips`**
+Extraction streams frames **in memory from `PIE_clips`**
 (no staged images — same storage bound as the incremental build), once per unique frame; per-video npz
 is merge-updated, so splits can run separately. Then rebuild LMDBs with `pose.enabled` so metas carry
 raw keypoints. `--dry-run` fabricates keypoints — full-pipeline check without clips or rtmlib.
@@ -196,7 +196,7 @@ Pose-enabled chunks stay readable by non-pose runs (drop the bundle → 9-dim co
 reading pose from a chunk built without it fails loudly. `pose.include_arms=true` ⇒ `motion_dim=70`.
 
 ## 12. Onset-timing arm (crossing onset as timing under censoring)
-[docs/METHODOLOGY.md](docs/METHODOLOGY.md) prong 2; contracts in [CLAUDE.md](CLAUDE.md) § Onset Timing.
+Contracts in [CLAUDE.md](CLAUDE.md) § Onset Timing.
 **Default off** — the four `pose_full` baselines were trained without it, and off means no extra output
 key and no extra parameter, so their checkpoints still load `strict=True`.
 

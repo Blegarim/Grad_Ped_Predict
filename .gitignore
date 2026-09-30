@@ -66,3 +66,8 @@ plots/*.png
 # --- OS-specific ---
 .DS_Store
 Thumbs.db
+
+# --- Archived docs (plans, design notes, trackers, single-purpose guides) ---
+# Local-only working notes; committed docs are CLAUDE.md, README.md, setup.md,
+# outputs/runs/RESULTS_MATRIX.md and paper/README.md.
+docs/archive/

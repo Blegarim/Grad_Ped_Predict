@@ -7,7 +7,7 @@ Guidance for Claude Code when working in this repository.
 > engineer who has never seen the repo, and no more. Keep it live and reactive to *structural* change
 > (new contracts, moved modules, changed policy), but don't let it become a running log where every
 > incremental edit earns a line. Update stale facts in place; detail that is only true this week belongs
-> in a run dir or a `docs/` note, not here.
+> in a run dir or the local-only `docs/archive/`, not here.
 
 `Grad_Ped_Predict` (graduate research) is a multimodal **pedestrian behavior prediction** project on the
 **PIE dataset**: from a short sequence of dashcam frames it jointly predicts three binary tasks per
@@ -15,9 +15,8 @@ pedestrian — **actions** (walking/standing), **looks** (looking at traffic or 
 soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 
 > The project began as a behavior-preserving rebuild of an undergraduate thesis. That history — the legacy
-> reference repo, the phase plan, the resolved engineering audit, and the pre-pivot research plan — is
-> archived under [`docs/archive/`](docs/archive/) and in the `legacy-archive` git tag; none of it is
-> load-bearing.
+> reference repo, the phase plan, the resolved engineering audit, and the pre-pivot research plan — lives
+> in the `legacy-archive` git tag and the untracked `docs/archive/`; none of it is load-bearing.
 
 ## Thesis Direction (current — as of August 2026)
 
@@ -39,18 +38,12 @@ a one-second horizon actually has) and the online-action-detection literature (i
 instrument, its objectives as comparison baselines). **Hard constraint on any timing model: it must still
 emit P(onset within 32 frames), or the four baseline runs stop being comparable.**
 
-| Doc | Role |
-|---|---|
-| [docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md) | **The tracker** — every stage, what's done, what's left, plus the supporting-study spokes |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | **The method** — onset timing under censoring, the two supporting parts, and how they were chosen (active working reference) |
-| [outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) | **The numbers** — the cross-protocol matrix, the baselines, the caveats |
-| [docs/project-context-streaming-crossing-onset.md](docs/project-context-streaming-crossing-onset.md) | **The argument** — why streaming evaluation matters (frozen reference) |
+The numbers — the cross-protocol matrix, the baselines, the caveats — live in
+[outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md).
 
-**Two consequences that bite when touching anything experimental:** (1) the four existing `pose_full` runs
-are now **baselines**, so an accidental config difference between two legs invalidates a comparison rather
-than merely footnoting a caveat; (2) the three S1 onset fields are computed but dropped before the trainer
-can see them (see the S1 bullet under Data Pipeline), which blocks the method itself — onset timing has
-nothing to train against until they arrive.
+**Consequence that bites when touching anything experimental:** the four existing `pose_full` runs are
+**baselines**, so an accidental config difference between two legs invalidates a comparison rather than
+merely footnoting a caveat.
 
 ## Execution Environment (two machines)
 
@@ -73,12 +66,12 @@ tight crop + motion → MotionEncoder    ───┘
 
 | Component | Role |
 |---|---|
-| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. The visual stream is **swappable** via `model.vit_backbone` (RQ1): a `timm` model name builds `TimmBackbone` (`models/timm_backbone.py`) behind the same `[B,T,3,H,W]→[B,T,d_model]` contract, `model.vit_pretrained` gating ImageNet weights \| `legacy` is this module. **Default is `tiny_vit_5m_224` + `freeze_vit_backbone=true`** — the recipe all four `pose_full` baselines were trained under, so a run launched without backbone overrides stays comparable to them (pinned by `tests/test_timm_backbone.py`); this module stays golden-pinned in tests but is no longer the default — see [docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md). ⚠️ **"Frozen" is v1-frozen:** `requires_grad=False` only, so the Trainer's `model.train()` lets TinyViT's BatchNorm statistics drift, and `vit.frame_proj` stays at its random init. Recipe v2 flags (default off, pinned by `tests/test_frozen_backbone.py`): `model.vit_frozen_eval` (backbone kept in eval mode — truly frozen) and `model.train_frame_proj`. Plan: [docs/RECIPE_V2_PLAN.md](docs/RECIPE_V2_PLAN.md). |
+| `ViT_Hierarchical` | Hierarchical windowed-attention ViT on context crops (stem conv7×7 s4, per-stage downsample s2, global-avg-pool, `frame_proj`). Stage schedule is the **A1 redesign** — monotonic dims `[48,96,192,384]`, real 7×7 windows (last global), ~7–8M params (the collapsed legacy `[36,36,288,36]` + 2×2 windows is golden-pinned in tests, not the default). Outputs `[B, T, d_model]`. The visual stream is **swappable** via `model.vit_backbone` (RQ1): a `timm` model name builds `TimmBackbone` (`models/timm_backbone.py`) behind the same `[B,T,3,H,W]→[B,T,d_model]` contract, `model.vit_pretrained` gating ImageNet weights \| `legacy` is this module. **Default is `tiny_vit_5m_224` + `freeze_vit_backbone=true`** — the recipe all four `pose_full` baselines were trained under, so a run launched without backbone overrides stays comparable to them (pinned by `tests/test_timm_backbone.py`); this module stays golden-pinned in tests but is no longer the default. ⚠️ **"Frozen" is v1-frozen:** `requires_grad=False` only, so the Trainer's `model.train()` lets TinyViT's BatchNorm statistics drift, and `vit.frame_proj` stays at its random init. Recipe v2 flags (default off, pinned by `tests/test_frozen_backbone.py`): `model.vit_frozen_eval` (backbone kept in eval mode — truly frozen) and `model.train_frame_proj`. |
 | `MotionEncoder` | Temporal CNN over tight crops + Conv1d motion stack + fusion + GRU + learned pos-encoding + MultiheadAttention. In-forward motion norm is config-gated: `model.motion_norm` = `image` (fixed frame-dim scale, default) \| `per_sequence` (legacy z-norm, A4 ablation arm). Outputs `[B, T, d_model]`. |
 | `CrossAttentionModule` | Cross-attention (query=motion, key/value=image) → pooling MLP → softmax temporal weights → per-task classifier heads. `model.fusion_residual` (A3/RQ2, **default on**) adds the motion query back at fusion (`attn_output + motion_feats`) so motion *content* reaches the heads, not just motion-as-attention-mask; `=false` is the no-residual A3 ablation (golden-pinned). |
 | `EnsembleModel` | Wires all components; applies **LayerNorm before fusion**; `return_feats` path used by viz. |
 | Ablations | `PedLocalModel` (tight-crop CNN + bbox kinematics, no scene context — legacy `motion_only`, renamed per A6), `KinematicsOnlyModel` (NEW, pixel-free bbox-kinematics baseline, M9.1), `VisualOnlyModel`, `VanillaConcatModel` (concat instead of cross-attention); same output-dict format. |
-| Pose arm | [docs/POSE_ENCODER.md](docs/POSE_ENCODER.md): `pose_kinematics` (= `KinematicsOnlyModel` fed the 58-dim pose+motion vector, pixel-free) and `pose_full` (`PoseFullModel` — that vector as the cross-attention query over the ViT context, no tight crop; emits `temporal_weights` like `full`). Needs a pose-enabled LMDB build: `pose.enabled` + `data`/`model.motion_dim=58` + `model.motion_norm=none` (validated as a bundle). Pose math + cache reader: `data/pose.py`; extraction: `scripts/extract_pose.py` (`--dry-run` fabricates keypoints so the pipeline runs without frames/extractor). |
+| Pose arm | `pose_kinematics` (= `KinematicsOnlyModel` fed the 58-dim pose+motion vector, pixel-free) and `pose_full` (`PoseFullModel` — that vector as the cross-attention query over the ViT context, no tight crop; emits `temporal_weights` like `full`). Needs a pose-enabled LMDB build: `pose.enabled` + `data`/`model.motion_dim=58` + `model.motion_norm=none` (validated as a bundle). Pose math + cache reader: `data/pose.py`; extraction: `scripts/extract_pose.py` (`--dry-run` fabricates keypoints so the pipeline runs without frames/extractor). |
 
 - **Unified `d_model = 128`** across ALL modules. Never change one module's dim without the others.
 - **Output dict keys**: `actions`, `looks`, `crosses_pooled`, `crosses_frame`, `temporal_weights`, plus
@@ -144,9 +137,7 @@ read time); consumers slice motions to `data.motion_dim` (8 = no ego, 9 = with e
 the read path builds the pose feature block instead of slicing).
 
 **v2 labeling contract — deliberate departures from v1/legacy; do not "fix" these as bugs.** Each carries
-its *why* inline (they were decided in the 2026-06 engineering audit, now archived at
-[docs/archive/HOLE_AUDIT.md](docs/archive/HOLE_AUDIT.md) — items M3–M9, A4 — which remains the long-form
-record but is no longer required reading):
+its *why* inline (they were decided in the 2026-06 engineering audit, items M3–M9, A4):
 - **M3** — `actions`/`looks` label the **state at the last observed frame**, not the future; only `crosses`
   is a future label (`any()` over the fully-observed future window). *Why:* `any()` over a 32-frame future
   can only inflate positives, and for a present-state attribute it is simply the wrong question — a single
@@ -275,8 +266,8 @@ instrument exposes), but far below the ~89% the old aggressive stack produced.
 
 ## Onset Timing (the method — single source of truth for its contracts)
 
-Streaming crossing onset as **timing under censoring** rather than yes/no at a fixed horizon
-([docs/METHODOLOGY.md](docs/METHODOLOGY.md) prong 2). Implemented 2026-08-26, **default off**; nothing
+Streaming crossing onset as **timing under censoring** rather than yes/no at a fixed horizon.
+Implemented 2026-08-26, **default off**; nothing
 below changes any existing run until `model.onset_head=true`.
 
 The binary `crosses` label answers "does a crossing start within `H` frames?" and gets two cases wrong by
@@ -480,16 +471,12 @@ When you change… update (in the same change):
 | Onset-timing head / loss / targets | Onset Timing section (the four-case table, the three-arm table, the non-negotiables) — all in one place, never split across docs |
 | Config schema field / default | `configs/*.yaml` + schema docstrings; Config note if the CLI surface changes |
 | New extra / dependency | README Install extras |
-| Thesis direction / stage progress | THESIS_ROADMAP (the tracker) — and the Thesis Direction section here **only** if the spine itself moves |
+| Thesis direction | The Thesis Direction section here — **only** if the spine itself moves |
 
-**Doc layout (consolidated 2026-08-19 — keep it this shape).** Six maintained docs: `CLAUDE.md` (agent
-orientation + contracts), [README.md](README.md) (repo overview), [setup.md](setup.md) (runbook),
-[docs/THESIS_ROADMAP.md](docs/THESIS_ROADMAP.md) (tracker + RQ spokes),
-[docs/METHODOLOGY.md](docs/METHODOLOGY.md) (the method),
-[outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) (the numbers). Three frozen references
-(the streaming brief, [docs/POSE_ENCODER.md](docs/POSE_ENCODER.md),
-[docs/BACKBONE_STUDY.md](docs/BACKBONE_STUDY.md)) — each carries a 🧊 status header stating what is
-actually built; correct them if they go stale, don't grow them. Everything else is in
-[docs/archive/](docs/archive/) behind a ⛔ RETIRED banner. **When a doc's premise is superseded, rewrite or
-retire it — do not prepend another banner.** Three stacked banners is what made the pre-consolidation set
-unreadable.
+**Doc layout (set 2026-09-30 — keep it this shape).** Committed docs are only: `CLAUDE.md` (agent
+orientation + contracts), [README.md](README.md) (repo overview + CLI surface), [setup.md](setup.md)
+(runbook), [outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md) (the numbers), and
+`paper/README.md` (paper build). Keep them concise and direct. Plans, design notes, trackers, reviews and
+single-purpose guides go in `docs/archive/`, which is **gitignored** (local to this PC) — never add a new
+committed doc for them, and never link to them from committed files. When a committed doc's premise is
+superseded, rewrite it in place; do not prepend a banner.

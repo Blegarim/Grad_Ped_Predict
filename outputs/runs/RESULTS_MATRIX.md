@@ -21,8 +21,7 @@ there. This doc is hand-maintained and safe from any script.
 **What.** Every run the paper cites, re-run on the pixel-free recipe: `pose_kinematics` on the 58-dim pose +
 motion vector (no images), read-path standardization, batch 32, the reshuffled train store, `best.pth`
 selected on val `crosses_auc`. Three seeds (42/43/44) per arm; Model A one seed. All 20 runs completed.
-Launched by **manual override** of a NO-GO gate (`outputs/diagnostics/v4_campaign/OVERRIDE.md`; plan
-[docs/RERUN_PLAN_2026-09-26.md](../../docs/RERUN_PLAN_2026-09-26.md)). Everything in the older sections
+Launched by **manual override** of a NO-GO gate (`outputs/diagnostics/v4_campaign/OVERRIDE.md`). Everything in the older sections
 below comes from the v1 image model and is history.
 
 **Every number here is generated, not typed.** Source of truth: `outputs/diagnostics/v4_report/tables/`
@@ -171,8 +170,8 @@ python scripts/report_detection_curve.py \
 
 The headline is a **low-false-alarm** claim and must be written as one.
 
-**Every number here is seed 42 (n = 1).** The pre-registered multi-seed confirmation is in
-[`docs/SEED_PLAN_2026-09-21.md`](../../docs/SEED_PLAN_2026-09-21.md): R3 and the true binary baseline R2s
+**Every number here is seed 42 (n = 1).** The pre-registered multi-seed confirmation:
+R3 and the true binary baseline R2s
 at seeds 42/43/44, reported mean ± sd, with a success criterion fixed before the numbers were seen.
 
 ---
@@ -199,8 +198,7 @@ crossing-detection gap.
 
 ### Caveat: train and test differ in what their negatives are made of
 
-Measured 2026-08-20 (`scripts/report_negative_composition.py`; reasoning in
-[METHODOLOGY.md](../../docs/METHODOLOGY.md) § What the negatives are actually made of). The streaming
+Measured 2026-08-20 (`scripts/report_negative_composition.py`). The streaming
 splits are not two samples of one distribution:
 
 | Split | positive | never crosses | will cross, later | already crossed |
@@ -335,8 +333,7 @@ no-multi-task-interference point.
 
 **How these numbers are used now (August 2026 reframe).** The decomposition has moved from *the thesis
 result* to *the thesis motivation* — it establishes that the problem is real and that recalibration cannot
-solve it, which is what justifies building a method. See
-[docs/METHODOLOGY.md](../../docs/METHODOLOGY.md). Practically this **lowers** the bar on caveat 1 (a
+solve it, which is what justifies building a method. Practically this **lowers** the bar on caveat 1 (a
 motivating measurement can carry an acknowledged confound) and **raises** it on caveats 3 and 4, because any
 new method will be compared against these runs as baselines — and a baseline with an accidental
 configuration difference invalidates the comparison, not just the caveat.
@@ -430,7 +427,7 @@ stored eval row before reporting anything):
   pretrained statistics drops val AUC to 0.702 (the trained head depends on the drifted features — not
   evidence about the fix). **No re-estimation reproduced an "everything is a crossing" epoch**, so those
   epochs are *not* established to come from BN drift; their cause is still open. Recipe v2
-  (`docs/RECIPE_V2_PLAN.md`) removes the drift and the seed-count limit; it does not claim to fix them.
+  removes the drift and the seed-count limit; it does not claim to fix them.
 
 ---
 

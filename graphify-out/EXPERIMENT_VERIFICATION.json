@@ -1,0 +1,963 @@
+{
+  "method": "Independent numpy implementation from NPZ arrays, allow_pickle=False; no model/checkpoint load; paired row metadata verified; checked against combo JSON",
+  "checks": 360,
+  "sources": [
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_020529_pose_kinematics_c4_r2s_s42\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_044252_pose_kinematics_c4_r3_s42\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_142412_pose_kinematics_c4_r2a_s42\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_064019_pose_kinematics_c4_r2s_s43\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_083144_pose_kinematics_c4_r3_s43\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_143335_pose_kinematics_c4_r2a_s43\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_103113_pose_kinematics_c4_r2s_s44\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_122240_pose_kinematics_c4_r3_s44\\onset_test.npz",
+    "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_144045_pose_kinematics_c4_r2a_s44\\onset_test.npz"
+  ],
+  "summary": {
+    "R2": {
+      "auc_mean": 0.7826012633529006,
+      "auc_sd": 0.009568804138509093,
+      "per_window": [
+        {
+          "budget": 1200,
+          "mean": 0.6959349593495935,
+          "sd": 0.06020653197259712
+        },
+        {
+          "budget": 460,
+          "mean": 0.5495934959349593,
+          "sd": 0.06215126781663867
+        },
+        {
+          "budget": 205,
+          "mean": 0.42276422764227645,
+          "sd": 0.03247964935843606
+        },
+        {
+          "budget": 95,
+          "mean": 0.3203252032520325,
+          "sd": 0.04205696636220346
+        },
+        {
+          "budget": 41,
+          "mean": 0.22926829268292684,
+          "sd": 0.03517611000452672
+        }
+      ],
+      "per_track": [
+        {
+          "budget": 1200,
+          "mean": 1.0,
+          "sd": 0.0
+        },
+        {
+          "budget": 460,
+          "mean": 0.9804878048780488,
+          "sd": 0.008449028329604287
+        },
+        {
+          "budget": 205,
+          "mean": 0.8634146341463415,
+          "sd": 0.012906103956412649
+        },
+        {
+          "budget": 95,
+          "mean": 0.6634146341463415,
+          "sd": 0.031987504996595105
+        },
+        {
+          "budget": 41,
+          "mean": 0.4455284552845528,
+          "sd": 0.0461055183049035
+        }
+      ]
+    },
+    "R3": {
+      "auc_mean": 0.7929455039073611,
+      "auc_sd": 0.009905515998441356,
+      "per_window": [
+        {
+          "budget": 1200,
+          "mean": 0.7203252032520325,
+          "sd": 0.028163427765347623
+        },
+        {
+          "budget": 460,
+          "mean": 0.591869918699187,
+          "sd": 0.049104614213143084
+        },
+        {
+          "budget": 205,
+          "mean": 0.44065040650406506,
+          "sd": 0.04687328554601486
+        },
+        {
+          "budget": 95,
+          "mean": 0.31382113821138213,
+          "sd": 0.059008934346744896
+        },
+        {
+          "budget": 41,
+          "mean": 0.1739837398373984,
+          "sd": 0.09130338303327779
+        }
+      ],
+      "per_track": [
+        {
+          "budget": 1200,
+          "mean": 1.0,
+          "sd": 0.0
+        },
+        {
+          "budget": 460,
+          "mean": 0.991869918699187,
+          "sd": 0.010154468290078706
+        },
+        {
+          "budget": 205,
+          "mean": 0.8682926829268293,
+          "sd": 0.014634146341463428
+        },
+        {
+          "budget": 95,
+          "mean": 0.6845528455284553,
+          "sd": 0.03136146588940795
+        },
+        {
+          "budget": 41,
+          "mean": 0.46991869918699186,
+          "sd": 0.04061787316031479
+        }
+      ]
+    },
+    "PRIMARY": {
+      "auc_mean": 0.7573046992045922,
+      "auc_sd": 0.021486543799340084,
+      "per_window": [
+        {
+          "budget": 1200,
+          "mean": 0.6975609756097562,
+          "sd": 0.05162441582565053
+        },
+        {
+          "budget": 460,
+          "mean": 0.5430894308943089,
+          "sd": 0.042618999746605365
+        },
+        {
+          "budget": 205,
+          "mean": 0.42276422764227645,
+          "sd": 0.02030893658015738
+        },
+        {
+          "budget": 95,
+          "mean": 0.3121951219512195,
+          "sd": 0.01758805500226338
+        },
+        {
+          "budget": 41,
+          "mean": 0.23089430894308943,
+          "sd": 0.0426189997466054
+        }
+      ],
+      "per_track": [
+        {
+          "budget": 1200,
+          "mean": 1.0,
+          "sd": 0.0
+        },
+        {
+          "budget": 460,
+          "mean": 1.0,
+          "sd": 0.0
+        },
+        {
+          "budget": 205,
+          "mean": 0.8943089430894309,
+          "sd": 0.017131144313581703
+        },
+        {
+          "budget": 95,
+          "mean": 0.6780487804878049,
+          "sd": 0.030463404870236053
+        },
+        {
+          "budget": 41,
+          "mean": 0.45691056910569106,
+          "sd": 0.019714399435743334
+        }
+      ]
+    }
+  },
+  "criterion": {
+    "R3": {
+      "per_window": {
+        "wins": 0,
+        "baseline_wins": 0,
+        "verdict": "INCONCLUSIVE"
+      },
+      "per_track": {
+        "wins": 0,
+        "baseline_wins": 0,
+        "verdict": "INCONCLUSIVE"
+      }
+    },
+    "PRIMARY": {
+      "per_window": {
+        "wins": 0,
+        "baseline_wins": 0,
+        "verdict": "INCONCLUSIVE"
+      },
+      "per_track": {
+        "wins": 2,
+        "baseline_wins": 0,
+        "verdict": "INCONCLUSIVE"
+      }
+    }
+  },
+  "per_seed": {
+    "R2": [
+      {
+        "seed": 42,
+        "auc": 0.7727736940757998,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 153,
+            "detection_rate": 0.7463414634146341,
+            "mean_lead_s": 7.813725490196078,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 121,
+            "detection_rate": 0.5902439024390244,
+            "mean_lead_s": 6.485950413223141,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 91,
+            "detection_rate": 0.44390243902439025,
+            "mean_lead_s": 5.369597069597069,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 75,
+            "detection_rate": 0.36585365853658536,
+            "mean_lead_s": 4.431555555555556,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 49,
+            "detection_rate": 0.23902439024390243,
+            "mean_lead_s": 3.53469387755102,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 202,
+            "detection_rate": 0.9853658536585366,
+            "mean_lead_s": 14.103465346534653,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 180,
+            "detection_rate": 0.8780487804878049,
+            "mean_lead_s": 9.260555555555555,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 142,
+            "detection_rate": 0.6926829268292682,
+            "mean_lead_s": 6.825586854460094,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 84,
+            "detection_rate": 0.4097560975609756,
+            "mean_lead_s": 5.243650793650794,
+            "false_alarms": 42
+          }
+        ]
+      },
+      {
+        "seed": 43,
+        "auc": 0.7918883961617876,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 146,
+            "detection_rate": 0.7121951219512195,
+            "mean_lead_s": 7.921689497716894,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 119,
+            "detection_rate": 0.5804878048780487,
+            "mean_lead_s": 5.67563025210084,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 90,
+            "detection_rate": 0.43902439024390244,
+            "mean_lead_s": 4.515925925925926,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 58,
+            "detection_rate": 0.28292682926829266,
+            "mean_lead_s": 3.889655172413793,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 39,
+            "detection_rate": 0.1902439024390244,
+            "mean_lead_s": 3.144444444444445,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 199,
+            "detection_rate": 0.9707317073170731,
+            "mean_lead_s": 13.571189279731994,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 175,
+            "detection_rate": 0.8536585365853658,
+            "mean_lead_s": 10.576571428571429,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 137,
+            "detection_rate": 0.6682926829268293,
+            "mean_lead_s": 6.698783454987835,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 102,
+            "detection_rate": 0.4975609756097561,
+            "mean_lead_s": 4.796405228758169,
+            "false_alarms": 42
+          }
+        ]
+      },
+      {
+        "seed": 44,
+        "auc": 0.7831416998211144,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 129,
+            "detection_rate": 0.6292682926829268,
+            "mean_lead_s": 6.260206718346253,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 98,
+            "detection_rate": 0.47804878048780486,
+            "mean_lead_s": 5.360544217687074,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 79,
+            "detection_rate": 0.3853658536585366,
+            "mean_lead_s": 4.095358649789029,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 64,
+            "detection_rate": 0.3121951219512195,
+            "mean_lead_s": 2.982291666666667,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 53,
+            "detection_rate": 0.25853658536585367,
+            "mean_lead_s": 2.4144654088050315,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 202,
+            "detection_rate": 0.9853658536585366,
+            "mean_lead_s": 13.835148514851484,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 176,
+            "detection_rate": 0.8585365853658536,
+            "mean_lead_s": 10.963257575757577,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 129,
+            "detection_rate": 0.6292682926829268,
+            "mean_lead_s": 6.259431524547804,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 88,
+            "detection_rate": 0.4292682926829268,
+            "mean_lead_s": 4.610984848484848,
+            "false_alarms": 42
+          }
+        ]
+      }
+    ],
+    "R3": [
+      {
+        "seed": 42,
+        "auc": 0.8021395329103453,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 151,
+            "detection_rate": 0.7365853658536585,
+            "mean_lead_s": 7.124944812362032,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 120,
+            "detection_rate": 0.5853658536585366,
+            "mean_lead_s": 4.543611111111111,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 92,
+            "detection_rate": 0.44878048780487806,
+            "mean_lead_s": 3.7221014492753626,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 60,
+            "detection_rate": 0.2926829268292683,
+            "mean_lead_s": 3.421111111111111,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 28,
+            "detection_rate": 0.13658536585365855,
+            "mean_lead_s": 3.029761904761904,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 201,
+            "detection_rate": 0.9804878048780488,
+            "mean_lead_s": 13.932669983416252,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 181,
+            "detection_rate": 0.8829268292682927,
+            "mean_lead_s": 9.946593001841622,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 145,
+            "detection_rate": 0.7073170731707317,
+            "mean_lead_s": 6.397471264367817,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 87,
+            "detection_rate": 0.424390243902439,
+            "mean_lead_s": 3.760919540229886,
+            "false_alarms": 42
+          }
+        ]
+      },
+      {
+        "seed": 43,
+        "auc": 0.7824559839782439,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 141,
+            "detection_rate": 0.6878048780487804,
+            "mean_lead_s": 7.094326241134752,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 112,
+            "detection_rate": 0.5463414634146342,
+            "mean_lead_s": 4.78452380952381,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 80,
+            "detection_rate": 0.3902439024390244,
+            "mean_lead_s": 3.2170833333333335,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 55,
+            "detection_rate": 0.2682926829268293,
+            "mean_lead_s": 2.5993939393939383,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 22,
+            "detection_rate": 0.1073170731707317,
+            "mean_lead_s": 2.9424242424242424,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.000487804878047,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 175,
+            "detection_rate": 0.8536585365853658,
+            "mean_lead_s": 10.202666666666667,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 133,
+            "detection_rate": 0.6487804878048781,
+            "mean_lead_s": 5.681453634085213,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 103,
+            "detection_rate": 0.5024390243902439,
+            "mean_lead_s": 4.277669902912621,
+            "false_alarms": 42
+          }
+        ]
+      },
+      {
+        "seed": 44,
+        "auc": 0.7942409948334941,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 151,
+            "detection_rate": 0.7365853658536585,
+            "mean_lead_s": 6.777041942604856,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 132,
+            "detection_rate": 0.6439024390243903,
+            "mean_lead_s": 4.710353535353535,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 99,
+            "detection_rate": 0.48292682926829267,
+            "mean_lead_s": 3.304713804713805,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 78,
+            "detection_rate": 0.3804878048780488,
+            "mean_lead_s": 3.064957264957265,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 57,
+            "detection_rate": 0.2780487804878049,
+            "mean_lead_s": 2.0280701754385966,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 204,
+            "detection_rate": 0.9951219512195122,
+            "mean_lead_s": 14.07549019607843,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 178,
+            "detection_rate": 0.8682926829268293,
+            "mean_lead_s": 10.456741573033707,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 143,
+            "detection_rate": 0.697560975609756,
+            "mean_lead_s": 5.355944055944056,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 99,
+            "detection_rate": 0.48292682926829267,
+            "mean_lead_s": 3.288552188552189,
+            "false_alarms": 42
+          }
+        ]
+      }
+    ],
+    "PRIMARY": [
+      {
+        "seed": 42,
+        "auc": 0.7324941756943117,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 155,
+            "detection_rate": 0.7560975609756098,
+            "mean_lead_s": 7.953548387096776,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 121,
+            "detection_rate": 0.5902439024390244,
+            "mean_lead_s": 6.965840220385676,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 90,
+            "detection_rate": 0.43902439024390244,
+            "mean_lead_s": 6.361851851851851,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 67,
+            "detection_rate": 0.32682926829268294,
+            "mean_lead_s": 5.5184079601990055,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 57,
+            "detection_rate": 0.2780487804878049,
+            "mean_lead_s": 4.577192982456141,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.337073170731706,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 187,
+            "detection_rate": 0.9121951219512195,
+            "mean_lead_s": 10.321746880570409,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 146,
+            "detection_rate": 0.7121951219512195,
+            "mean_lead_s": 7.780593607305936,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 89,
+            "detection_rate": 0.43414634146341463,
+            "mean_lead_s": 6.04569288389513,
+            "false_alarms": 42
+          }
+        ]
+      },
+      {
+        "seed": 43,
+        "auc": 0.7697125687033511,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 139,
+            "detection_rate": 0.6780487804878049,
+            "mean_lead_s": 9.547242206235012,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 109,
+            "detection_rate": 0.5317073170731708,
+            "mean_lead_s": 7.632721712538226,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 88,
+            "detection_rate": 0.4292682926829268,
+            "mean_lead_s": 5.303409090909091,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 65,
+            "detection_rate": 0.3170731707317073,
+            "mean_lead_s": 4.021025641025642,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 40,
+            "detection_rate": 0.1951219512195122,
+            "mean_lead_s": 4.5075,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.322439024390244,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 180,
+            "detection_rate": 0.8780487804878049,
+            "mean_lead_s": 12.776296296296294,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 134,
+            "detection_rate": 0.6536585365853659,
+            "mean_lead_s": 9.3318407960199,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 96,
+            "detection_rate": 0.4682926829268293,
+            "mean_lead_s": 6.151736111111112,
+            "false_alarms": 42
+          }
+        ]
+      },
+      {
+        "seed": 44,
+        "auc": 0.7697073532161136,
+        "n_positive": 205,
+        "n_negative": 495,
+        "negative_windows": 37316,
+        "exposure_hours": 1.0365555555555555,
+        "per_window": [
+          {
+            "budget": 1200,
+            "detected": 135,
+            "detection_rate": 0.6585365853658537,
+            "mean_lead_s": 7.527407407407407,
+            "false_alarms": 1243
+          },
+          {
+            "budget": 460,
+            "detected": 104,
+            "detection_rate": 0.5073170731707317,
+            "mean_lead_s": 5.919871794871795,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 82,
+            "detection_rate": 0.4,
+            "mean_lead_s": 6.417073170731706,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 60,
+            "detection_rate": 0.2926829268292683,
+            "mean_lead_s": 5.541111111111112,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 45,
+            "detection_rate": 0.21951219512195122,
+            "mean_lead_s": 2.705185185185185,
+            "false_alarms": 42
+          }
+        ],
+        "per_track": [
+          {
+            "budget": 1200,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.34,
+            "false_alarms": 495
+          },
+          {
+            "budget": 460,
+            "detected": 205,
+            "detection_rate": 1.0,
+            "mean_lead_s": 14.296585365853659,
+            "false_alarms": 476
+          },
+          {
+            "budget": 205,
+            "detected": 183,
+            "detection_rate": 0.8926829268292683,
+            "mean_lead_s": 12.75336976320583,
+            "false_alarms": 212
+          },
+          {
+            "budget": 95,
+            "detected": 137,
+            "detection_rate": 0.6682926829268293,
+            "mean_lead_s": 8.010218978102191,
+            "false_alarms": 98
+          },
+          {
+            "budget": 41,
+            "detected": 96,
+            "detection_rate": 0.4682926829268293,
+            "mean_lead_s": 6.108333333333333,
+            "false_alarms": 42
+          }
+        ]
+      }
+    ]
+  }
+}

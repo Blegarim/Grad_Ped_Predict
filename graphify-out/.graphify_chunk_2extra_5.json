@@ -1,0 +1,240 @@
+{
+  "nodes": [
+    {
+      "id": "outputs_diagnostics_20260927_205737_pose_kinematics_c4_r3c_s42_onset_test_onset_test",
+      "label": "onset_test",
+      "file_type": "document",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_205737_pose_kinematics_c4_r3c_s42\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "outputs_diagnostics_20260927_205737_pose_kinematics_c4_r3c_s42_onset_test_streaming_test_prediction_dump",
+      "label": "Streaming test prediction dump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_205737_pose_kinematics_c4_r3c_s42\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Stored inference evidence for detection and combination analyses; 69875 windows in campaign dumps."
+    },
+    {
+      "id": "outputs_diagnostics_20260927_225651_pose_kinematics_c4_r1_s43_onset_test_onset_test",
+      "label": "onset_test",
+      "file_type": "document",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_225651_pose_kinematics_c4_r1_s43\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "outputs_diagnostics_20260927_225651_pose_kinematics_c4_r1_s43_onset_test_streaming_test_prediction_dump",
+      "label": "Streaming test prediction dump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_225651_pose_kinematics_c4_r1_s43\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Stored inference evidence for detection and combination analyses; 69875 windows in campaign dumps."
+    },
+    {
+      "id": "outputs_diagnostics_20260928_004618_pose_kinematics_c4_r4_s43_onset_test_onset_test",
+      "label": "onset_test",
+      "file_type": "document",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_004618_pose_kinematics_c4_r4_s43\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "outputs_diagnostics_20260928_004618_pose_kinematics_c4_r4_s43_onset_test_streaming_test_prediction_dump",
+      "label": "Streaming test prediction dump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_004618_pose_kinematics_c4_r4_s43\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Stored inference evidence for detection and combination analyses; 69875 windows in campaign dumps."
+    },
+    {
+      "id": "outputs_diagnostics_20260928_023544_pose_kinematics_c4_r3c_s43_onset_test_onset_test",
+      "label": "onset_test",
+      "file_type": "document",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_023544_pose_kinematics_c4_r3c_s43\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "outputs_diagnostics_20260928_023544_pose_kinematics_c4_r3c_s43_onset_test_streaming_test_prediction_dump",
+      "label": "Streaming test prediction dump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_023544_pose_kinematics_c4_r3c_s43\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Stored inference evidence for detection and combination analyses; 69875 windows in campaign dumps."
+    },
+    {
+      "id": "outputs_diagnostics_20260928_043457_pose_kinematics_c4_r1_s44_onset_test_onset_test",
+      "label": "onset_test",
+      "file_type": "document",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_043457_pose_kinematics_c4_r1_s44\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "outputs_diagnostics_20260928_043457_pose_kinematics_c4_r1_s44_onset_test_streaming_test_prediction_dump",
+      "label": "Streaming test prediction dump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_043457_pose_kinematics_c4_r1_s44\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Stored inference evidence for detection and combination analyses; 69875 windows in campaign dumps."
+    },
+    {
+      "id": "outputs_diagnostics_20260928_063824_pose_kinematics_c4_r4_s44_onset_test_onset_test",
+      "label": "onset_test",
+      "file_type": "document",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_063824_pose_kinematics_c4_r4_s44\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "outputs_diagnostics_20260928_063824_pose_kinematics_c4_r4_s44_onset_test_streaming_test_prediction_dump",
+      "label": "Streaming test prediction dump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_063824_pose_kinematics_c4_r4_s44\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Stored inference evidence for detection and combination analyses; 69875 windows in campaign dumps."
+    },
+    {
+      "id": "outputs_diagnostics_20260928_084352_pose_kinematics_c4_r3c_s44_onset_test_onset_test",
+      "label": "onset_test",
+      "file_type": "document",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_084352_pose_kinematics_c4_r3c_s44\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "outputs_diagnostics_20260928_084352_pose_kinematics_c4_r3c_s44_onset_test_streaming_test_prediction_dump",
+      "label": "Streaming test prediction dump",
+      "file_type": "concept",
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_084352_pose_kinematics_c4_r3c_s44\\onset_test.npz",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": "Stored inference evidence for detection and combination analyses; 69875 windows in campaign dumps."
+    }
+  ],
+  "edges": [
+    {
+      "source": "outputs_diagnostics_20260927_205737_pose_kinematics_c4_r3c_s42_onset_test_onset_test",
+      "target": "outputs_diagnostics_20260927_205737_pose_kinematics_c4_r3c_s42_onset_test_streaming_test_prediction_dump",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_205737_pose_kinematics_c4_r3c_s42\\onset_test.npz",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "outputs_diagnostics_20260927_225651_pose_kinematics_c4_r1_s43_onset_test_onset_test",
+      "target": "outputs_diagnostics_20260927_225651_pose_kinematics_c4_r1_s43_onset_test_streaming_test_prediction_dump",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260927_225651_pose_kinematics_c4_r1_s43\\onset_test.npz",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "outputs_diagnostics_20260928_004618_pose_kinematics_c4_r4_s43_onset_test_onset_test",
+      "target": "outputs_diagnostics_20260928_004618_pose_kinematics_c4_r4_s43_onset_test_streaming_test_prediction_dump",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_004618_pose_kinematics_c4_r4_s43\\onset_test.npz",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "outputs_diagnostics_20260928_023544_pose_kinematics_c4_r3c_s43_onset_test_onset_test",
+      "target": "outputs_diagnostics_20260928_023544_pose_kinematics_c4_r3c_s43_onset_test_streaming_test_prediction_dump",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_023544_pose_kinematics_c4_r3c_s43\\onset_test.npz",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "outputs_diagnostics_20260928_043457_pose_kinematics_c4_r1_s44_onset_test_onset_test",
+      "target": "outputs_diagnostics_20260928_043457_pose_kinematics_c4_r1_s44_onset_test_streaming_test_prediction_dump",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_043457_pose_kinematics_c4_r1_s44\\onset_test.npz",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "outputs_diagnostics_20260928_063824_pose_kinematics_c4_r4_s44_onset_test_onset_test",
+      "target": "outputs_diagnostics_20260928_063824_pose_kinematics_c4_r4_s44_onset_test_streaming_test_prediction_dump",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_063824_pose_kinematics_c4_r4_s44\\onset_test.npz",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "outputs_diagnostics_20260928_084352_pose_kinematics_c4_r3c_s44_onset_test_onset_test",
+      "target": "outputs_diagnostics_20260928_084352_pose_kinematics_c4_r3c_s44_onset_test_streaming_test_prediction_dump",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "C:\\Users\\LENOVO\\Desktop\\Grad_Ped_Predict\\outputs\\diagnostics\\20260928_084352_pose_kinematics_c4_r3c_s44\\onset_test.npz",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
