@@ -13,7 +13,7 @@ every chunk carries the global class mix and chunk-visit order stops mattering.
 
 **Verbatim copy, no re-encode.** JPEG blobs and the pickled meta move byte-for-byte under new keys
 (``{seq_id}_*`` -> ``{j}_*``), so the window population, labels, counts, S1 onset fields and pose
-keypoints are all unchanged — no Dataset Statistics re-pin, no golden-fixture change, no re-backfill.
+keypoints are all unchanged — no Dataset Statistics re-pin, no golden-fixture change.
 Only storage order changes. The source dirs are never modified.
 
 Val/test need no equivalent pass: the validation loader iterates chunks in stable order with no sampler

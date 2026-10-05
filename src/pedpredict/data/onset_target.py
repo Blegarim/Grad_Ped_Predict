@@ -161,12 +161,11 @@ def readout_targets(labels: dict[str, Tensor], spec: OnsetSpec) -> tuple[Tensor,
 
 
 def _require(labels: dict[str, Tensor]) -> tuple[Tensor, Tensor, Tensor]:
-    """Pull the three S1 fields off a label dict, or say exactly what to run to get them."""
+    """Pull the three S1 fields off a label dict, or say how to get them."""
     missing = [f for f in ("onset_offset", "future_observed", "track_crosses") if f not in labels]
     if missing:
         raise KeyError(
             f"Onset supervision needs {missing} in the batch labels, which means the LMDB chunks were "
-            f"built before S1. Run scripts/backfill_onset_meta.py over the split's chunk dir (a "
-            f"metadata-only pass — image blobs are untouched), or rebuild."
+            f"built before S1. Rebuild them from S1-annotated sequence pkls."
         )
     return labels["onset_offset"], labels["future_observed"], labels["track_crosses"]

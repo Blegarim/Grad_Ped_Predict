@@ -40,7 +40,7 @@ from torch.nn.utils import clip_grad_norm_
 from tqdm.auto import tqdm
 
 from pedpredict.config.schema import PhaseCfg, RootCfg
-from pedpredict.data.sampler import LabelScanCache, class_weights_ce
+from pedpredict.data.sampler import LabelScanCache, loss_class_weights
 from pedpredict.losses.multitask import TASKS, MultiTaskLoss, build_multitask_loss
 from pedpredict.losses.onset import READOUT_OUTPUT_KEY, crosses_metric_keys
 from pedpredict.models.registry import build_model, forward_model
@@ -263,7 +263,7 @@ class Trainer:
             uniform = {task: torch.ones(2, device=self.device) for task in TASKS}
             return build_multitask_loss(self.cfg.train, uniform, model_cfg=self.cfg.model)
         counts = self.scan_cache.aggregate_counts(self.chunks.train_lmdb_paths)
-        class_weights = class_weights_ce(counts, device=self.device)
+        class_weights = loss_class_weights(self.cfg.train, counts, device=self.device)
         return build_multitask_loss(self.cfg.train, class_weights, model_cfg=self.cfg.model)
 
     def _build_optimizer(self) -> torch.optim.Optimizer:

@@ -158,9 +158,8 @@ its *why* inline (they were decided in the 2026-06 engineering audit, items M3�
   the real content is the S1 fields, which the hazard loss reads to mask the unobserved bins. Config
   validation (`loader._validate_censored_dirs`) refuses any training dir whose name contains `_censored`
   unless `loss_weight['crosses'] == 0` **and** `model.onset_head=true`, so a binary head can never consume
-  them. `emit_censored` yields the UNION, so `scripts/filter_censored_sequences.py` extracts the censored
-  subset into its own LMDB dir; adding that dir to `paths.lmdb_train` is per-experiment and changes
-  nothing until an arm opts in.
+  them. `emit_censored` yields the UNION; the censored subset lives in its own LMDB dir, and adding that
+  dir to `paths.lmdb_train` is per-experiment and changes nothing until an arm opts in.
 - **M5** — a separate TTE **benchmark** (anchored-protocol) set labels `crosses` by the crossing *event*
   and carries `tte`; built via `make_sequences.py --benchmark --split {train,val,test}` +
   `build_lmdb[_incremental].py --split {train,val,test}_benchmark` → `preprocessed_{split}_benchmark`.
@@ -203,16 +202,11 @@ its *why* inline (they were decided in the 2026-06 engineering audit, items M3�
   > ✅ **Plumbed 2026-08-26.** `pack_meta` writes the three fields, the read path tensorises them, and
   > `collate_sequences` lifts them into the `labels` dict so they reach the loss through the existing
   > Trainer path. The keys are **additive and optional** — chunks built before S1 still load, and a batch
-  > that mixes vintages fails loudly rather than silently dropping them.
-  > **Existing LMDBs still need the one-time backfill** (`scripts/backfill_onset_meta.py`, 🖥️ lab PC):
-  > a metadata-only pass that never touches an image blob. It matches samples to records positionally and
-  > verifies `track_id` + `crosses` per sample before writing, so a mismatched pkl aborts instead of
-  > corrupting. Augmented dirs are not backfillable (oversampling breaks the positional map) — backfill
-  > the base dir and re-run `augment_dataset.py`, which now carries the keys through.
-  > **The M4-dropped windows do NOT come back from the backfill** — `window_track` skipped them at
-  > generation. **Recovered 2026-09-19** via `data.emit_censored`: `preprocessed_train_censored` holds the
-  > **7,470** train windows (8.5% of the split) as censored observations. The R3C arm consumes them; no
-  > arm with a binary crossing head can.
+  > that mixes vintages fails loudly rather than silently dropping them. Chunks built before S1 must be
+  > rebuilt (the one-time metadata backfill has run and is archived).
+  > **The M4-dropped windows** were recovered 2026-09-19 via `data.emit_censored`:
+  > `preprocessed_train_censored` holds the **7,470** train windows (8.5% of the split) as censored
+  > observations. The R3C arm consumes them; no arm with a binary crossing head can.
 
 ### Dataset Statistics
 
@@ -245,6 +239,10 @@ Three levers exist and must be documented as ONE coherent policy, not three acci
    (`crosses^0.5 · actions^0.3 · looks^0.3`, tuned down — run #2 canonical).
 3. **Loss class weights** (`losses/multitask.py`) — inverse-frequency CE weights (gated by
    `use_class_weights`) + always-on per-task scalar `loss_weight={actions:0.8, looks:0.8, crosses:1.2}`.
+   Two loss-side alternatives, both default off (the legacy loss exactly): `class_weight_mode=effective_number`
+   (class-balanced weights, Cui et al. 2019, `cb_beta`) and `focal_gamma > 0` (focal loss on every CE head).
+   They exist for the reviewer's focal / class-balanced comparison, run with the sampler OFF so the lever
+   moves rather than stacks.
 
 A **single LMDB metadata scan** produces both class frequencies (for loss) and per-sample sampler weights.
 
@@ -257,7 +255,8 @@ augmentation, for ablation; when enabled, relax 2/3 so the levers don't triple-s
 scan feeds 2 + 3 only; offline balance scans the sequence pkls (a separate offline artifact), not the LMDB.
 
 **Every lever is switchable from config** (M1): `augment.enabled`, `balance.enabled`,
-`train.use_weighted_sampler`, `train.use_class_weights` — the lever combination is the RQ3 ablation axis.
+`train.use_weighted_sampler`, `train.use_class_weights` (+ `class_weight_mode`, `focal_gamma`) — the lever
+combination is the RQ3 ablation axis.
 **Never toggle blind:** the M1 instrument (`training/distribution.py`, auto-written to every run dir as
 `train_distribution.json`; standalone via `scripts/report_distribution.py`) reports the *effective*
 per-task positive rate of sampler draws vs. the stored base rate — under the tuned-down default stack the
@@ -281,7 +280,6 @@ questions instead — *given no crossing has started yet, does one start in bin 
 | Bin geometry, four-case target + mask | [data/onset_target.py](src/pedpredict/data/onset_target.py) (`OnsetSpec`, `hazard_targets`, `readout_targets`) |
 | Head + horizon readout | [models/heads.py](src/pedpredict/models/heads.py) (`build_onset_hazard_head`, `hazard_to_horizon_logits`) |
 | Loss | [losses/onset.py](src/pedpredict/losses/onset.py) (`OnsetHazardLoss`) — added to `MultiTaskLoss`, not a second call site |
-| Backfill for pre-S1 chunks | [data/onset_backfill.py](src/pedpredict/data/onset_backfill.py) + `scripts/backfill_onset_meta.py` |
 | Composition / horizon reporting | [data/onset_stats.py](src/pedpredict/data/onset_stats.py) |
 
 **Four cases, from the three S1 fields** — the supervision the binary label cannot express:
@@ -371,6 +369,15 @@ disagree at loose budgets**, so state which one a number came from. Lineage is q
 Order-independent by construction: `track_id` is the PIE pedestrian id and PIE splits one pedestrian
 across occlusion gaps, so ~5% of tracks reach a dump as several segments whose relative order is not
 recoverable. Any metric over these dumps must not assume row order.
+
+**The tree study (2026-10, pre-registered: `outputs/diagnostics/tree_study/PREREG.md`).** The deep R3-vs-R2
+comparison could not resolve a few points: 205 test crossers give ~4 / ~9 points of sampling noise at
+205 / 41 alarms/hour, and deep runs' alarms are so uncorrelated that pairing does not cancel it. Boosted trees
+on window summaries of the same 58-dim input (`baselines/tree.py`) detect more, pair at ~2 points, and fit the
+hazard objective exactly via person-period rows from `hazard_targets`. Inputs come from
+`scripts/export_window_features.py` (research PC), so `scripts/run_tree_study.py` runs on any CPU. Verdicts use
+the paired pedestrian bootstrap (`eval/paired_bootstrap.py`, seeds resampled): a direction at >= 3 of 5
+budgets, else equivalence within 5 points, else inconclusive.
 
 ### Window-level metrics (context, and the training-time selection signal)
 
@@ -479,4 +486,6 @@ orientation + contracts), [README.md](README.md) (repo overview + CLI surface), 
 `paper/README.md` (paper build). Keep them concise and direct. Plans, design notes, trackers, reviews and
 single-purpose guides go in `docs/archive/`, which is **gitignored** (local to this PC) — never add a new
 committed doc for them, and never link to them from committed files. When a committed doc's premise is
-superseded, rewrite it in place; do not prepend a banner.
+superseded, rewrite it in place; do not prepend a banner. **Same for code:** one-off experiment/analysis
+scripts (campaign gates, campaign reports, single-question diagnostics) and the modules/tests that exist
+only for them go in `docs/archive/code/` (mirroring repo paths), not `scripts/` or `src/`.

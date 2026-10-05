@@ -27,9 +27,7 @@ dropped (motions encode the geometry).
 **S1 onset keys** (``onset_offset`` / ``future_observed`` / ``track_crosses``, plain ints — see
 :data:`pedpredict.data.pie_sequences.ONSET_FIELDS`) are additive and **optional**: written by any build
 from S1-annotated records, absent from chunks built before S1. Existing consumers ignore them; the onset
-head (``model.onset_head``) requires them and fails loudly when they are missing. Chunks built before S1
-are upgraded in place by ``scripts/backfill_onset_meta.py`` — a metadata-only pass that never touches an
-image blob, since meta lives under its own key.
+head (``model.onset_head``) requires them and fails loudly when they are missing.
 """
 
 from __future__ import annotations

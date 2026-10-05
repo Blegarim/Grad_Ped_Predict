@@ -201,39 +201,8 @@ Contracts in [CLAUDE.md](CLAUDE.md) § Onset Timing.
 key and no extra parameter, so their checkpoints still load `strict=True`.
 
 **Data.** The three S1 fields (`onset_offset` / `future_observed` / `track_crosses`) are written by any
-build from S1-annotated pkls. Chunks built before S1 need a one-off **metadata-only** upgrade — image
-blobs are never touched, so this is minutes, not a rebuild:
-```powershell
-python scripts/backfill_onset_meta.py --split train --split val --split test --dry-run  # verify first
-python scripts/backfill_onset_meta.py --split train --split val --split test
-Remove-Item -Recurse -Force preprocessed_train_aug             # MUST delete first (see below)
-python scripts/augment_dataset.py --set augment.enabled=true   # aug dirs inherit via the write path
-```
-Stop any training/eval job first — Windows refuses a write-open while a chunk is memory-mapped
-(`--dry-run` opens read-only and is safe while readers are live). **Augmented dirs are not
-backfillable**: oversampling breaks the positional sample→record map, and the script aborts rather than
-guessing. Backfill the base dir and re-run augmentation instead.
-
-**Delete the aug dir, do not write over it.** `write_dataset_to_lmdb` puts a whole chunk in ONE
-transaction at the exact `data.lmdb_map_size_bytes` (4 GiB), so writing over a populated chunk needs
-copy-on-write room for a second copy of it and dies with `MDB_MAP_FULL` — and unlike the backfill, this
-path has neither batching nor auto-growth. Regenerating is safe for comparability: `plan_oversample` is
-seeded by `augment.seed` (42) off labels the backfill never rewrites, so the rebuilt dir is identical
-apart from the three new meta keys. Budget ~9 chunks x 4 GiB pre-allocated; the delete frees that first.
-
-**Benchmark (anchored) chunks have no onset fields at all.** `window_track_benchmark` builds its records
-without calling `_onset_fields` — only the streaming `window_track` does — so `--split *_benchmark`
-aborts on the script's pre-check rather than backfilling. The onset head trains on streaming chunks.
-
-**Disk, not just time.** Rewriting a meta is copy-on-write, so a chunk built with a tight
-`data.lmdb_map_size_bytes` (step 0's disk knob) can run out of room mid-split — the
-`MDB_MAP_FULL` / "environment mapsize limit reached" traceback. The pass handles that itself: writes
-commit in batches, and a chunk with no room has its `map_size` grown 64 MiB at a time. Windows
-pre-allocates, so growth is disk taken the moment it is asked for — `--dry-run` names the chunks short
-of room and the worst-case total first. If the volume is genuinely full the run aborts saying so, and
-re-running after freeing space resumes where it stopped (the pass is idempotent).
-
-*Rebuilding from scratch instead?* Then skip the backfill entirely — steps 3–4 carry the fields already.
+build from S1-annotated pkls (steps 3–4); chunks built before S1 must be rebuilt. Benchmark (anchored)
+chunks carry no onset fields, so the onset head trains on streaming chunks only.
 
 **Train.** Three arms, selected by weights alone (no code branches). Start with the auxiliary arm: the
 reported `crosses` number still comes from `crosses_frame`, so the baselines stay exactly comparable and

@@ -469,6 +469,14 @@ def validate_config(root: RootCfg) -> None:
         raise ConfigError(
             f"train.selection_metric must be one of {sorted(_SELECTION_METRICS)}; got {t.selection_metric!r}"
         )
+    if t.class_weight_mode not in ("inverse", "effective_number"):
+        raise ConfigError(
+            f"train.class_weight_mode must be 'inverse' or 'effective_number'; got {t.class_weight_mode!r}"
+        )
+    if not 0.0 < t.cb_beta < 1.0:
+        raise ConfigError(f"train.cb_beta must be in (0, 1); got {t.cb_beta}")
+    if t.focal_gamma < 0.0:
+        raise ConfigError(f"train.focal_gamma must be >= 0; got {t.focal_gamma}")
 
     # active-task set (head-selection mode) invariants — the single source of truth for crosses-only.
     active = list(t.active_tasks)

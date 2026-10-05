@@ -6,7 +6,7 @@ head), the stored ``crosses`` label, the three S1 onset fields and ``track_id``.
 nothing in the run dir changes. The architecture is inherited from the checkpoint's ``resolved_config.yaml``
 exactly as ``scripts/evaluate.py`` does it, so the split's scores match the stored eval rows.
 
-Usage (research PC), then copy the .npz files anywhere and run scripts/report_onset_timing.py:
+Usage (research PC), then copy the .npz files anywhere and run scripts/report_detection_curve.py:
     python scripts/dump_onset_predictions.py --split val \\
         --checkpoint outputs/runs/<run>/checkpoints/best.pth --out outputs/diagnostics/<run>/onset_val.npz
     python scripts/dump_onset_predictions.py --split test \\

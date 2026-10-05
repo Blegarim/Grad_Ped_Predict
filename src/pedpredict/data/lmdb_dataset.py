@@ -214,7 +214,7 @@ class LMDBChunkDataset(Dataset):
         """Release this process's LMDB handle (idempotent; the next read lazily reopens).
 
         Windows refuses to open a file for write while a memory-mapped section is live, so any tool
-        that reopens a chunk for writing — ``scripts/backfill_onset_meta.py`` above all — must see
+        that reopens a chunk for writing must see
         every reader closed first. Explicit beats relying on ``__del__`` and GC timing.
         """
         if self._env is not None:
@@ -318,7 +318,7 @@ class LMDBChunkDataset(Dataset):
         }
         if "tte" in meta:  # M5 benchmark-protocol chunks only
             sample["tte"] = meta["tte"]
-        # S1 onset annotation — present only in S1-annotated builds (or after the backfill script).
+        # S1 onset annotation — present only in S1-annotated builds.
         # Emitted as 0-dim long tensors so `collate_sequences` can stack them like any other label;
         # all-or-nothing per chunk, matching how the writer packs them.
         for key in ONSET_FIELDS:

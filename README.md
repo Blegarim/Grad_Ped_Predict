@@ -56,16 +56,17 @@ src/pedpredict/        # installable package (pip install -e .)
   utils/    seed device amp memory logging
   data/     pie_sequences pie_annotations transforms lmdb_writer lmdb_dataset lmdb_warm
             balance augment collate sampler stats pose
-            onset_stats onset_target onset_backfill      # onset-timing arm
+            onset_stats onset_target                     # onset-timing arm
             feature_cache                                # recipe v2: cached frozen-backbone features
             reshuffle                                    # global shuffle-rewrite of the train chunks
             input_stats                                  # pose-arm read-path mean/std (pose.input_stats)
   models/   vit timm_backbone geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask onset
   training/ trainer chunk_loader callbacks schedule metrics distribution
-  eval/     evaluate benchmark inference diagnostics onset_timing detection_curve
-            rerun_gate                                   # go/no-go for the pixel-free re-run campaign
-            campaign_report                              # per-dump analyses behind the campaign tables
+  eval/     evaluate benchmark inference onset_timing detection_curve
+            paired_bootstrap                             # paired pedestrian bootstrap of detection-rate gaps
+            window_features tree_study tree_study_report # LMDB-free window export + the pre-registered tree study
+  baselines/ tree                                       # boosted trees on window summaries: binary | hazard
   viz/      plots qualitative
   export/   onnx.py
 scripts/    # thin one-job CLIs (make_sequences, build_lmdb, train, evaluate, ...)
@@ -136,15 +137,6 @@ python scripts/run_arm.py  --set eval.model_type=full ...         # full cross-p
                                                  # same --set surface as train.py; --dry-run previews
 python scripts/report_distribution.py            # effective per-task sampler-draw distribution
 python scripts/count_labels.py                   # dataset-stats drift gate (nonzero exit on drift)
-python scripts/report_negative_composition.py    # streaming-negative composition + horizon sweep;
-                                                 # --annotations <annotations.zip> reads PIE's XMLs
-                                                 # directly, so it runs with no LMDB and no frames
-python scripts/backfill_onset_meta.py --dry-run  # write the S1 onset keys into LMDBs built before S1;
-                                                 # metadata-only (image blobs untouched), idempotent,
-                                                 # verifies track_id+crosses per sample before writing.
-                                                 # --split train|val|test|*_benchmark (repeatable).
-                                                 # Stop any training job first: Windows blocks a
-                                                 # write-open while a chunk is memory-mapped.
 python scripts/build_feature_cache.py --split all --verify-windows 64
                                                  # recipe v2: decode context crops once, cache the
                                                  # eval-mode backbone's features (+ flip / color variants
@@ -163,26 +155,18 @@ python scripts/compute_input_stats.py --out <stats.json> <pose bundle --set flag
                                                  # JPEG decode; NOT inherited by eval — pass it there too)
 python scripts/dump_onset_predictions.py --split test --checkpoint <best.pth> --out <dump.npz>
                                                  # per-window probs, hazard logits + onset labels
-python scripts/report_onset_timing.py --test <test.npz> --val <val.npz> --eval-log <eval_log.csv>
-                                                 # timing report (per-horizon AUC, score by onset
-                                                 # group); no data needed; parity-checks the dump
 python scripts/report_detection_curve.py --arm "binary=<dump.npz>#p_frame"                                          --arm "hazard=<dump.npz>#p_readout"
                                                  # THE PRIMARY METRIC: detection rate + lead time at
                                                  # matched false-alarm budgets; repeat a label to pool
                                                  # seeds (mean +- sd); no data needed
+python scripts/export_window_features.py --lmdb preprocessed_test --out outputs/features/pose58/test.npz \n    --check-dump <dump.npz>                      # pixel-free model inputs + labels -> one .npz (metas only,
+                                                 # raw, dump row order); --check-dump refuses a misaligned one
+python scripts/run_tree_study.py verify|run|report --exports outputs/features/pose58
+                                                 # the pre-registered tree study (outputs/diagnostics/
+                                                 # tree_study/PREREG.md): gates, fits, verdicts; CPU only
 python scripts/check_run_config.py --reference <run>/resolved_config.yaml --allow train.seed <--set flags>
                                                  # refuse a run whose config differs from the reference by
                                                  # anything but its intended flags (before or after training)
-python scripts/rerun_gate.py --out <dir> --run <pf_fix_s42 dir> --run <..s43> --run <..s44>
-                                                 # re-run campaign go/no-go
-python scripts/report_campaign.py                # every campaign table (matrix, gap, window metrics, detection,
-                                                 # pre-registered criterion, training, analyses) from logged
-                                                 # runs + dumps -> outputs/diagnostics/v4_report/tables/
-python scripts/report_combination.py            # pre-registered test: anchored "who" x streaming "when"
-                                                 # (paired seeds) -> outputs/diagnostics/combo_test/
-python scripts/diagnose_backbone_bn.py --checkpoint <best.pth> --out-dir <dir>
-                                                 # frozen-backbone BatchNorm drift + re-scoring with
-                                                 # pretrained / re-estimated BN stats (recipe v2 check)
 python scripts/visualize.py    ...               # plots / qualitative panels
 python scripts/infer_video.py  ...               # needs [infer] (YOLO detect/track)
 python scripts/export_onnx.py  ...               # needs [export]; runs an onnxruntime parity check

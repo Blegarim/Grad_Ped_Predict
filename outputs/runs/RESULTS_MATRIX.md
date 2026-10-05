@@ -26,11 +26,9 @@ below comes from the v1 image model and is history.
 
 **Every number here is generated, not typed.** Source of truth: `outputs/diagnostics/v4_report/tables/`
 (`matrix`, `gap`, `window_metrics`, `detection_per_window`, `detection_per_track`, `criterion`, `training`,
-`analyses` `.md`, plus `results.json` with every per-seed value and `README.md` with provenance). Regenerate:
-
-```bash
-python scripts/report_campaign.py        # reads outputs/runs/*_c4_* + outputs/diagnostics/<run>/onset_test.npz
-```
+`analyses` `.md`, plus `results.json` with every per-seed value and `README.md` with provenance), generated
+from `outputs/runs/*_c4_*` + `outputs/diagnostics/<run>/onset_test.npz` by the campaign report script (now
+archived, local only).
 
 Run dirs: `outputs/runs/2026092{7,8}_*_pose_kinematics_c4_*` (tags `c4_r2s`, `c4_r3`, `c4_r1`, `c4_r4`,
 `c4_r3c`, `c4_r2a` × s42/43/44; `c4_mA_str_s42`, `c4_mA_anc_s42`). Box scripts and logs:
@@ -89,8 +87,8 @@ Mean lead times and the `per_track` curves: `detection_per_window.md` / `detecti
   its separability *rises* with time to onset (0.60 at <1 s → 0.71 at ≥10 s). It fires early (mean lead ~21 s).
   This is why it collapses on the streaming protocol.
 - **Combining the anchored "who" with a streaming "when" does not help** (pre-registered 2026-09-29 before any
-  number, `outputs/diagnostics/combo_test/PREREG.md`, commit `a9f67ff`; results `combo_test/results.md`, from
-  `python scripts/report_combination.py`). Primary `p_anc × p_R2` vs R2 alone, `per_window`, 3 paired seeds:
+  number, `outputs/diagnostics/combo_test/PREREG.md`, commit `a9f67ff`; results `combo_test/results.md`).
+  Primary `p_anc × p_R2` vs R2 alone, `per_window`, 3 paired seeds:
   **INCONCLUSIVE** (42.3 ± 2.0 vs 42.3 ± 3.2 at 205/hr; 23.1 ± 4.3 vs 22.9 ± 3.5 at 41/hr; window AUC 0.757 vs
   0.783). Every secondary is also inconclusive: a causal running-mean intent (S1) is worse, a combination fitted
   on val (S2) reproduces R2, and `p_anc × p_R3` (S3) is level with R2 though with a smaller seed spread
@@ -198,7 +196,7 @@ crossing-detection gap.
 
 ### Caveat: train and test differ in what their negatives are made of
 
-Measured 2026-08-20 (`scripts/report_negative_composition.py`). The streaming
+Measured 2026-08-20 (negative-composition report, now archived). The streaming
 splits are not two samples of one distribution:
 
 | Split | positive | never crosses | will cross, later | already crossed |
@@ -409,9 +407,9 @@ val-tuned thresholds, against its no-onset partner `20260714_134253`** (both str
 leg `20260917_072445` reproduced the older anchored-trained run closely (anchored test AUC 0.883 vs 0.880;
 streaming test 0.538 vs 0.529), so the machine change is not what moves these numbers.
 
-**Two diagnostics on R1's own checkpoint** (`outputs/diagnostics/r1`, scripts:
-`dump_onset_predictions.py` + `report_onset_timing.py`, `diagnose_backbone_bn.py`; each reproduced R1's
-stored eval row before reporting anything):
+**Two diagnostics on R1's own checkpoint** (`outputs/diagnostics/r1`, from
+`dump_onset_predictions.py` plus two archived report scripts; each reproduced R1's stored eval row before
+reporting anything):
 
 * **The onset head carries timing, and the binary head partly does too.** Streaming test mean score by true
   onset group falls monotonically — 0–15 frames 0.38, 16–31 0.32, 32–63 0.27, 64–95 0.15, ≥96 0.07, no

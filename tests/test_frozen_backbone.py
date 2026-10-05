@@ -12,10 +12,11 @@ import dataclasses
 
 import pytest
 import torch
+from torch import nn
+from torch.nn.modules.batchnorm import _BatchNorm
 
 from pedpredict.config import ModelCfg, RootCfg
 from pedpredict.config.loader import ConfigError, validate_config
-from pedpredict.eval.diagnostics import bn_state
 from pedpredict.models.ablations import PoseFullModel
 from pedpredict.models.timm_backbone import TimmBackbone
 from pedpredict.training.schedule import freeze_vit_backbone
@@ -33,13 +34,21 @@ def _backbone(keep_eval: bool) -> TimmBackbone:
     return backbone
 
 
+def _bn_running_means(module: nn.Module) -> dict[str, torch.Tensor]:
+    return {
+        name: layer.running_mean.detach().clone()
+        for name, layer in module.named_modules()
+        if isinstance(layer, _BatchNorm) and layer.running_mean is not None
+    }
+
+
 def _stats_changed_by_train_forward(backbone: TimmBackbone) -> bool:
-    before = bn_state(backbone.net)
+    before = _bn_running_means(backbone.net)
     backbone.train()
     with torch.no_grad():
         backbone(torch.randn(2, 2, 3, 224, 224) * 2 + 1)
-    after = bn_state(backbone.net)
-    return any(not torch.equal(before[k]["running_mean"], after[k]["running_mean"]) for k in before)
+    after = _bn_running_means(backbone.net)
+    return any(not torch.equal(before[k], after[k]) for k in before)
 
 
 def test_v1_frozen_backbone_still_drifts_in_train_mode() -> None:

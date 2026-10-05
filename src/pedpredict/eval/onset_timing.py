@@ -115,7 +115,7 @@ def dump_predictions(
             for tight, context, motions, labels, track_ids in loader:
                 missing = [k for k in LABEL_KEYS if k not in labels]
                 if missing:
-                    raise KeyError(f"dump_predictions: batch labels lack {missing} — pre-S1 chunks? Backfill them.")
+                    raise KeyError(f"dump_predictions: batch labels lack {missing} — pre-S1 chunks? Rebuild them.")
                 with autocast_ctx(use_amp, device.type):
                     out = forward(model, tight.to(device), context.to(device), motions.to(device))
                 keep("p_frame", _positive_prob(out["crosses_frame"]))

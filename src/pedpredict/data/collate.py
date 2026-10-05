@@ -56,8 +56,7 @@ def collate_sequences(
         elif present:
             raise ValueError(
                 f"collate_sequences: '{key}' present on {present}/{len(batch)} samples — the chunk "
-                f"directory mixes S1-annotated and pre-S1 builds. Re-run scripts/backfill_onset_meta.py "
-                f"over every chunk, or rebuild."
+                f"directory mixes S1-annotated and pre-S1 builds. Rebuild it from S1-annotated sequence pkls."
             )
     return images_tight, images_context, motions, labels
 

@@ -291,6 +291,11 @@ class TrainCfg:
         default_factory=lambda: {"actions": 0.8, "looks": 0.8, "crosses": 1.2}
     )
     use_class_weights: bool = False  # imbalance lever 3: inverse-freq CE weights (off in run #2)
+    # Loss-side alternatives to the sampler (the focal / class-balanced comparison a reviewer asks for). Both
+    # default to the legacy loss exactly: "inverse" weights (only read when use_class_weights) and gamma 0.
+    class_weight_mode: str = "inverse"   # "inverse" | "effective_number" (Cui et al. 2019, beta = cb_beta)
+    cb_beta: float = 0.9999
+    focal_gamma: float = 0.0             # > 0: focal loss (Lin et al. 2017) on every CE head; 0 = plain CE
     # Onset-timing objective (docs/METHODOLOGY.md prong 2) — INERT unless model.onset_head. These two
     # plus loss_weight["crosses"] are the three knobs that select which formulation is being trained:
     #   loss_weight.crosses=1.2, hazard~0.1, readout=0 -> hazard as a pure AUXILIARY task; `crosses` is

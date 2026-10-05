@@ -34,4 +34,4 @@ error. `./check_numbers.sh --strict` exits nonzero while anything is unfilled.
 Sources: figure values live in the `NUMBERS` dict in `figures/make_figures.py`; results come from
 `outputs/runs/RESULTS_MATRIX.md` (update it first, then mirror into `main.tex`); window populations from
 `CLAUDE.md` § Dataset Statistics; negative composition from `composition_report.json`
-(`scripts/report_negative_composition.py`).
+(produced by an archived report script).

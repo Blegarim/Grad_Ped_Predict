@@ -235,8 +235,8 @@ def test_missing_hazard_key_names_the_config_switch() -> None:
         OnsetHazardLoss(_SPEC)({"crosses_frame": torch.zeros(1, 2)}, _labels([1], [40], [1]))
 
 
-def test_missing_onset_labels_name_the_backfill() -> None:
-    with pytest.raises(KeyError, match="backfill_onset_meta"):
+def test_missing_onset_labels_name_the_fix() -> None:
+    with pytest.raises(KeyError, match="built before S1"):
         OnsetHazardLoss(_SPEC)(_outputs(torch.zeros(1, _SPEC.num_bins)), {"crosses": torch.tensor([1])})
 
 

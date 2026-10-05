@@ -103,7 +103,7 @@ def main(argv=None) -> int:
         # ---------------------------------------------------------------- multi-phase schedule
         import torch
 
-        from pedpredict.data.sampler import TASKS, LabelScanCache, class_weights_ce
+        from pedpredict.data.sampler import TASKS, LabelScanCache, loss_class_weights
         from pedpredict.losses.multitask import build_multitask_loss
         from pedpredict.models.registry import build_model
         from pedpredict.training.callbacks import CheckpointManager
@@ -123,7 +123,7 @@ def main(argv=None) -> int:
         augmented_paths = gather_lmdb_chunks(train_dirs)
         if cfg.train.use_class_weights:
             counts = scan_cache.aggregate_counts(augmented_paths)
-            class_weights = class_weights_ce(counts, device=device)
+            class_weights = loss_class_weights(cfg.train, counts, device=device)
         else:
             class_weights = {task: torch.ones(2, device=device) for task in TASKS}
         loss = build_multitask_loss(cfg.train, class_weights).to(device)

@@ -32,6 +32,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from torch import Tensor, nn
+from torch.nn import functional as F
 
 from pedpredict.config.schema import ModelCfg, TrainCfg
 from pedpredict.losses.onset import OnsetHazardLoss, build_onset_loss
@@ -41,6 +42,7 @@ __all__ = [
     "TASKS",
     "TASK_OUTPUT_KEY",
     "MultiTaskLossOutput",
+    "FocalCrossEntropy",
     "MultiTaskLoss",
     "build_multitask_loss",
 ]
@@ -66,6 +68,31 @@ class MultiTaskLossOutput(NamedTuple):
     weighted: dict[str, Tensor]      # detached loss_weight[t] * CE_t per task
 
 
+class FocalCrossEntropy(nn.Module):
+    """Focal loss (Lin et al., ICCV 2017) over class logits: per-sample CE scaled by ``(1 - p_t) ** gamma``.
+
+    Same class-``weight`` semantics and ``"mean"`` normalisation as :class:`torch.nn.CrossEntropyLoss` (a
+    weighted mean, ``sum(w_i * l_i) / sum(w_i)``), so ``gamma = 0`` is exactly that loss — pinned in
+    ``tests/test_focal_loss.py``. No separate alpha: class weighting stays lever 3's job.
+    """
+
+    def __init__(self, weight: Tensor, gamma: float, reduction: str = "mean") -> None:
+        super().__init__()
+        if reduction not in ("mean", "sum", "none"):
+            raise ValueError(f"FocalCrossEntropy: unknown reduction {reduction!r}")
+        self.register_buffer("weight", weight)
+        self.gamma = float(gamma)
+        self.reduction = reduction
+
+    def forward(self, logits: Tensor, target: Tensor) -> Tensor:
+        log_p = F.log_softmax(logits, dim=1).gather(1, target.unsqueeze(1)).squeeze(1)
+        w = self.weight[target]
+        loss = -w * (1.0 - log_p.exp()).pow(self.gamma) * log_p
+        if self.reduction == "mean":
+            return loss.sum() / w.sum()
+        return loss.sum() if self.reduction == "sum" else loss
+
+
 class MultiTaskLoss(nn.Module):
     """Per-task weighted cross-entropy with class-weight + per-task scalar imbalance handling.
 
@@ -81,15 +108,19 @@ class MultiTaskLoss(nn.Module):
         *,
         reduction: str = "mean",
         onset_loss: OnsetHazardLoss | None = None,
+        focal_gamma: float = 0.0,
     ) -> None:
         super().__init__()
         # nn.ModuleDict of CrossEntropyLoss mirrors OLD ``criterion`` (train.py:341-345). The per-task
         # ``weight`` lives as a registered buffer, so ``loss.to(device)`` moves it — preserving OLD's
-        # "weights on device" behavior without manual ``.to()`` at every call site.
-        self.criteria = nn.ModuleDict({
-            task: nn.CrossEntropyLoss(weight=class_weights[task], reduction=reduction)
-            for task in TASKS
-        })
+        # "weights on device" behavior without manual ``.to()`` at every call site. ``focal_gamma > 0``
+        # swaps in the focal variant; at 0 the legacy CrossEntropyLoss itself is kept (golden parity).
+        def criterion(weight: Tensor) -> nn.Module:
+            if focal_gamma > 0.0:
+                return FocalCrossEntropy(weight, focal_gamma, reduction=reduction)
+            return nn.CrossEntropyLoss(weight=weight, reduction=reduction)
+
+        self.criteria = nn.ModuleDict({task: criterion(class_weights[task]) for task in TASKS})
         # Plain floats (not parameters); ``.get(task, 1.0)`` matches OLD's defaulting (train.py:153).
         self.loss_weight: dict[str, float] = {task: float(loss_weight.get(task, 1.0)) for task in TASKS}
         # Onset-timing objective (prong 2), ``None`` when off. Deliberately an ADDITIONAL term rather
@@ -159,5 +190,6 @@ def build_multitask_loss(
     """
     onset = build_onset_loss(model_cfg, cfg) if model_cfg is not None else None
     return MultiTaskLoss(
-        class_weights, cfg.effective_loss_weight(), reduction=reduction, onset_loss=onset
+        class_weights, cfg.effective_loss_weight(), reduction=reduction, onset_loss=onset,
+        focal_gamma=cfg.focal_gamma,
     )

@@ -242,11 +242,11 @@ def test_shapes_and_dtypes() -> None:
 
 
 def test_missing_fields_name_the_fix() -> None:
-    """Pre-S1 chunks must fail with the backfill instruction, not a bare KeyError."""
+    """Pre-S1 chunks must fail with the rebuild instruction, not a bare KeyError."""
     spec = OnsetSpec(lookahead=12, bin_width=1, horizon=4)
-    with pytest.raises(KeyError, match="backfill_onset_meta"):
+    with pytest.raises(KeyError, match="built before S1"):
         hazard_targets({"onset_offset": torch.tensor([1])}, spec)
-    with pytest.raises(KeyError, match="backfill_onset_meta"):
+    with pytest.raises(KeyError, match="built before S1"):
         readout_targets({"crosses": torch.tensor([1])}, spec)
 
 

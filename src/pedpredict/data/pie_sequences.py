@@ -64,9 +64,9 @@ __all__ = [
 
 
 #: The three S1 streaming-onset fields, in canonical order — the SINGLE source of truth for the key
-#: names, shared by the record, ``ProcessedSample``, ``lmdb_writer.pack_meta``, the read path, the
-#: collate, and ``scripts/backfill_onset_meta.py``. All three are plain ``int`` everywhere they are
-#: stored; only the runtime read path tensorises them.
+#: names, shared by the record, ``ProcessedSample``, ``lmdb_writer.pack_meta``, the read path and the
+#: collate. All three are plain ``int`` everywhere they are stored; only the runtime read path
+#: tensorises them.
 ONSET_FIELDS: tuple[str, ...] = ("onset_offset", "future_observed", "track_crosses")
 
 

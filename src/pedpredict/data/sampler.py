@@ -51,6 +51,8 @@ __all__ = [
     "scan_chunk_labels",
     "LabelScanCache",
     "class_weights_ce",
+    "class_weights_effective_number",
+    "loss_class_weights",
     "sample_weights",
     "build_weighted_sampler",
 ]
@@ -178,6 +180,32 @@ def class_weights_ce(counts: dict[str, TaskCounts], *, device: torch.device | st
         else:
             weights[task] = torch.tensor([1.0, 1.0], dtype=torch.float32, device=device)
     return weights
+
+
+def class_weights_effective_number(counts: dict[str, TaskCounts], beta: float, *,
+                                   device: torch.device | str | None = None) -> dict[str, Tensor]:
+    """Class-balanced CE weights (Cui et al., CVPR 2019): ``(1 - beta) / (1 - beta**n_c)``, scaled to sum to
+    the class count (2) as in the paper. As ``beta -> 1`` this tends to inverse frequency; small ``beta``
+    flattens it toward uniform. An empty task falls back to ``[1.0, 1.0]``."""
+    weights: dict[str, Tensor] = {}
+    for task in TASKS:
+        task_counts = counts.get(task, {})
+        n = [max(int(task_counts.get(c, 0)), 1) for c in (0, 1)]
+        if sum(int(task_counts.get(c, 0)) for c in (0, 1)) == 0:
+            weights[task] = torch.tensor([1.0, 1.0], dtype=torch.float32, device=device)
+            continue
+        raw = [(1.0 - beta) / (1.0 - beta**k) for k in n]
+        scale = 2.0 / sum(raw)
+        weights[task] = torch.tensor([w * scale for w in raw], dtype=torch.float32, device=device)
+    return weights
+
+
+def loss_class_weights(cfg_train, counts: dict[str, TaskCounts], *,
+                       device: torch.device | str | None = None) -> dict[str, Tensor]:
+    """Lever 3's weights for ``train.class_weight_mode`` (call only when ``train.use_class_weights``)."""
+    if cfg_train.class_weight_mode == "effective_number":
+        return class_weights_effective_number(counts, cfg_train.cb_beta, device=device)
+    return class_weights_ce(counts, device=device)
 
 
 # --------------------------------------------------------------------------- online sampler lever

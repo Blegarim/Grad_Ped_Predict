@@ -1,4 +1,4 @@
-"""S1 onset fields survive the whole offline->runtime path, and the backfill upgrades old chunks.
+"""S1 onset fields survive the whole offline->runtime path.
 
 Stage A of the onset-timing method (docs/METHODOLOGY.md prong 2). The three fields
 (``onset_offset`` / ``future_observed`` / ``track_crosses``) were computed by ``pie_sequences`` from the
@@ -7,11 +7,7 @@ start but dropped by ``pack_meta``, so the trainer never saw them. These tests p
 * the writer packs them and the two readers hand them back (``read_raw_sample`` for the offline
   augment round-trip, ``LMDBChunkDataset`` for the runtime path, which tensorises them);
 * the collate lifts them into ``labels`` so they reach the loss through the existing Trainer plumbing;
-* pre-S1 records still write, read and collate cleanly — the keys are additive, not required;
-* ``onset_backfill`` upgrades a chunk written without them, is idempotent, and **aborts** rather than
-  writing when the chunk and the pkl disagree (the positional-map integrity check);
-* a chunk built with no free map — what setup.md step 0's tight-disk knob produces — still backfills,
-  by growing ``map_size`` rather than dying on ``MDB_MAP_FULL`` partway through a split.
+* pre-S1 records still write, read and collate cleanly — the keys are additive, not required.
 """
 
 from __future__ import annotations
@@ -26,16 +22,9 @@ import torch
 from PIL import Image
 
 from pedpredict.config import DataCfg
-from pedpredict.data import onset_backfill
 from pedpredict.data.collate import collate_sequences
 from pedpredict.data.lmdb_dataset import LMDBChunkDataset, read_raw_sample
 from pedpredict.data.lmdb_writer import write_dataset_chunks
-from pedpredict.data.onset_backfill import (
-    backfill_chunk,
-    backfill_dir,
-    chunk_record_offset,
-    format_reports,
-)
 from pedpredict.data.pie_sequences import ONSET_FIELDS
 
 _SEQ_LEN = 4
@@ -53,12 +42,7 @@ def _cfg() -> DataCfg:
 
 
 def _read_items(chunk_path, cfg, count):
-    """Read the first ``count`` items, then CLOSE the dataset's mmap.
-
-    Windows will not open a file for write while a mapped section is live, so any test that reads a
-    chunk before backfilling it must release the handle first — the same rule the backfill imposes on
-    a running trainer.
-    """
+    """Read the first ``count`` items, then CLOSE the dataset's mmap (Windows keeps mapped files locked)."""
     ds = LMDBChunkDataset.from_config(chunk_path, cfg)
     try:
         return [ds[i] for i in range(count)]
@@ -193,153 +177,3 @@ def test_pre_s1_records_still_write_and_read(tmp_path) -> None:
     *_, labels = collate_sequences([item, second], max_seq_len=cfg.max_seq_len, motion_dim=cfg.motion_dim)
     assert not (set(ONSET_FIELDS) & set(labels))
     assert set(labels) == {"actions", "looks", "crosses"}
-
-
-# --------------------------------------------------------------------------- backfill
-
-
-def test_chunk_record_offset_parses_writer_names(tmp_path) -> None:
-    assert chunk_record_offset(tmp_path / "chunk_000000.lmdb") == 0
-    assert chunk_record_offset(tmp_path / "chunk_012345.lmdb") == 12345
-    with pytest.raises(ValueError, match="not a writer-produced chunk name"):
-        chunk_record_offset(tmp_path / "train.lmdb")
-
-
-@pytest.fixture
-def stale(tmp_path):
-    """Four records built into chunks WITHOUT the onset keys, plus the S1-annotated record list."""
-    frames = tmp_path / "frames"
-    frames.mkdir()
-    bare = [_make_record(frames, i) for i in range(4)]
-    _, out_dir = _build(tmp_path, bare, name="stale")
-    annotated_records = [dict(rec, **_ONSETS[i]) for i, rec in enumerate(bare)]
-    return annotated_records, out_dir
-
-
-def test_backfill_upgrades_stale_chunks(stale) -> None:
-    """Chunks built before S1 gain the keys; the runtime read path then sees them."""
-    records, out_dir = stale
-    cfg = _cfg()
-    assert not (set(ONSET_FIELDS) & set(_read_items(out_dir / "chunk_000000.lmdb", cfg, 1)[0]))
-
-    reports = backfill_dir(out_dir, records)
-    assert sum(r.written for r in reports) == 4
-    assert sum(r.already_present for r in reports) == 0
-
-    # Second chunk covers records 2-3 — proves the file-name offset, not a running counter.
-    items = _read_items(out_dir / "chunk_000002.lmdb", cfg, 2)
-    assert int(items[0]["onset_offset"]) == _ONSETS[2]["onset_offset"]
-    assert int(items[1]["track_crosses"]) == _ONSETS[3]["track_crosses"]
-
-
-def test_backfill_is_idempotent(stale) -> None:
-    """Re-running writes nothing and reports the keys as already present."""
-    records, out_dir = stale
-    backfill_dir(out_dir, records)
-    again = backfill_dir(out_dir, records)
-    assert sum(r.written for r in again) == 0
-    assert sum(r.already_present for r in again) == 4
-
-
-def test_backfill_dry_run_writes_nothing(stale) -> None:
-    """``dry_run`` verifies every sample and leaves the chunks untouched."""
-    records, out_dir = stale
-    reports = backfill_dir(out_dir, records, dry_run=True)
-    assert sum(r.written for r in reports) == 4
-    assert not (set(ONSET_FIELDS) & set(_read_items(out_dir / "chunk_000000.lmdb", _cfg(), 1)[0]))
-
-
-def test_backfill_aborts_on_track_id_mismatch(stale) -> None:
-    """A pkl that does not correspond to the chunks fails loudly instead of writing garbage."""
-    records, out_dir = stale
-    shuffled = [dict(rec, track_id=f"other_{i}") for i, rec in enumerate(records)]
-    with pytest.raises(ValueError, match="track_id"):
-        backfill_chunk(out_dir / "chunk_000000.lmdb", shuffled)
-
-
-def test_backfill_aborts_on_label_mismatch(stale) -> None:
-    """Same track_id but a different ``crosses`` means two different builds — also an abort."""
-    records, out_dir = stale
-    flipped = [dict(rec, crosses=1 - int(rec["crosses"])) for rec in records]
-    with pytest.raises(ValueError, match="crosses"):
-        backfill_chunk(out_dir / "chunk_000000.lmdb", flipped)
-
-
-def test_backfill_aborts_on_short_record_list(stale) -> None:
-    """A pkl shorter than the chunks it is matched against cannot be the right pkl."""
-    records, out_dir = stale
-    with pytest.raises(ValueError, match="past the end"):
-        backfill_chunk(out_dir / "chunk_000002.lmdb", records[:2])
-
-
-# ------------------------------------------------------------------- backfill: chunks with no headroom
-
-
-def _fill_to_capacity(chunk_path) -> None:
-    """Pack a chunk until its map has no usable room, the state a tight ``map_size`` build lands in.
-
-    The filler keys deliberately do not end in ``_meta``, so the backfill's sample scan ignores them —
-    only the free space is gone, which is precisely the failing condition on the lab PC's chunks.
-    Filling in shrinking value sizes squeezes out the last pages a large blob cannot use.
-    """
-    probe = lmdb.open(str(chunk_path), readonly=True, lock=False)
-    map_size = int(probe.info()["map_size"])
-    probe.close()
-    env = lmdb.open(str(chunk_path), map_size=map_size)
-    index = 0
-    try:
-        for size in (65536, 4096, 512, 64):
-            blob = b"x" * size
-            for _ in range(4096):
-                try:
-                    with env.begin(write=True) as txn:
-                        txn.put(f"filler_{index:06d}".encode(), blob)
-                        index += 1
-                except lmdb.MapFullError:
-                    break
-            else:
-                raise AssertionError(f"filler of {size} B never exhausted a {map_size} B map")
-    finally:
-        env.close()
-
-
-def test_backfill_grows_a_chunk_with_no_headroom(stale, monkeypatch) -> None:
-    """The MDB_MAP_FULL bug: rewriting metas is copy-on-write, so a full chunk needs a bigger map."""
-    records, out_dir = stale
-    monkeypatch.setattr(onset_backfill, "GROWTH_STEP_BYTES", 1024 * 1024)
-    chunk = out_dir / "chunk_000000.lmdb"
-    _fill_to_capacity(chunk)
-
-    report = backfill_chunk(chunk, records)
-
-    assert report.written == 2
-    assert report.grown_bytes > 0, "a chunk with no free map must be grown, not failed"
-    assert "grew map_size" in format_reports([report])
-    items = _read_items(chunk, _cfg(), 2)
-    assert int(items[0]["onset_offset"]) == _ONSETS[0]["onset_offset"]
-    assert int(items[1]["track_crosses"]) == _ONSETS[1]["track_crosses"]
-
-
-def test_backfill_map_full_names_the_cure(stale, monkeypatch) -> None:
-    """With growth forbidden, the abort names the cause and the fix — not a bare MDB_MAP_FULL."""
-    records, out_dir = stale
-    monkeypatch.setattr(onset_backfill, "MAX_GROWTH_STEPS", 0)
-    chunk = out_dir / "chunk_000000.lmdb"
-    _fill_to_capacity(chunk)
-    with pytest.raises(RuntimeError, match="still out of room"):
-        backfill_chunk(chunk, records)
-
-
-def test_dry_run_warns_before_the_real_pass_has_to_grow(stale, monkeypatch) -> None:
-    """The pre-flight: a dry run names the chunks short of room, and still writes nothing."""
-    records, out_dir = stale
-    monkeypatch.setattr(onset_backfill, "GROWTH_STEP_BYTES", 1024 * 1024)
-    chunk = out_dir / "chunk_000000.lmdb"
-    _fill_to_capacity(chunk)
-
-    reports = backfill_dir(out_dir, records, dry_run=True)
-
-    listed = format_reports(reports, dry_run=True).split("NOTE", 1)[1]
-    assert "chunk_000000.lmdb" in listed, "the chunk with no room must be named"
-    assert "chunk_000002.lmdb" not in listed, "a chunk with room must not be flagged"
-    assert not (set(ONSET_FIELDS) & set(_read_items(chunk, _cfg(), 1)[0]))
