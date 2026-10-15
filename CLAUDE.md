@@ -18,32 +18,33 @@ soon). It is a clean, tested, config-driven PyTorch codebase (v1.0 baseline).
 > reference repo, the phase plan, the resolved engineering audit, and the pre-pivot research plan — lives
 > in the `legacy-archive` git tag and the untracked `docs/archive/`; none of it is load-bearing.
 
-## Thesis Direction (current — as of August 2026)
+## Thesis Direction (current — as of October 2026)
 
-**A methods thesis on streaming crossing-onset detection.** The standard PIE protocol is event-anchored
-(~2.5:1) and hides the deployed streaming case (~37:1, full of "will-cross-soon" hard negatives). The
-existing dense-sliding-window pipeline **is** that streaming formulation, so the codebase stands.
+**Who will cross × when they cross.** A streaming crossing label factors exactly into *incidence* (will this
+pedestrian cross in front of the car at all: "who") times *latency* (given that, does it start within the horizon:
+"when"). This is the mixture-cure structure of survival analysis. The standard event-anchored PIE protocol samples
+every pedestrian at a fixed 1–2 s before a reference moment, so it holds latency constant and scores incidence only.
+That is why anchored accuracy says little about deployment. Measured (all in
+[outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md), § who × when):
 
-*The motivation* (measured, done — [outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md)): a
-model trained on the anchored benchmark loses almost all ranking ability on the stream (AUC 0.88 → 0.53)
-and re-tuning thresholds recovers ~nothing (`G_prior ≈ 0`, `G_hardneg ≈ G_total`). On its own that is a
-negative result — "the usual benchmark flatters models" — so it became the *justification* rather than the
-contribution.
+- *The protocol gap, explained.* Anchored-trained models (deep and tree) rank *who* well (0.80–0.84), but their
+  *when* is inverted (0.36–0.41), so they collapse on the stream (AUC 0.47–0.52). Threshold re-tuning recovers
+  nothing (`G_prior ≈ 0`). The collapse survives a matched training-set size and focal / class-balanced losses.
+- *Who is largely solvable.* Scene layout (intersection, signalization, crosswalk proximity, from PIE annotations)
+  lifts *who* from 0.755 to 0.853, past the human intention rating (0.739).
+- *When is the open core.* Nothing observable moves it: traffic lights, traffic gaps, the ego car's next second
+  (an oracle), human-judged intent (an oracle), waiting and looking history (≤ +0.04). The remaining false alarms are
+  intending pedestrians waiting at signalized crosswalks.
+- *The onset-timing (hazard) objective* is a latency model with no latency information to use. It ties binary
+  training (deep, pre-registered; trees, powered to about 5 points). Using the windows whose future ran out helps
+  either formulation.
 
-*The contribution* (in progress, spine set 2026-08-20): treat streaming crossing prediction as **onset
-timing under censoring** rather than yes/no classification at a fixed horizon. A window whose future ran
-out is a censored observation, not a negative; with no fixed cut-off the "will cross, just not yet"
-population stops being mislabeled by construction. Two supporting parts: pose *movement* features (the cue
-a one-second horizon actually has) and the online-action-detection literature (its metrics as the
-instrument, its objectives as comparison baselines). **Hard constraint on any timing model: it must still
-emit P(onset within 32 frames), or the four baseline runs stop being comparable.**
+The paper is being rewritten around this (plan: `docs/archive/PAPER_REWRITE_PLAN_2026-10-06.md`, local). The earlier
+spine (onset timing under censoring as *the* method, Aug 2026) is now one supporting part.
 
-The numbers — the cross-protocol matrix, the baselines, the caveats — live in
-[outputs/runs/RESULTS_MATRIX.md](outputs/runs/RESULTS_MATRIX.md).
-
-**Consequence that bites when touching anything experimental:** the four existing `pose_full` runs are
-**baselines**, so an accidental config difference between two legs invalidates a comparison rather than
-merely footnoting a caveat.
+**Consequence that bites when touching anything experimental:** comparisons are only valid between arms that differ
+in the intended thing. Every study since v4 was pre-specified and hash-stamped before its first number, and its
+gates (row alignment, exact reproduction of shared arms) must pass.
 
 ## Execution Environment (two machines)
 
@@ -129,7 +130,7 @@ the eval-mode frozen backbone's pooled features replace the context-crop JPEG de
 Requires `model.vit_frozen_eval=true` and a context-only model (`pose_full` | `visual_only`); readers check
 window order, crop size, norm and a weights+BN fingerprint, so a stale cache fails loudly. In cached mode
 `augment.runtime` picks pre-built flip / color-jitter variants (flip still goes through the shared
-`augment.flip_motions_pose` rule for motions + pose); frame erase is skipped. **Pixel-free read** (`data.visual_input=none`, `pose_kinematics`/`kinematics_only` only): no crop is decoded (image slots `[T, 0]`) and runtime aug applies only its motion/pose half with the same RNG draws — JPEG decode is the training bottleneck, so this is what makes a pixel-free run ~10× faster. Eval does **not** inherit `visual_input`; pass it. Since it reads only the `_meta` records, `reshuffle_train_lmdb.py --meta-only` can write its train store without the crops (a few GB, not 54+); such a dir is named `*_metaonly` and config validation refuses it to any model that decodes images. Sequence-gen params (`seq_len`, `stride`,
+`augment.flip_motions_pose` rule for motions + pose); frame erase is skipped. **Pixel-free read** (`data.visual_input=none`, `pose_kinematics`/`kinematics_only` only): no crop is decoded (image slots `[T, 0]`) and runtime aug applies only its motion/pose half with the same RNG draws — JPEG decode is the training bottleneck, so this is what makes a pixel-free run ~10× faster. Eval does **not** inherit `visual_input`; pass it. **Scene input** (`data.scene_features`, default off; the deep scene arm): a sidecar from `scripts/build_scene_sidecar.py` ([data/scene_lookup.py](src/pedpredict/data/scene_lookup.py)) appends the window's encoded scene (the scene audit's lights / traffic / layout) to every frame of the pose motions, so `data.motion_dim = model.motion_dim = 58 + data.scene_dim`; rows are keyed by `track_id` + two S1 onset fields (offline copies share their source's key; the features are flip-invariant), and eval inherits both fields. Since it reads only the `_meta` records, `reshuffle_train_lmdb.py --meta-only` can write its train store without the crops (a few GB, not 54+); such a dir is named `*_metaonly` and config validation refuses it to any model that decodes images. Sequence-gen params (`seq_len`, `stride`,
 `future_offset`, `context_scale`, …) live in `configs/data.yaml`; the **LMDB schema v2** key/value contract
 is in [data/lmdb_writer.py](src/pedpredict/data/lmdb_writer.py) and the 9-dim motion channel table in
 [data/transforms.py](src/pedpredict/data/transforms.py). Crops are stored un-normalized (ImageNet norm at

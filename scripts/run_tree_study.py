@@ -51,12 +51,18 @@ def _deep_reproduction(checkpoint: Path, exports: Path) -> dict[str, float]:
     from pedpredict.config import load_config, merge_eval_config
     from pedpredict.eval.evaluate import load_eval_weights
     from pedpredict.models.registry import build_model, forward_model
+    from pedpredict.utils.amp import autocast_ctx, resolve_amp
+    from pedpredict.utils.device import get_device
 
     run_dir = checkpoint.resolve().parent.parent
     cfg = merge_eval_config(load_config("configs", list(_PIXEL_FREE)), run_dir / "resolved_config.yaml",
                             list(_PIXEL_FREE))
-    model = build_model(cfg, cfg.eval.model_type)
-    load_eval_weights(model, checkpoint, device=torch.device("cpu"))
+    # Replay exactly as dump_onset_predictions.py scored it: same device, same AMP, same batch size — under
+    # fp16 autocast a few windows move by up to ~0.1 in probability between CPU fp32 and the GPU dump.
+    device = get_device()
+    use_amp = resolve_amp(cfg.train.use_amp, device)
+    model = build_model(cfg, cfg.eval.model_type).to(device)
+    load_eval_weights(model, checkpoint, device=device)
     model.eval()
     X = torch.from_numpy(load_dump(exports / ts.EXPORT_FILES["test"])[0]["X"])
     if cfg.pose.input_mean:
@@ -64,13 +70,16 @@ def _deep_reproduction(checkpoint: Path, exports: Path) -> dict[str, float]:
         X = ((X - mean) / std).clamp(-cfg.pose.input_clip, cfg.pose.input_clip)
     probs = []
     with torch.inference_mode():
-        for xb in torch.split(X, 2048):
-            empty = torch.empty(xb.shape[0], xb.shape[1], 0)
-            out = forward_model(model, empty, empty, xb)
-            probs.append(torch.softmax(out["crosses_frame"].float(), dim=1)[:, 1].numpy())
+        for xb in torch.split(X, cfg.eval.batch_size):
+            xb = xb.to(device)
+            empty = torch.empty(xb.shape[0], xb.shape[1], 0, device=device)
+            with autocast_ctx(use_amp, device.type):
+                out = forward_model(model, empty, empty, xb)
+            probs.append(torch.softmax(out["crosses_frame"].float(), dim=1)[:, 1].cpu().numpy())
     p = np.concatenate(probs)
     stored = load_dump(_DIAG / run_dir.name / "onset_test.npz")[0]["p_frame"]
-    return {"run": run_dir.name, "max_abs_diff": float(np.abs(p - stored).max()),
+    return {"run": run_dir.name, "device": device.type, "amp": bool(use_amp),
+            "max_abs_diff": float(np.abs(p - stored).max()),
             "mean_abs_diff": float(np.abs(p - stored).mean()),
             "rank_corr": float(np.corrcoef(np.argsort(np.argsort(p)), np.argsort(np.argsort(stored)))[0, 1])}
 
@@ -87,7 +96,8 @@ def cmd_verify(args) -> int:
         report["deep_reproduction"] = _deep_reproduction(Path(args.checkpoint), args.exports)
     ok = (all(v["ok"] for v in report["label_gate"].values()) and not report["alignment_failures"]
           and len(report["label_gate"]) == len(ts.PINNED_COUNTS)
-          and (not args.checkpoint or report["deep_reproduction"]["max_abs_diff"] < 1e-3))
+          and (not args.checkpoint or (report["deep_reproduction"]["mean_abs_diff"] < 1e-4
+                                       and report["deep_reproduction"]["rank_corr"] > 0.9999)))
     report["gate"] = "PASS" if ok else "FAIL"
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "verify.json").write_text(json.dumps(report, indent=1))
@@ -112,6 +122,12 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_rescore(args) -> int:
+    n = ts.rescore_float64(args.out, args.dst)
+    print(f"[rescore] {n} hazard dumps rewritten in float64 -> {args.dst}")
+    return 0
+
+
 def cmd_report(args) -> int:
     json_path, md_path = write_report(args.out, _DIAG)
     print(md_path.read_text(encoding="utf-8"))
@@ -122,16 +138,17 @@ def cmd_report(args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("verify", "run", "report"):
+    for name in ("verify", "run", "report", "rescore"):
         p = sub.add_parser(name)
         p.add_argument("--out", type=Path, default=_OUT)
-        if name != "report":
+        if name in ("verify", "run"):
             p.add_argument("--exports", type=Path, default=Path("outputs/features/pose58"))
     sub.choices["verify"].add_argument("--checkpoint", default="")
     sub.choices["run"].add_argument("--tags", nargs="*", default=[])
     sub.choices["run"].add_argument("--arms", nargs="*", default=[])
+    sub.choices["rescore"].add_argument("--dst", type=Path, default=Path("outputs/diagnostics/tree_study_f64"))
     args = parser.parse_args(argv)
-    return {"verify": cmd_verify, "run": cmd_run, "report": cmd_report}[args.cmd](args)
+    return {"verify": cmd_verify, "run": cmd_run, "report": cmd_report, "rescore": cmd_rescore}[args.cmd](args)
 
 
 if __name__ == "__main__":

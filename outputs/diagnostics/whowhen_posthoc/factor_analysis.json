@@ -1,0 +1,1040 @@
+{
+ "deep binary (streaming)": {
+  "n_seeds": 3,
+  "dumps": [
+   "outputs\\diagnostics\\20260927_020529_pose_kinematics_c4_r2s_s42\\onset_test.npz",
+   "outputs\\diagnostics\\20260927_064019_pose_kinematics_c4_r2s_s43\\onset_test.npz",
+   "outputs\\diagnostics\\20260927_103113_pose_kinematics_c4_r2s_s44\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.4046800029526832,
+   6.798699777552591e-17
+  ],
+  "auc_hard": [
+   0.7532792392621331,
+   0.008105188934849862
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8080418032036903,
+   0.010193320981476163
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.7341992744167163,
+   0.026046894738782227
+  ],
+  "auc_window_decomposed": [
+   0.7826012633529006,
+   0.009568804138509147
+  ],
+  "auc_window_direct": [
+   0.7826012633529006,
+   0.009568804138509145
+  ],
+  "when_band": [
+   0.613485404036227,
+   0.0064771765027111915
+  ],
+  "when_pooled": [
+   0.7532792392621331,
+   0.008105188934849862
+  ],
+  "when_within": [
+   0.7411493322183146,
+   0.030223536994649115
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "deep hazard (streaming)": {
+  "n_seeds": 3,
+  "dumps": [
+   "outputs\\diagnostics\\20260927_044252_pose_kinematics_c4_r3_s42\\onset_test.npz",
+   "outputs\\diagnostics\\20260927_083144_pose_kinematics_c4_r3_s43\\onset_test.npz",
+   "outputs\\diagnostics\\20260927_122240_pose_kinematics_c4_r3_s44\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.4046800029526832,
+   6.798699777552591e-17
+  ],
+  "auc_hard": [
+   0.7663919571593413,
+   0.009859081350817447
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8193537328245525,
+   0.010264231147695412
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.7073104638927554,
+   0.00928804843849179
+  ],
+  "auc_window_decomposed": [
+   0.7929455039073612,
+   0.009905515998441304
+  ],
+  "auc_window_direct": [
+   0.7929455039073612,
+   0.009905515998441304
+  ],
+  "when_band": [
+   0.6323419038620428,
+   0.0025508286493777857
+  ],
+  "when_pooled": [
+   0.7663919571593413,
+   0.009859081350817447
+  ],
+  "when_within": [
+   0.7712354337056014,
+   0.008140917286187363
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "deep binary (anchored)": {
+  "n_seeds": 3,
+  "dumps": [
+   "outputs\\diagnostics\\20260927_142412_pose_kinematics_c4_r2a_s42\\onset_test.npz",
+   "outputs\\diagnostics\\20260927_143335_pose_kinematics_c4_r2a_s43\\onset_test.npz",
+   "outputs\\diagnostics\\20260927_144045_pose_kinematics_c4_r2a_s44\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.4046800029526832,
+   6.798699777552591e-17
+  ],
+  "auc_hard": [
+   0.41381518959519065,
+   0.01175979065897063
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.6007597339919836,
+   0.01947733564135411
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.3863501845545834,
+   0.07860593191011518
+  ],
+  "auc_window_decomposed": [
+   0.515585439592217,
+   0.010431324685137392
+  ],
+  "auc_window_direct": [
+   0.515585439592217,
+   0.010431324685137392
+  ],
+  "when_band": [
+   0.4624245515280169,
+   0.0332684517496936
+  ],
+  "when_pooled": [
+   0.41381518959519065,
+   0.01175979065897063
+  ],
+  "when_within": [
+   0.47651609658691124,
+   0.03241606878095253
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "tree binary (anchored)": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\tree_study_f64\\A\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\A\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\A\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\A\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\A\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.3556464080693439,
+   0.009690982973036468
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.5489028283826036,
+   0.010580372779746482
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.5512701176923842,
+   0.012824145093424107
+  ],
+  "auc_window_decomposed": [
+   0.47080094706625397,
+   0.00973555215853633
+  ],
+  "auc_window_direct": [
+   0.47080094706625397,
+   0.00973555215853632
+  ],
+  "when_band": [
+   0.4647857660218094,
+   0.004819462056044966
+  ],
+  "when_pooled": [
+   0.3556464080693439,
+   0.009690982973036468
+  ],
+  "when_within": [
+   0.43829181035533205,
+   0.0051968155326648415
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "tree binary (streaming)": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\tree_study_f64\\B\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8048034931743413,
+   0.003367159382761573
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8347822386829131,
+   0.0038441996707693185
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8005461448598131,
+   0.007971290457081191
+  ],
+  "auc_window_decomposed": [
+   0.8211300712162364,
+   0.0034767881692117967
+  ],
+  "auc_window_direct": [
+   0.8211300712162363,
+   0.003476788169211764
+  ],
+  "when_band": [
+   0.6505673265614544,
+   0.0034053233009871246
+  ],
+  "when_pooled": [
+   0.8048034931743413,
+   0.003367159382761573
+  ],
+  "when_within": [
+   0.7917636575636307,
+   0.0017196226373051853
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "tree hazard (streaming)": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\tree_study_f64\\Hz\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\Hz\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\Hz\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\Hz\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\Hz\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.7962487090761367,
+   0.0033597030137917164
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8206925958447331,
+   0.0039821110803108205
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.7166305117816663,
+   0.015213508251602502
+  ],
+  "auc_window_decomposed": [
+   0.8061794175901277,
+   0.003642556199747932
+  ],
+  "auc_window_direct": [
+   0.8061794175901277,
+   0.00364255619974794
+  ],
+  "when_band": [
+   0.6355747701145105,
+   0.006321834906781568
+  ],
+  "when_pooled": [
+   0.7962487090761367,
+   0.0033597030137917164
+  ],
+  "when_within": [
+   0.7635001268314764,
+   0.007197156221932653
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "tree matched size": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\tree_study_f64\\B_matched\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B_matched\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B_matched\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B_matched\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\tree_study_f64\\B_matched\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.7755171963503293,
+   0.006526261702053603
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.7844257518260314,
+   0.015269003265581853
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.733932379697753,
+   0.03512522241919879
+  ],
+  "auc_window_decomposed": [
+   0.7785783099199809,
+   0.008771825694932976
+  ],
+  "auc_window_direct": [
+   0.7785783099199809,
+   0.008771825694932987
+  ],
+  "when_band": [
+   0.6333591852692837,
+   0.009807369993401404
+  ],
+  "when_pooled": [
+   0.7755171963503293,
+   0.006526261702053603
+  ],
+  "when_within": [
+   0.7398311555207566,
+   0.009607626235780917
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: base": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\base\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\base\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\base\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\base\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\base\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8048034931743413,
+   0.003367159382761573
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8347822386829131,
+   0.0038441996707693185
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8005461448598131,
+   0.007971290457081191
+  ],
+  "auc_window_decomposed": [
+   0.8211300712162364,
+   0.0034767881692117967
+  ],
+  "auc_window_direct": [
+   0.8211300712162363,
+   0.003476788169211764
+  ],
+  "when_band": [
+   0.6505673265614544,
+   0.0034053233009871246
+  ],
+  "when_pooled": [
+   0.8048034931743413,
+   0.003367159382761573
+  ],
+  "when_within": [
+   0.7917636575636307,
+   0.0017196226373051853
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: R": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\R\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\R\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\R\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\R\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\R\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8332307106397356,
+   0.003658434359400361
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8489303202855532,
+   0.003609603019309345
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.828891367568105,
+   0.005850977084039742
+  ],
+  "auc_window_decomposed": [
+   0.8416871052597085,
+   0.003590384478536254
+  ],
+  "auc_window_direct": [
+   0.8416871052597086,
+   0.0035903844785362326
+  ],
+  "when_band": [
+   0.6572976268348859,
+   0.006757294251364015
+  ],
+  "when_pooled": [
+   0.8332307106397356,
+   0.003658434359400361
+  ],
+  "when_within": [
+   0.8144688379320201,
+   0.0011827218872159692
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: T": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\T\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\T\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\T\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\T\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\T\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.7962864045643727,
+   0.004890736167098673
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8364529171421043,
+   0.0036268146519754735
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.7969894611254723,
+   0.011030672433838169
+  ],
+  "auc_window_decomposed": [
+   0.818445825506078,
+   0.004120729456910775
+  ],
+  "auc_window_direct": [
+   0.8184458255060783,
+   0.00412072945691078
+  ],
+  "when_band": [
+   0.6404668260639645,
+   0.007020182438584682
+  ],
+  "when_pooled": [
+   0.7962864045643727,
+   0.004890736167098673
+  ],
+  "when_within": [
+   0.7747389421521778,
+   0.008488266361472962
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: S": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\S\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\S\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\S\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\S\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\S\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8287041272400023,
+   0.003210772432304997
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8683481065474659,
+   0.004175705974656856
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8434096925333069,
+   0.009720745265939553
+  ],
+  "auc_window_decomposed": [
+   0.851197506914315,
+   0.0032803153905398446
+  ],
+  "auc_window_direct": [
+   0.851197506914315,
+   0.0032803153905398936
+  ],
+  "when_band": [
+   0.69067248867803,
+   0.007745472150525162
+  ],
+  "when_pooled": [
+   0.8287041272400023,
+   0.003210772432304997
+  ],
+  "when_within": [
+   0.8234289584619265,
+   0.006068499720308092
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: RTS": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\RTS\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8449070091582715,
+   0.004730939444618102
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8826766073634321,
+   0.002800249383676717
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8607390572181348,
+   0.003745937269932109
+  ],
+  "auc_window_decomposed": [
+   0.8664177957115726,
+   0.0035877155682024326
+  ],
+  "auc_window_direct": [
+   0.8664177957115726,
+   0.003587715568202388
+  ],
+  "when_band": [
+   0.6922723889294067,
+   0.002904729877424249
+  ],
+  "when_pooled": [
+   0.8449070091582715,
+   0.004730939444618102
+  ],
+  "when_within": [
+   0.8321164150263058,
+   0.003924380686743325
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: H": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\H\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\H\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\H\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\H\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\H\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.7924775083473208,
+   0.0042438597819986126
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8828941445277163,
+   0.0019193679858143676
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8110485434480015,
+   0.010208804870734355
+  ],
+  "auc_window_decomposed": [
+   0.8431137948947555,
+   0.0024297755994195534
+  ],
+  "auc_window_direct": [
+   0.8431137948947555,
+   0.0024297755994195746
+  ],
+  "when_band": [
+   0.6507516234213777,
+   0.007301926061184759
+  ],
+  "when_pooled": [
+   0.7924775083473208,
+   0.0042438597819986126
+  ],
+  "when_within": [
+   0.7895073148359446,
+   0.0028465432485335253
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: E": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\E\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\E\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\E\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\E\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\E\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8094169848587288,
+   0.0022067181716828514
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8462490695780318,
+   0.0020449264166944254
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8091498993338636,
+   0.009830250583669646
+  ],
+  "auc_window_decomposed": [
+   0.8296963482620907,
+   0.002245021729571802
+  ],
+  "auc_window_direct": [
+   0.8296963482620907,
+   0.0022450217295718207
+  ],
+  "when_band": [
+   0.6557592800054135,
+   0.0062701182454362285
+  ],
+  "when_pooled": [
+   0.8094169848587288,
+   0.0022067181716828514
+  ],
+  "when_within": [
+   0.7932040166935277,
+   0.003988217324854182
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "scene: RTS_HE": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\scene_audit\\RTS_HE\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS_HE\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS_HE\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS_HE\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\scene_audit\\RTS_HE\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8352157978054381,
+   0.0021799107851028783
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.9172671077426134,
+   0.0032666799155345056
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8473346776198051,
+   0.007089945252085613
+  ],
+  "auc_window_decomposed": [
+   0.8809569991355813,
+   0.0027963848320411884
+  ],
+  "auc_window_direct": [
+   0.8809569991355813,
+   0.002796384832041212
+  ],
+  "when_band": [
+   0.6803154612872585,
+   0.0032373431425762205
+  ],
+  "when_pooled": [
+   0.8352157978054381,
+   0.0021799107851028783
+  ],
+  "when_within": [
+   0.8260839467084446,
+   0.004896554084831583
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "waiting: W": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\waiting_audit\\W\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\W\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\W\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\W\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\W\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8106111776532854,
+   0.0011712846652228688
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8428302534654775,
+   0.002902345291543721
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8162854506363095,
+   0.004697715878225222
+  ],
+  "auc_window_decomposed": [
+   0.8286130267141948,
+   0.0014165821030447002
+  ],
+  "auc_window_direct": [
+   0.8286130267141948,
+   0.0014165821030447214
+  ],
+  "when_band": [
+   0.6467099495492514,
+   0.0050493072342312
+  ],
+  "when_pooled": [
+   0.8106111776532854,
+   0.0011712846652228688
+  ],
+  "when_within": [
+   0.7942576849863776,
+   0.005274525145020146
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "waiting: WL": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\waiting_audit\\WL\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\WL\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\WL\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\WL\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\WL\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8131560612306199,
+   0.004999028472842193
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8417445587220234,
+   0.005719074545248848
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8064954513819845,
+   0.013782031131544544
+  ],
+  "auc_window_decomposed": [
+   0.8286100105620516,
+   0.00510325579141362
+  ],
+  "auc_window_direct": [
+   0.8286100105620514,
+   0.005103255791413612
+  ],
+  "when_band": [
+   0.6417453502855868,
+   0.004162287501102707
+  ],
+  "when_pooled": [
+   0.8131560612306199,
+   0.004999028472842193
+  ],
+  "when_within": [
+   0.7919062126010393,
+   0.007910106568054617
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ },
+ "waiting: RTS_WL": {
+  "n_seeds": 5,
+  "dumps": [
+   "outputs\\diagnostics\\waiting_audit\\RTS_WL\\s42\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\RTS_WL\\s43\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\RTS_WL\\s44\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\RTS_WL\\s45\\onset_test.npz",
+   "outputs\\diagnostics\\waiting_audit\\RTS_WL\\s46\\onset_test.npz"
+  ],
+  "w_hard": [
+   0.40468000295268325,
+   0.0
+  ],
+  "auc_hard": [
+   0.8475900867957709,
+   0.003012680667026443
+  ],
+  "w_never": [
+   0.5509116409537167,
+   0.0
+  ],
+  "auc_never": [
+   0.8918725161615424,
+   0.0015351057610302004
+  ],
+  "w_after": [
+   0.04440835609360006,
+   0.0
+  ],
+  "auc_after": [
+   0.8662324144959236,
+   0.003658460518619921
+  ],
+  "auc_window_decomposed": [
+   0.8728136677500071,
+   0.0020582439174277557
+  ],
+  "auc_window_direct": [
+   0.8728136677500071,
+   0.0020582439174277184
+  ],
+  "when_band": [
+   0.6911179113941499,
+   0.0028442907923592817
+  ],
+  "when_pooled": [
+   0.8475900867957709,
+   0.003012680667026443
+  ],
+  "when_within": [
+   0.8307890563701251,
+   0.0023871259705101843
+  ],
+  "n_within": [
+   191.0,
+   0.0
+  ]
+ }
+}

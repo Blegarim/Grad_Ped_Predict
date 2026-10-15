@@ -237,6 +237,23 @@ def _validate_visual_input(root: RootCfg) -> None:
         )
 
 
+def _validate_scene(root: RootCfg) -> None:
+    """``data.scene_features``: a pose-read, pixel-free model only, with a positive width (deep scene arm)."""
+    d = root.data
+    if not d.scene_features:
+        if d.scene_dim != 0:
+            raise ConfigError(f"data.scene_dim={d.scene_dim} needs data.scene_features (a sidecar path)")
+        return
+    if d.scene_dim <= 0:
+        raise ConfigError("data.scene_features is set, so data.scene_dim must be its (positive) encoded width")
+    if not root.pose.enabled or root.eval.model_type not in _PIXEL_FREE_MODEL_TYPES:
+        raise ConfigError(
+            f"data.scene_features is appended to the pose read path, so it needs pose.enabled=true and a pixel-free "
+            f"model type in {sorted(_PIXEL_FREE_MODEL_TYPES)}; got pose.enabled={root.pose.enabled}, "
+            f"eval.model_type={root.eval.model_type!r}"
+        )
+
+
 def _validate_input_standardization(p: PoseCfg) -> None:
     """``pose.input_mean/input_std``: one positive entry per read-path channel, only on a pose build."""
     if p.input_clip <= 0:
@@ -368,11 +385,12 @@ def validate_config(root: RootCfg) -> None:
             f"pose.enabled ({p.enabled}) requires model.motion_norm='none' and vice versa — the pose "
             f"read path normalizes motions itself; got motion_norm={m.motion_norm!r}"
         )
-    if p.enabled and d.motion_dim != MOTION_STORE_DIM + p.feature_dim():
+    _validate_scene(root)
+    if p.enabled and d.motion_dim != MOTION_STORE_DIM + p.feature_dim() + d.scene_dim:
         raise ConfigError(
-            f"pose.enabled: data.motion_dim must be {MOTION_STORE_DIM} + pose feature_dim "
-            f"({MOTION_STORE_DIM} + {p.feature_dim()} = {MOTION_STORE_DIM + p.feature_dim()}); "
-            f"got {d.motion_dim}"
+            f"pose.enabled: data.motion_dim must be {MOTION_STORE_DIM} + pose feature_dim + data.scene_dim "
+            f"({MOTION_STORE_DIM} + {p.feature_dim()} + {d.scene_dim} = "
+            f"{MOTION_STORE_DIM + p.feature_dim() + d.scene_dim}); got {d.motion_dim}"
         )
     if e.model_type.startswith("pose_") and not p.enabled:
         raise ConfigError(f"eval.model_type={e.model_type!r} requires pose.enabled=true")
@@ -723,11 +741,13 @@ def load_resolved_config(path: str | Path, *, validate: bool = False) -> RootCfg
 #: Architecture fields eval must inherit from the checkpoint's ``resolved_config.yaml`` so the model it
 #: builds matches the saved weights' param layout. ``model`` (backbone/dims/norm/freeze), ``pose`` (read-
 #: path shape), ``eval.model_type`` (which architecture to build) and ``data.motion_dim`` (must equal
-#: ``model.motion_dim``) are intrinsic to the trained model; everything else (paths, protocol, batch_size,
+#: ``model.motion_dim``) are intrinsic to the trained model, as are ``data.scene_features/scene_dim`` (the scene
+#: block is part of the input width); everything else (paths, protocol, batch_size,
 #: workers, seed) is a runtime choice that stays with the caller's config. Explicit CLI ``--set`` wins over
 #: both (re-applied last), so a deliberate architecture override is still possible.
 _EVAL_ARCH_SECTIONS: tuple[str, ...] = ("model", "pose")
-_EVAL_ARCH_FIELDS: tuple[tuple[str, str], ...] = (("eval", "model_type"), ("data", "motion_dim"))
+_EVAL_ARCH_FIELDS: tuple[tuple[str, str], ...] = (
+    ("eval", "model_type"), ("data", "motion_dim"), ("data", "scene_features"), ("data", "scene_dim"))
 
 
 def merge_eval_config(

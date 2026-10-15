@@ -34,6 +34,7 @@ from torchvision import transforms
 
 from pedpredict.config.schema import DataCfg
 from pedpredict.data.pie_sequences import ONSET_FIELDS
+from pedpredict.data.scene_lookup import open_scene_lookup
 from pedpredict.data.transforms import (
     ProcessedSample,
     build_read_transforms,
@@ -114,6 +115,7 @@ class LMDBChunkDataset(Dataset):
         features: ChunkFeatures | None = None,
         feature_augmentor: CachedFeatureAugmentor | None = None,
         decode_images: bool = True,
+        scene_features: str = "",
     ) -> None:
         if not decode_images and augmentor is not None and not hasattr(augmentor, "kinematics"):
             raise ValueError("LMDBChunkDataset: a pixel-free read (decode_images=False) needs an augmentor with "
@@ -142,6 +144,11 @@ class LMDBChunkDataset(Dataset):
         self._feature_augmentor = feature_augmentor
         # Pixel-free read (data.visual_input=none): no crop is decoded; both image slots come back [T, 0].
         self._decode_images = decode_images
+        # Deep scene arm (data.scene_features): the window's encoded scene, appended to every frame of the pose
+        # motions. Only the path is held — each process loads the sidecar once (data.scene_lookup).
+        if scene_features and pose_transform is None:
+            raise ValueError("LMDBChunkDataset: scene_features extends the pose read path - it needs a pose_transform")
+        self._scene_features = scene_features
         self._env: lmdb.Environment | None = None
         self._pid: int | None = None
 
@@ -184,24 +191,26 @@ class LMDBChunkDataset(Dataset):
         """
         motion_dim = None if pose_transform is not None else cfg.motion_dim
         decode = cfg.visual_input != "none"
+        scene = cfg.scene_features
         if features is not None:
             transform_tight, transform_context = build_read_transforms(cfg)   # unused: nothing is decoded
             return cls(
                 lmdb_path, transform_tight, transform_context, motion_dim=motion_dim, aug_seed=aug_seed,
                 pose_transform=pose_transform, features=features, feature_augmentor=feature_augmentor,
+                scene_features=scene,
             )
         if augmentor is None:
             transform_tight, transform_context = build_read_transforms(cfg)
             return cls(
                 lmdb_path, transform_tight, transform_context, motion_dim=motion_dim,
-                pose_transform=pose_transform, decode_images=decode,
+                pose_transform=pose_transform, decode_images=decode, scene_features=scene,
             )
         transform_tight = resize_to_tensor((cfg.img_height, cfg.img_width))
         transform_context = resize_to_tensor((cfg.read_context_height, cfg.read_context_width))
         return cls(
             lmdb_path, transform_tight, transform_context, motion_dim=motion_dim,
             augmentor=augmentor, aug_seed=aug_seed, normalize=imagenet_normalize(cfg),
-            pose_transform=pose_transform, decode_images=decode,
+            pose_transform=pose_transform, decode_images=decode, scene_features=scene,
         )
 
     def __getstate__(self) -> dict:
@@ -217,7 +226,7 @@ class LMDBChunkDataset(Dataset):
         that reopens a chunk for writing must see
         every reader closed first. Explicit beats relying on ``__del__`` and GC timing.
         """
-        if self._env is not None:
+        if getattr(self, "_env", None) is not None:   # getattr: __init__ may have raised before _env existed
             self._env.close()
             self._env = None
             self._pid = None
@@ -306,6 +315,9 @@ class LMDBChunkDataset(Dataset):
             pose = ps.pose
         if self._pose_transform is not None:
             motions = self._pose_transform(pose, motions)
+        # getattr: an instance pickled by a pre-scene parent has no _scene_features (no scene).
+        if getattr(self, "_scene_features", ""):
+            motions = self._append_scene(motions, meta, track_id)
 
         sample: dict[str, Tensor | str | int] = {
             "images_tight": tight,
@@ -325,6 +337,21 @@ class LMDBChunkDataset(Dataset):
             if key in meta:
                 sample[key] = torch.as_tensor(meta[key], dtype=torch.long)
         return sample
+
+    def _append_scene(self, motions: Tensor, meta: dict, track_id: str) -> Tensor:
+        """``[T, D]`` -> ``[T, D + scene width]``: the window's scene row, the same on every frame.
+
+        The row is found from the STORED meta (key + last-frame box centre), never the augmented motions; the
+        scene features are flip-invariant, so a flipped draw keeps its window's scene.
+        """
+        if any(meta.get(k) is None for k in ("future_observed", "onset_offset")):
+            raise ValueError(f"[LMDBChunkDataset] data.scene_features needs S1 onset fields; {self.lmdb_path} "
+                             f"has a window without them")
+        raw = meta["motions"]
+        vec = open_scene_lookup(self._scene_features).vector(
+            track_id, meta["future_observed"], meta["onset_offset"], float(raw[-1][0]), float(raw[-1][1]))
+        motions = torch.as_tensor(motions, dtype=torch.float32)
+        return torch.cat([motions, vec.to(motions.dtype).expand(motions.shape[0], -1)], dim=1)
 
     def _decode_frames(self, txn: lmdb.Transaction, seq_id: str, t_frames: int) -> tuple[Tensor, Tensor]:
         """Decode + transform every stored tight/context crop of one window (the image path)."""

@@ -50,6 +50,10 @@ protocol: streaming
 # (frozen-backbone features from paths.feature_cache_dir; needs model.vit_frozen_eval=true).
 # | none (decode no crop at all — pixel-free model types only; eval does NOT inherit it, pass it).
 visual_input: images
+# Deep scene arm: a sidecar from scripts/build_scene_sidecar.py, appended to every frame of the pose motions
+# ("" = off). When set, data.motion_dim = model.motion_dim = 58 + scene_dim. Eval inherits both from the checkpoint.
+scene_features: ""
+scene_dim: 0
 # PIE source opts (generate_data_trajectory_sequence) — mirror the OLD data_opts literals.
 # ⚠️ Under seq_type=all, PIE's `_get_all` reads ONLY `data_split_type` and `seq_type`. It applies no
 # min_track_size, no fstride, no height_rng and no squarify_ratio — it returns every behaviour-annotated

@@ -1,0 +1,144 @@
+{
+ "bins": [
+  "1.07-2s",
+  "2-3s",
+  "3-5s",
+  "5-10s",
+  ">=10s"
+ ],
+ "arms": {
+  "trees, pedestrian only": {
+   "n_seeds": 5,
+   "mean": [
+    0.6031437392851193,
+    0.6839138011410305,
+    0.7701051316284961,
+    0.7755769446302356,
+    0.8545357368584933,
+    0.8048034931743413
+   ],
+   "sd": [
+    0.002493929233206023,
+    0.005080346092156392,
+    0.004876566901823453,
+    0.0035092733478643027,
+    0.0038541483525825716,
+    0.003367159382761573
+   ],
+   "dumps": [
+    "outputs\\diagnostics\\scene_audit\\base\\s42\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\base\\s43\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\base\\s44\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\base\\s45\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\base\\s46\\onset_test.npz"
+   ]
+  },
+  "trees + scene": {
+   "n_seeds": 5,
+   "mean": [
+    0.6352956097875565,
+    0.7340957222456546,
+    0.8052235972749993,
+    0.8088138975758781,
+    0.8974963634589198,
+    0.8449070091582715
+   ],
+   "sd": [
+    0.002669361255853287,
+    0.0037738106569445385,
+    0.005719410313874835,
+    0.0046137032949937215,
+    0.005640415108983159,
+    0.004730939444618102
+   ],
+   "dumps": [
+    "outputs\\diagnostics\\scene_audit\\RTS\\s42\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\RTS\\s43\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\RTS\\s44\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\RTS\\s45\\onset_test.npz",
+    "outputs\\diagnostics\\scene_audit\\RTS\\s46\\onset_test.npz"
+   ]
+  },
+  "neural net, pedestrian only": {
+   "n_seeds": 3,
+   "mean": [
+    0.5707863759563899,
+    0.6419751407788902,
+    0.717295539351614,
+    0.7124159722096688,
+    0.8038939696544395,
+    0.7532792392621331
+   ],
+   "sd": [
+    0.005090427699183656,
+    0.008908402445611262,
+    0.006213617802864002,
+    0.010043298703027934,
+    0.012999452813464742,
+    0.008105188934849862
+   ],
+   "dumps": [
+    "outputs\\diagnostics\\20260927_020529_pose_kinematics_c4_r2s_s42\\onset_test.npz",
+    "outputs\\diagnostics\\20260927_064019_pose_kinematics_c4_r2s_s43\\onset_test.npz",
+    "outputs\\diagnostics\\20260927_103113_pose_kinematics_c4_r2s_s44\\onset_test.npz"
+   ]
+  },
+  "neural net + scene": {
+   "n_seeds": 3,
+   "mean": [
+    0.6115852828370228,
+    0.6791692565542656,
+    0.7275607647803909,
+    0.7266864760148714,
+    0.8530560112527517,
+    0.790720619925307
+   ],
+   "sd": [
+    0.01623009634211037,
+    0.01389127785571286,
+    0.019896385827937277,
+    0.018518529054189603,
+    0.012545077299673824,
+    0.013865916142075663
+   ],
+   "dumps": [
+    "outputs\\diagnostics\\20261009_043707_pose_kinematics_c6_r2s_scene_s42\\onset_test.npz",
+    "outputs\\diagnostics\\20261009_064447_pose_kinematics_c6_r2s_scene_s43\\onset_test.npz",
+    "outputs\\diagnostics\\20261009_084428_pose_kinematics_c6_r2s_scene_s44\\onset_test.npz"
+   ]
+  },
+  "trees, anchored-trained": {
+   "n_seeds": 5,
+   "mean": [
+    0.47151668968630595,
+    0.4575386263236176,
+    0.4720147033651706,
+    0.43822098194110526,
+    0.2861734525530145,
+    0.3556464080693439
+   ],
+   "sd": [
+    0.006123890320519996,
+    0.004528362496543424,
+    0.003618273767581775,
+    0.0049873882117098586,
+    0.014652778218155898,
+    0.009690982973036468
+   ],
+   "dumps": [
+    "outputs\\diagnostics\\tree_study_f64\\A\\s42\\onset_test.npz",
+    "outputs\\diagnostics\\tree_study_f64\\A\\s43\\onset_test.npz",
+    "outputs\\diagnostics\\tree_study_f64\\A\\s44\\onset_test.npz",
+    "outputs\\diagnostics\\tree_study_f64\\A\\s45\\onset_test.npz",
+    "outputs\\diagnostics\\tree_study_f64\\A\\s46\\onset_test.npz"
+   ]
+  }
+ },
+ "share": [
+  0.06344168399547627,
+  0.06143519025208858,
+  0.09959505308087994,
+  0.18861041187844296,
+  0.5869176607931123
+ ]
+}

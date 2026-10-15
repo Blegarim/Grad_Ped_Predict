@@ -16,3 +16,6 @@ figures/*.pdf
 
 # strategic framing notes (paper-writing skill) - not for shared repos
 project_context.md
+
+# local rewrite workbench (section copies + hand rewrites) - not for shared repos
+rewrite_*

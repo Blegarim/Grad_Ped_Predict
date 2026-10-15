@@ -92,6 +92,8 @@ def fmt(e: dict) -> str:
         if pages:
             parts.append(f"pp. {pages}")
         return f"{who}: `{title}', {', '.join(parts)}"
+    if e["kind"] == "book":  # IET book style: Author: 'Title' (Publisher, Year)
+        return f"{who}: `{title}' ({e.get('publisher', '')}, {year})"
     venue = e.get("booktitle", "")
     tail = ", ".join(p for p in [venue, year, f"pp. {pages}" if pages else ""] if p)
     return f"{who}: `{title}'. {tail}"

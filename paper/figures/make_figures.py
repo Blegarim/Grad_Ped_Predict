@@ -69,6 +69,7 @@ plt.rcParams.update(
         "xtick.major.width": 0.6,
         "ytick.major.width": 0.6,
         "figure.dpi": 300,
+        "pdf.fonttype": 42,  # TrueType, not Type 3: some submission checkers reject Type 3 fonts
     }
 )
 
@@ -86,7 +87,8 @@ def fig_protocols() -> None:
                      "top": 0.88, "bottom": 0.19},
     )
 
-    track_end, onset = 100.0, 76.0
+    track_end, onset = 104.0, 70.0
+    cross_end = 80.0        # the crossing itself lasts onset..cross_end
     horizon = 11.0          # reported horizon H, in track units
     win_w, step = 8.5, 5.5  # window length and stride (drawn separated)
 
@@ -112,13 +114,13 @@ def fig_protocols() -> None:
     ax_a.annotate("", xy=(onset, BAR_Y - 0.24), xytext=(w_lo + win_w, BAR_Y - 0.24),
                   arrowprops=dict(arrowstyle="<->", color=C_INK, lw=0.65,
                                   shrinkA=0, shrinkB=0))
-    ax_a.text((onset + w_lo + win_w) / 2, BAR_Y - 0.34, "TTE 1-2 s",
+    ax_a.text((onset + w_lo + win_w) / 2, BAR_Y - 0.34, "1-2 s",
               ha="center", va="top", fontsize=6.5, color=C_INK)
-    ax_a.text(w_lo + win_w / 2, 0.36, "one window per track", ha="center",
-              va="bottom", fontsize=6.5, color=C_POS)
+    ax_a.text(w_lo + win_w / 2, 0.36, r"a few windows, label $C$: who only",
+              ha="center", va="bottom", fontsize=6.5, color=C_POS)
     ax_a.text(w_lo / 2, 0, "never sampled", ha="center", va="center",
               fontsize=6.5, style="italic", color=C_MUTE)
-    ax_a.text((onset + track_end) / 2 + 4, 0, "never sampled", ha="center",
+    ax_a.text((onset + track_end) / 2 + 2, 0, "never sampled", ha="center",
               va="center", fontsize=6.5, style="italic", color=C_MUTE)
 
     # -- (b) streaming ---------------------------------------------------
@@ -127,17 +129,18 @@ def fig_protocols() -> None:
 
     for s in np.arange(0, track_end - win_w + 0.1, step):
         end = s + win_w
-        if end > onset:
-            face, edge = C_ALREADY, "#6f6f6f"       # crossing already underway
+        ls = "-"
+        if s < cross_end and end > onset:
+            face, edge, ls = "white", "#9a9a9a", "--"  # crossing inside the window: discarded
+        elif s >= cross_end:
+            face, edge = C_ALREADY, "#6f6f6f"       # after the crossing: label 0, not at risk
         elif end + horizon >= onset:
             face, edge = C_POS, C_POS               # positive
-        elif end + 3.6 * horizon >= onset:
-            face, edge = C_HARD, "#c1582f"          # hard temporal negative
         else:
-            face, edge = C_NEVER, "#8fa9bf"         # easy negative
+            face, edge = C_HARD, "#c1582f"          # hard temporal negative (crossing beyond H)
         ax_s.add_patch(mpatches.Rectangle(
             (s + 0.35, BAR_Y), win_w - 0.7, BAR_H, facecolor=face,
-            edgecolor=edge, lw=0.6))
+            edgecolor=edge, lw=0.6, ls=ls))
 
     ax_s.annotate("", xy=(onset, BAR_Y - 0.24), xytext=(onset - horizon, BAR_Y - 0.24),
                   arrowprops=dict(arrowstyle="<->", color=C_INK, lw=0.65,
@@ -145,18 +148,27 @@ def fig_protocols() -> None:
     ax_s.text(onset - horizon / 2, BAR_Y - 0.34, "horizon $H$", ha="center",
               va="top", fontsize=6.5, color=C_INK)
 
+    # who x when: the at-risk windows carry both factors; the anchored label carries one.
+    at_risk_end = onset - 0.3
+    ax_s.plot([0.3, at_risk_end], [0.40, 0.40], color=C_INK, lw=0.6)
+    for x in (0.3, at_risk_end):
+        ax_s.plot([x, x], [0.33, 0.40], color=C_INK, lw=0.6)
+    ax_s.text(at_risk_end / 2, 0.45,
+              r"at-risk windows: label $y$ = who ($C$ = 1) $\times$ when (onset within $H$)",
+              ha="center", va="bottom", fontsize=6.5, color=C_INK)
+
     handles = [
         mpatches.Patch(facecolor=C_POS, edgecolor=C_POS,
                        label="positive: onset within $H$"),
         mpatches.Patch(facecolor=C_HARD, edgecolor="#c1582f",
-                       label="hard temporal negative"),
-        mpatches.Patch(facecolor=C_NEVER, edgecolor="#8fa9bf",
-                       label="easy negative"),
+                       label="hard temporal negative: onset beyond $H$"),
+        mpatches.Patch(facecolor="white", edgecolor="#9a9a9a", ls="--",
+                       label="crossing in window (discarded)"),
         mpatches.Patch(facecolor=C_ALREADY, edgecolor="#6f6f6f",
-                       label="already crossing (discarded)"),
+                       label="already crossed (label 0)"),
     ]
     ax_s.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.16),
-                ncol=4, frameon=False, handlelength=1.0, columnspacing=1.4,
+                ncol=4, frameon=False, handlelength=1.0, columnspacing=1.2,
                 handletextpad=0.4)
 
     fig.savefig("fig1_protocols.pdf")
@@ -248,11 +260,11 @@ def fig_hazard_cases() -> None:
     cases = [
         ("event in range", "onset lands in bin 4",
          [0, 0, 0, 0, 1, None, None, None, None], False),
-        ("event beyond range", "crossing seen, past the head",
+        ("event beyond range", "crossing seen beyond the last bin",
          [0] * k, False),
         ("censored", "footage ends after bin 3",
          [0, 0, 0, 0, None, None, None, None, None], False),
-        ("already crossed", "not at risk of a first crossing",
+        ("already crossed", "after the last crossing",
          [None] * k, True),
     ]
 
@@ -279,7 +291,7 @@ def fig_hazard_cases() -> None:
                     color=tc)
         if dropped:
             ax.plot([-0.15, k - 0.05], [0, 0], color=C_MUTE, lw=0.8)
-            ax.text(k + 0.25, 0, "window\ndiscarded", ha="left", va="center",
+            ax.text(k + 0.25, 0, "window\nremoved", ha="left", va="center",
                     fontsize=5.8, color=C_MUTE, linespacing=1.15)
         ax.text(-0.7, 0.16, name, ha="right", va="center", fontsize=7,
                 color=C_INK)
@@ -296,9 +308,62 @@ def fig_hazard_cases() -> None:
     plt.close(fig)
 
 
+SEP_BINS = ["0-1s", "1-2s", "2-3s", "3-5s", "5-10s", ">=10s"]
+SEP_LABELS = ["0-1", "1-2", "2-3", "3-5", "5-10", r"$\geq$10"]
+
+
+def _sep_tree(path: str, arm: str) -> list[float]:
+    """Separability means of a tree-style arm (tree study, scene audit)."""
+    import json
+
+    from make_tables import SOURCES
+
+    sep = json.loads(SOURCES[path].read_text())["arms"][arm]["separability"]
+    return [sep[b][0] for b in SEP_BINS]
+
+
+def _sep_deep(arm: str) -> list[float]:
+    """Separability of a deep arm: mean over its seeds (v4 per-seed records)."""
+    import json
+
+    from make_tables import SOURCES
+
+    recs = json.loads(SOURCES["v4"].read_text())["arms"][arm]
+    return [float(np.mean([r["separability"][b]["auc"] for r in recs])) for b in SEP_BINS]
+
+
+def fig_separability() -> None:
+    """Fig. -- how well each model tells a future crosser's window from a never-crosser's, by time to onset."""
+    lines = [
+        ("trees, pedestrian only", _sep_tree("scene", "base"), "#4d4d4d", "-", "o"),
+        ("trees, + scene (all three)", _sep_tree("scene", "RTS"), "#2166ac", "-", "s"),
+        ("trees, + scene + oracles", _sep_tree("scene", "RTS_HE"), "#762a83", "-", "^"),
+        ("neural net, streaming", _sep_deep("R2 binary"), "#e08214", "-", "D"),
+        ("trees, anchored-trained", _sep_tree("tree", "A"), "#4d4d4d", (0, (3, 2)), "o"),
+        ("neural net, anchored-trained", _sep_deep("R2 anchored-trained"), "#e08214", (0, (3, 2)), "D"),
+    ]
+    fig, ax = plt.subplots(figsize=(COL_W, 2.25))
+    x = np.arange(len(SEP_BINS))
+    ax.axhline(0.5, color=C_MUTE, lw=0.6, ls=":")
+    ax.text(-0.15, 0.505, "chance", fontsize=6, color=C_MUTE, ha="left", va="bottom")
+    for label, ys, colour, ls, marker in lines:
+        ax.plot(x, ys, color=colour, ls=ls, lw=1.0, marker=marker, ms=2.6, label=label,
+                mfc="white" if ls != "-" else colour)
+    ax.set_xticks(x)
+    ax.set_xticklabels(SEP_LABELS)
+    ax.set_xlabel("time remaining until crossing onset (s)")
+    ax.set_ylabel("AUC against never-crossers")
+    ax.set_ylim(0.42, 0.96)
+    ax.legend(loc="upper right", frameon=False, fontsize=5.8, handlelength=2.2, ncol=1,
+              borderaxespad=0.1, labelspacing=0.25)
+    fig.tight_layout(pad=0.3)
+    fig.savefig("fig5_separability.pdf")
+    plt.close(fig)
+
+
 def main() -> None:
     plt.rcParams["text.usetex"] = False
-    for fn in (fig_protocols, fig_composition, fig_time_to_onset, fig_hazard_cases):
+    for fn in (fig_protocols, fig_hazard_cases, fig_separability):
         fn()
         print(f"wrote {fn.__name__}")
 

@@ -102,6 +102,13 @@ class DataCfg:
     # only (kinematics_only, pose_kinematics), which ignore pixels anyway; JPEG decode is the training
     # bottleneck, so this is what makes a pixel-free run fast. NOT inherited by eval: pass it explicitly.
     visual_input: str = "images"
+    # Scene context for the deep net (deep scene arm, outputs/diagnostics/deep_scene/PREREG.md): path to a sidecar
+    # built by scripts/build_scene_sidecar.py from the scene audit's per-window features, already encoded for a
+    # network (standardized, categories one-hot, missing -> 0 + flag). "" = off. When set, the read path appends
+    # the window's scene_dim-wide vector to every frame of the pose motions, so data.motion_dim and
+    # model.motion_dim become 58 + scene_dim. Intrinsic to a trained model: eval inherits both fields.
+    scene_features: str = ""
+    scene_dim: int = 0
     # PIE source opts (generate_data_trajectory_sequence)
     min_track_size: int = 10
     fstride: int = 1

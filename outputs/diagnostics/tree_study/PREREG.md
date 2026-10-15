@@ -165,3 +165,29 @@ w = 4 / 8 / 16 so each horizon spans 8–10 bins.
 - A new arm or contrast added after any result is labelled post hoc.
 - No selection ever reads the test split.
 - Restarts resume finished seeds and never refit them.
+
+## Amendment 1 (2026-10-05 02:3x UTC, research PC; before any tree-study fit or number)
+
+Gate 3 (deep replay) failed as written: replaying `c4_r2s_s42` on CPU in fp32 gave max abs diff 0.118, mean
+0.0004, rank correlation 0.9995 against its stored dump. The stored dumps were scored on the GPU under fp16 autocast
+(AMP) by `dump_onset_predictions.py`. Replaying the same way (GPU, AMP, `eval.batch_size`) gave max 0.0020, mean
+1.8e-6, rank correlation 0.9999986. The leftover maximum is fp16 noise from different batch boundaries (the dump
+batches per chunk). The 1e-3 max threshold had not allowed for fp16.
+
+**Amended gate 3:** replay under the dump's own device and AMP setting. Pass if the mean abs diff is < 1e-4 and the
+rank correlation is > 0.9999; the max is reported. An input mismatch (for example wrong standardization) moves the
+mean by orders of magnitude more. Gates 1, 2 and every other rule are unchanged. Gates 1–2 passed (counts exact,
+23 dumps aligned). Probe refit: 2 of 3 seeds within tolerance; seed 42 is 4.9 points below its stored value at 205/hr
+(informative only).
+
+## Amendment 2 (2026-10-06, AFTER the results; a bug fix, disclosed as such)
+
+The as-registered report (`tree_study/report.md`) stored the hazard readout as float32. Confident windows have
+readout 1 - e^{-S} with S up to ~35, which float32 rounds to exactly 1.0. In Hz, Hz_no_ego and Hz_f0.5, 41–127
+never-crosser windows tied at 1.0, more than the 42 alarms allowed at 41/hr, so the hard budget rule could place no
+threshold and those arms detected 0% at 41/hr (and less at 95/hr). Every other hazard arm had at most 2 such ties.
+Fix: the readout is recomputed in float64 from the stored hazard logits (`run_tree_study.py rescore` ->
+`tree_study_f64/`). The models, logits and every rule are unchanged; float64 leaves zero ties. **Both reports are
+kept and both verdicts are reported.** The one verdict that changes is Q1 (Hz - B, `per_window`): "B better" as
+registered, "inconclusive" after the fix. In the fix, B is ahead by 3.5–5.7 points at every budget, with the
+interval excluding zero at 1200 and 460 only. Q3b moves from "B_no_ego better" to "inconclusive" for the same reason.

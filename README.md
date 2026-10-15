@@ -60,12 +60,14 @@ src/pedpredict/        # installable package (pip install -e .)
             feature_cache                                # recipe v2: cached frozen-backbone features
             reshuffle                                    # global shuffle-rewrite of the train chunks
             input_stats                                  # pose-arm read-path mean/std (pose.input_stats)
+            scene_lookup                                 # deep scene arm: encoded scene per window (data.scene_features)
   models/   vit timm_backbone geometry motion_encoder cross_attention ensemble ablations heads registry
   losses/   multitask onset
   training/ trainer chunk_loader callbacks schedule metrics distribution
   eval/     evaluate benchmark inference onset_timing detection_curve
             paired_bootstrap                             # paired pedestrian bootstrap of detection-rate gaps
             window_features tree_study tree_study_report # LMDB-free window export + the pre-registered tree study
+            scene_features                               # PIE scene / behaviour annotations per window (audits)
   baselines/ tree                                       # boosted trees on window summaries: binary | hazard
   viz/      plots qualitative
   export/   onnx.py
@@ -164,6 +166,12 @@ python scripts/export_window_features.py --lmdb preprocessed_test --out outputs/
 python scripts/run_tree_study.py verify|run|report --exports outputs/features/pose58
                                                  # the pre-registered tree study (outputs/diagnostics/
                                                  # tree_study/PREREG.md): gates, fits, verdicts; CPU only
+python scripts/run_scene_audit.py features|run|report  # which information moves who / when (PIE scene
+                                                 # annotations; research PC); run_waiting_audit.py likewise
+                                                 # for standing / looking history
+python scripts/build_scene_sidecar.py build|check|same-dump  # the deep scene arm's input: the audit's scene
+                                                 # features encoded for a network (outputs/diagnostics/
+                                                 # deep_scene/PREREG.md); check = every window resolves
 python scripts/check_run_config.py --reference <run>/resolved_config.yaml --allow train.seed <--set flags>
                                                  # refuse a run whose config differs from the reference by
                                                  # anything but its intended flags (before or after training)

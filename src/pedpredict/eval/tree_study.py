@@ -45,7 +45,7 @@ from pedpredict.eval.onset_timing import hazard_horizon_prob, load_dump, save_du
 __all__ = [
     "EXPORT_FILES", "SEEDS", "CURVE_SEEDS", "ArmSpec", "ARMS", "SplitData", "Fit", "load_split", "load_exports",
     "concat", "fit_arm_seed", "score_split", "run_arm", "run_arms", "score_key", "label_gate", "PINNED_COUNTS",
-    "probe_reproduction",
+    "probe_reproduction", "rescore_float64",
 ]
 
 #: Export file per split (``outputs/features/pose58/`` by default).
@@ -135,18 +135,34 @@ class SplitData:
     features: np.ndarray
     n_channels: int
     labels: dict[str, np.ndarray]
+    extra: dict[str, np.ndarray] = field(default_factory=dict)   # named groups of appended columns
 
     def __len__(self) -> int:
         return len(self.features)
 
     def columns(self, cues: str) -> np.ndarray:
-        """Feature columns of a channel group (summary block ``s`` of channel ``c`` is column ``s * C + c``)."""
-        chans = cue_groups(self.n_channels)[cues]
-        return np.asarray([s * self.n_channels + c for s in range(len(SUMMARY_STATS)) for c in chans])
+        """Feature columns of ``"<channel group>[+<extra group>...]"`` (summary block ``s`` of channel ``c`` is
+        column ``s * C + c``; extra groups are the appended columns registered by :meth:`with_groups`)."""
+        base, *groups = cues.split("+")
+        chans = cue_groups(self.n_channels)[base]
+        cols = [s * self.n_channels + c for s in range(len(SUMMARY_STATS)) for c in chans]
+        for g in groups:
+            cols += self.extra[g].tolist()
+        return np.asarray(cols)
 
     def take(self, index: np.ndarray) -> SplitData:
         labels = {k: v[index] for k, v in self.labels.items()}
-        return SplitData(self.name, self.features[index], self.n_channels, labels)
+        return SplitData(self.name, self.features[index], self.n_channels, labels, self.extra)
+
+    def with_groups(self, groups: Mapping[str, np.ndarray]) -> SplitData:
+        """Append ``{group: [N, k] array}`` as extra feature columns, addressable as ``"all+<group>"``."""
+        extra, blocks, start = dict(self.extra), [self.features], self.features.shape[1]
+        for name, block in groups.items():
+            block = np.asarray(block, dtype=np.float32).reshape(len(self), -1)
+            extra[name] = np.arange(start, start + block.shape[1])
+            blocks.append(block)
+            start += block.shape[1]
+        return SplitData(self.name, np.concatenate(blocks, axis=1), self.n_channels, self.labels, extra)
 
 
 def load_split(name: str, path: str | Path) -> SplitData:
@@ -167,7 +183,8 @@ def concat(parts: Sequence[SplitData]) -> SplitData:
     """Row-concatenate splits on the label keys they all carry."""
     keys = set.intersection(*(set(p.labels) for p in parts))
     return SplitData("+".join(p.name for p in parts), np.concatenate([p.features for p in parts]),
-                     parts[0].n_channels, {k: np.concatenate([p.labels[k] for p in parts]) for k in sorted(keys)})
+                     parts[0].n_channels, {k: np.concatenate([p.labels[k] for p in parts]) for k in sorted(keys)},
+                     parts[0].extra)
 
 
 def label_gate(data: Mapping[str, SplitData]) -> dict[str, dict[str, int | bool]]:
@@ -270,8 +287,9 @@ def score_split(fit: Fit, spec: ArmSpec, split: SplitData) -> dict[str, np.ndarr
     if spec.objective == "binary":
         return {"p_frame": fit.model.predict_proba(feats.astype(np.float64))[:, 1].astype(np.float32)}
     logits = hazard_logits(fit.model, feats, spec.onset_spec.num_bins)
-    readout = hazard_horizon_prob(logits, spec.onset_spec.horizon_bins).astype(np.float32)
-    return {"p_readout": readout, "hazard_logits": logits}
+    # float64 on purpose: a confident window's readout is 1 - e^{-S} with S up to ~35, which float32 rounds to
+    # exactly 1.0 — ties that erase the ranking at the tightest alarm budgets (found 2026-10-06; rescore_float64).
+    return {"p_readout": hazard_horizon_prob(logits, spec.onset_spec.horizon_bins), "hazard_logits": logits}
 
 
 def _write_fit(fit: Fit, spec: ArmSpec, seed: int, data: Mapping[str, SplitData], seed_dir: Path) -> None:
@@ -368,3 +386,31 @@ def probe_reproduction(data: Mapping[str, SplitData], probe_dir: Path,
             row["reproduces"] = abs(row["auc"] - row["stored_auc"]) <= 0.01 and abs(rates[0] - old[0]) <= 0.03
         rows.append(row)
     return rows
+
+
+def rescore_float64(src: Path, dst: Path) -> int:
+    """Copy a tree-study directory, recomputing every hazard dump's ``p_readout`` in float64 from its stored
+    hazard logits. Fixes the float32 saturation of the first run (2026-10-05): models and logits unchanged,
+    only the stored readout's precision. Binary dumps and fit/arm records are copied byte for byte."""
+    import shutil
+
+    rewritten = 0
+    for spec in ARMS:
+        if (src / spec.name / "arm.json").exists():
+            (dst / spec.name).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src / spec.name / "arm.json", dst / spec.name / "arm.json")
+        for seed in spec.seeds:
+            seed_src, seed_dst = src / spec.name / f"s{seed}", dst / spec.name / f"s{seed}"
+            if not (seed_src / "fit.json").exists():
+                continue
+            seed_dst.mkdir(parents=True, exist_ok=True)
+            for path in sorted(seed_src.iterdir()):
+                if spec.objective == "hazard" and path.suffix == ".npz":
+                    arrays, meta = load_dump(path)
+                    arrays["p_readout"] = hazard_horizon_prob(arrays["hazard_logits"], spec.onset_spec.horizon_bins)
+                    save_dump(seed_dst / path.name, arrays, {**meta, "rescored": "float64 readout (2026-10-06)"})
+                    rewritten += 1
+                elif path.name != "fit.json":
+                    shutil.copy2(path, seed_dst / path.name)
+            shutil.copy2(seed_src / "fit.json", seed_dst / "fit.json")   # last = the done marker
+    return rewritten

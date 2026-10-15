@@ -1,0 +1,8 @@
+{
+ "weighting": "none",
+ "selection_seed": 42,
+ "val_auc": {
+  "none": 0.8676358504741213,
+  "balanced": 0.8491512111921053
+ }
+}

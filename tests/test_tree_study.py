@@ -155,3 +155,26 @@ def test_intent_timing_on_a_constructed_case() -> None:
               "track_id": np.array(["a", "a", "a", "b", "b", "c"])}
     out = intent_timing(arrays, np.array([0.6, 0.9, 0.0, 0.1, 0.2, 0.3]))
     assert out["who"] == 1.0 and out["when"] == 1.0
+
+
+def test_hazard_readout_keeps_float64_so_confident_windows_do_not_tie(fitted, tmp_path) -> None:
+    out, _ = fitted
+    hz = load_dump(out / "Hz" / "s42" / "onset_test.npz")[0]
+    assert hz["p_readout"].dtype == np.float64
+    big = np.full((3, 24), 3.5)
+    big[1, :8] += 0.5
+    big[2, :8] += 1.0
+    from pedpredict.eval.onset_timing import hazard_horizon_prob
+    p = hazard_horizon_prob(big, 8)
+    assert len(np.unique(p)) == 3 and len(np.unique(p.astype(np.float32))) < 3   # the float32 failure, pinned
+
+
+def test_rescore_rewrites_only_hazard_readouts(fitted, tmp_path) -> None:
+    out, _ = fitted
+    n = ts.rescore_float64(out, tmp_path / "f64")
+    assert n > 0
+    b_old = load_dump(out / "B" / "s42" / "onset_test.npz")[0]
+    b_new = load_dump(tmp_path / "f64" / "B" / "s42" / "onset_test.npz")[0]
+    np.testing.assert_array_equal(b_old["p_frame"], b_new["p_frame"])
+    hz_new, meta = load_dump(tmp_path / "f64" / "Hz" / "s42" / "onset_test.npz")
+    assert meta["rescored"].startswith("float64") and (tmp_path / "f64" / "Hz" / "s42" / "fit.json").exists()
